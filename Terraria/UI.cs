@@ -398,6 +398,13 @@ public sealed class UI
 	/// </summary>
 	public bool CursorOverInterface => InventoryMode > 0 || CurMenuType != MenuType.NONE;
 
+	/// <summary>
+	/// True while the mouse is the active pointing device. Screens use it to suppress the
+	/// console selection cursor: drawing both leaves a sprite "stuck" on one menu row while
+	/// the real pointer moves elsewhere.
+	/// </summary>
+	public static bool PointerActive => Terraria.Input.KeyboardMouseInput.Enabled && Terraria.Input.KeyboardMouseInput.CursorOverride;
+
 	// Inventory slot grid, captured while drawing so mouse hit-testing matches the layout.
 	private Rectangle invMouseGrid;
 
@@ -2815,17 +2822,17 @@ public sealed class UI
 		}
 		else if (CurMenuMode == MenuMode.MAP)
 		{
-			if (miniMap.IsThreadDone)
+			// Back (Escape/Tab) always exits, even while the map is still being generated.
+			// Previously the whole block was gated on IsThreadDone, so during generation the
+			// key did nothing and the screen felt impossible to leave.
+			if (IsBackButtonTriggered())
 			{
-				if (IsBackButtonTriggered())
-				{
-					miniMap.DestroyMap();
-					ResumeGame();
-				}
-				else
-				{
-					miniMap.UpdateMap(this);
-				}
+				miniMap.DestroyMap();
+				ResumeGame();
+			}
+			else if (miniMap.IsThreadDone)
+			{
+				miniMap.UpdateMap(this);
 			}
 		}
 		else if (CurMenuMode == MenuMode.CHARACTER_SELECT)
@@ -5364,6 +5371,16 @@ public sealed class UI
 			return;
 		}
 		CurrentUI = this;
+		// Keyboard users need an explicit way out of the inventory: the console build only
+		// exposes "close" through Buttons.B/Y, and neither is reliably reachable from a
+		// keyboard once the inventory is open. Escape and Tab (map) close it here.
+		if (this == MainUI && InventoryMode > 0 && !MessageBox.IsVisible()
+			&& (Terraria.Input.KeyboardMouseInput.KeyPressed(Keys.Escape) || Terraria.Input.KeyboardMouseInput.KeyPressed(Keys.Tab)))
+		{
+			Main.PlaySound(11);
+			CloseInventory();
+			return;
+		}
 		if (CurMenuType == MenuType.NONE)
 		{
 			if (this == MainUI && Terraria.Cheats.CheatState.IsAvailable && Terraria.Input.KeyboardMouseInput.KeyPressed(Keys.F1))
