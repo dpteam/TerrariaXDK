@@ -3592,6 +3592,8 @@ public sealed class UI
 			DrawPlayer(player, new Vector2(x, y3), scale);
 		}
 		DrawControls();
+		// Last, so the pointer is never hidden behind a dialog or menu row.
+		DrawMenuCursor();
 	}
 
 	private void ResumeGame()
@@ -5507,6 +5509,45 @@ public sealed class UI
 			}
 		}
 		return b;
+	}
+
+	/// <summary>
+	/// Draws the pointer while a menu is open. The in-game cursor is skipped whenever
+	/// <see cref="MenuType"/> is not NONE, and the OS cursor is hidden by FNA, so without
+	/// this the menus had no visible pointer at all when driven by the mouse.
+	/// Only shown while the mouse is actually in use, so gamepad players never see it.
+	/// </summary>
+	private void DrawMenuCursor()
+	{
+		if (!Terraria.Input.KeyboardMouseInput.Enabled || !Terraria.Input.KeyboardMouseInput.CursorOverride)
+		{
+			return;
+		}
+		if (cursorTexture == null)
+		{
+			return;
+		}
+		// Frame (0,0) is the plain arrow; the second column is the "pressed" variant.
+		Rectangle value = new Rectangle(0, 0, 16, 16);
+		Vector2 position = new Vector2(MouseX, MouseY);
+		float scale = 1f;
+		// A single 16x16 frame scaled to 2x at 1080p keeps the pointer readable.
+		if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+		{
+			scale = 2f;
+		}
+		else if (Main.ScreenHeightPtr == ScreenHeights.HD)
+		{
+			scale = 1.25f;
+		}
+		// The shipped cursor is a 2x2 grid of 16x16 frames; column 1 is the "held" state.
+		// Guard on the real texture size so a single-frame replacement still works.
+		int pressedFrameX = (cursorTexture.Width >= 32) ? 16 : 0;
+		if (Terraria.Input.KeyboardMouseInput.LeftPressed)
+		{
+			value.X = pressedFrameX;
+		}
+		Main.SpriteBatch.Draw(cursorTexture, position, value, Color.White, 0f, Vector2.Zero, scale, SpriteEffects.None, 0f);
 	}
 
 	private void DrawCursor()
