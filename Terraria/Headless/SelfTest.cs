@@ -47,6 +47,7 @@ internal static class SelfTest
 		RunCheck("tconfig import", CheckTConfigImport);
 		RunCheck("virtual keyboard", CheckVirtualKeyboard);
 		RunCheck("display settings", CheckDisplaySettings);
+		RunCheck("direct connect", CheckDirectConnect);
 		ReportMemory();
 		Console.WriteLine();
 		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
@@ -1460,6 +1461,43 @@ internal static class SelfTest
 			{
 			}
 		}
+	}
+
+	// --- Direct connect -----------------------------------------------------
+
+	/// <summary>
+	/// Manual address entry must reject garbage with a readable message instead of throwing
+	/// or silently doing nothing. Only the parsing paths are exercised: no network needed.
+	/// </summary>
+	private static bool CheckDirectConnect()
+	{
+		string error;
+		if (Netplay.JoinDirect("", out error))
+		{
+			return Fail("empty address was accepted");
+		}
+		if (string.IsNullOrEmpty(error))
+		{
+			return Fail("empty address produced no explanation");
+		}
+		if (Netplay.JoinDirect("host:99999", out error))
+		{
+			return Fail("out-of-range port was accepted");
+		}
+		if (Netplay.JoinDirect("host:abc", out error))
+		{
+			return Fail("non-numeric port was accepted");
+		}
+		// A syntactically valid but unresolvable name must fail cleanly.
+		if (Netplay.JoinDirect("this-host-should-not-exist.invalid:7777", out error))
+		{
+			return Fail("unresolvable host was accepted");
+		}
+		if (string.IsNullOrEmpty(error))
+		{
+			return Fail("unresolvable host produced no explanation");
+		}
+		return true;
 	}
 
 	private static bool Fail(string message)

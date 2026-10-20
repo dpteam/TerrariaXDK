@@ -625,6 +625,67 @@ public sealed class Netplay
 		return added;
 	}
 
+	/// <summary>
+	/// Joins a server given as "host" or "host:port". Resolves the name, registers it as a
+	/// joinable session and reports a readable error instead of hanging on a bad address.
+	/// </summary>
+	public static bool JoinDirect(string address, out string error)
+	{
+		error = null;
+		string host;
+		int port;
+		if (!Terraria.Net.NetworkConfig.TryParseAddress(address, out host, out port))
+		{
+			error = "Use 'host' or 'host:port' (port 1-65535).";
+			return false;
+		}
+		System.Net.IPAddress[] addresses;
+		try
+		{
+			addresses = System.Net.Dns.GetHostAddresses(host);
+		}
+		catch (Exception ex)
+		{
+			error = "Could not resolve '" + host + "': " + ex.Message;
+			return false;
+		}
+		if (addresses.Length == 0)
+		{
+			error = "Could not resolve '" + host + "'.";
+			return false;
+		}
+		System.Net.IPAddress address2 = null;
+		for (int i = 0; i < addresses.Length; i++)
+		{
+			// Prefer IPv4: the transport binds an IPv4 listener.
+			if (addresses[i].AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+			{
+				address2 = addresses[i];
+				break;
+			}
+		}
+		if (address2 == null)
+		{
+			address2 = addresses[0];
+		}
+		AvailableNetworkSession manual = new AvailableNetworkSession(0, host, 0, Terraria.Net.NetworkConfig.MaxPlayers, new NetworkSessionProperties(), new QualityOfService());
+		manual.SessionType = NetworkSessionType.SystemLink;
+		manual.EndPoint = new System.Net.IPEndPoint(address2, port);
+		lock (availableSessions)
+		{
+			for (int j = 0; j < availableSessions.Count; j++)
+			{
+				if (availableSessions[j].AvailableSession.EndPoint.Equals(manual.EndPoint))
+				{
+					return true;
+				}
+			}
+			availableSessions.Add(new JoinableSession(manual));
+		}
+		Program.LogInfo("Netplay", "direct connect queued for " + address);
+		return true;
+	}
+
 	public static void FindSessionsThread()
 	{
 		DiscoverLanSessions();

@@ -97,6 +97,12 @@ public static class WorldSelect
 
 	public static void Update()
 	{
+		// While the on-screen keyboard is open it owns all input; otherwise typing an address
+		// would also re-trigger the shortcut that opened it.
+		if (Terraria.Input.VirtualKeyboard.IsOpen)
+		{
+			return;
+		}
 		if (HandleMouse())
 		{
 			return;
@@ -136,6 +142,11 @@ public static class WorldSelect
 		else if (UI.MainUI.IsButtonTriggered(Buttons.Y))
 		{
 			UI.MainUI.ShowParty();
+		}
+		else if (Terraria.Input.KeyboardMouseInput.KeyPressed(Microsoft.Xna.Framework.Input.Keys.D) || UI.MainUI.IsButtonTriggered(Buttons.RightShoulder))
+		{
+			// Direct connect: reach servers that LAN discovery cannot see.
+			AskForAddress();
 		}
 		else if (cursorX == 0)
 		{
@@ -539,5 +550,31 @@ public static class WorldSelect
 		UI.MainUI.SetMenu(MenuMode.NETPLAY);
 		UI.MainUI.statusText = Lang.MenuText[80];
 		Netplay.StartClient();
+	}
+
+	/// <summary>
+	/// Manual connect: asks for "host" or "host:port" and joins it directly. LAN discovery
+	/// only finds worlds on the same subnet, so this is the way to reach a friend over the
+	/// internet. Typing works with a keyboard or the on-screen keyboard for gamepads.
+	/// </summary>
+	private static void AskForAddress()
+	{
+		Terraria.Input.VirtualKeyboard.Open("Server address (host or host:port)", Terraria.Net.NetworkConfig.JoinAddress, delegate(string text)
+		{
+			if (string.IsNullOrWhiteSpace(text))
+			{
+				return;
+			}
+			string error;
+			if (!Netplay.JoinDirect(text.Trim(), out error))
+			{
+				UI.Error("Connect", error);
+				return;
+			}
+			session = Netplay.availableSessions[Netplay.availableSessions.Count - 1];
+			selectedSession = (byte)(Netplay.availableSessions.Count - 1);
+			cursorX = 1;
+			JoinSession();
+		});
 	}
 }
