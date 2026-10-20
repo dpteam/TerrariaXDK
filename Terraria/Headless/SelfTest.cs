@@ -37,6 +37,7 @@ internal static class SelfTest
 		RunCheck("network config", CheckNetworkConfig);
 		RunCheck("mod loader", CheckModLoader);
 		RunCheck("cheat gating", CheckCheatGating);
+		RunCheck("loading progress", CheckLoadingProgress);
 		ReportMemory();
 		Console.WriteLine();
 		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
@@ -743,6 +744,62 @@ internal static class SelfTest
 	private static string Mb(long bytes)
 	{
 		return (bytes / 1048576.0).ToString("0.0") + " MB";
+	}
+
+	/// <summary>
+	/// The loading bar must actually reach 100%. A pure lerp never does, and "stuck at 99%"
+	/// is the symptom that was reported. Also checks that the sequence is monotonic, so the
+	/// bar never jumps backwards while stages advance.
+	/// </summary>
+	private static bool CheckLoadingProgress()
+	{
+		float[] array = new float[10]
+		{
+			0f, 0.18f, 0.3f, 0.42f, 0.55f, 0.68f, 0.76f, 0.88f, 0.96f, 1f
+		};
+		float num = 0f;
+		int num2 = 0;
+		int num3 = 0;
+		for (int i = 0; i < array.Length; i++)
+		{
+			// Each stage is visible for 30 frames before the next one starts.
+			for (int j = 0; j < 30; j++)
+			{
+				float num4 = LoadingProgress.Step(num, array[i]);
+				if (num4 < num - 0.0001f)
+				{
+					return Fail($"progress went backwards: {num:0.000} -> {num4:0.000}");
+				}
+				if (num4 > 1f + 0.0001f)
+				{
+					return Fail("progress exceeded 1.0");
+				}
+				num = num4;
+				num2++;
+			}
+			if (i == array.Length - 1)
+			{
+				// The final stage must settle exactly on 100% within a couple of seconds.
+				while (num < 1f)
+				{
+					num = LoadingProgress.Step(num, 1f);
+					num3++;
+					if (num3 > 180)
+					{
+						return Fail($"bar never reached 100% (stuck at {num:0.000})");
+					}
+				}
+			}
+		}
+		if (num != 1f)
+		{
+			return Fail("final progress is not exactly 1.0: " + num.ToString("0.0000"));
+		}
+		if (num2 == 0)
+		{
+			return Fail("no frames simulated");
+		}
+		return true;
 	}
 
 	private static bool Fail(string message)
