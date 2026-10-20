@@ -638,6 +638,7 @@ public sealed class Main : Game
 		settings.Set("Input", "KeyboardMouse", "True", "Enables desktop keyboard and mouse support for player one (WASD, space, mouse aim/use).\n; Set to False to get the original gamepad-only behaviour.");
 		settings.Set("Cheats", "Enabled", "True", "Enables the single-player cheat menu (TerrariaXDK addition). Has no effect in multiplayer.");
 		settings.Set("Network", "Port", "7777", "TCP/UDP port used when this game hosts a multiplayer world in-process.");
+		settings.Set("Network", "Password", "", "Password clients must send to join this host.\n; Leave empty to accept anyone.");
 		settings.Set("Network", "JoinAddress", "", "Optional 'host:port' to offer as a one-click join target in the netplay menu.\n; Leave empty to only browse LAN worlds.");
 		settings.Set("Mods", "Enabled", "True", "Loads mods from the Mods folder next to the executable.");
 		settings.Set("Mods", "RequireMatchingMods", "True", "Rejects multiplayer clients whose mod set differs from the host's.");
@@ -665,6 +666,7 @@ public sealed class Main : Game
 		Terraria.Cheats.CheatState.Enabled = settings.Get("Cheats", "Enabled").ToLower().Equals("true");
 		Terraria.Net.NetworkConfig.Port = ParsePort(settings.Get("Network", "Port"), 7777);
 		Terraria.Net.NetworkConfig.JoinAddress = settings.Get("Network", "JoinAddress");
+		Terraria.Net.NetworkConfig.Password = settings.Get("Network", "Password");
 		Terraria.Mods.ModLoader.Enabled = settings.Get("Mods", "Enabled").ToLower().Equals("true");
 		Terraria.Mods.ModLoader.RequireMatchingMods = settings.Get("Mods", "RequireMatchingMods").ToLower().Equals("true");
 		settings.Close();

@@ -595,6 +595,29 @@ internal static class SelfTest
 		{
 			return Fail("ipv6 literal not parsed");
 		}
+		// Password gate: empty means "no password", non-empty must match exactly.
+		string saved = NetworkConfig.Password;
+		try
+		{
+			NetworkConfig.Password = "";
+			if (!TcpPeer.CheckPassword("anything") || !TcpPeer.CheckPassword(null))
+			{
+				return Fail("password gate rejects everyone when no password is set");
+			}
+			NetworkConfig.Password = "s3cret";
+			if (!TcpPeer.CheckPassword("s3cret"))
+			{
+				return Fail("correct password rejected");
+			}
+			if (TcpPeer.CheckPassword("wrong") || TcpPeer.CheckPassword("") || TcpPeer.CheckPassword(null))
+			{
+				return Fail("wrong password accepted");
+			}
+		}
+		finally
+		{
+			NetworkConfig.Password = saved;
+		}
 		return true;
 	}
 

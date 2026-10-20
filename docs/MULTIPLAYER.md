@@ -59,7 +59,7 @@ IPeerTransport
 
 | Opcode | Имя | Payload | Кто шлёт |
 |---|---|---|---|
-| 1 | `Hello` | `int32 protocol`, `string gamertag`, `string modSignature` | клиент → хост |
+| 1 | `Hello` | `int32 protocol`, `string gamertag`, `string modSignature`, `string password` | клиент → хост |
 | 2 | `Welcome` | `int64 assignedId` | хост → клиент |
 | 3 | `Roster` | `int32 count`, затем `(int64 id, string tag)*` | хост → клиент |
 | 4 | `Data` | сырой пакет игры (`NetMessage`) | обе стороны |
@@ -67,14 +67,16 @@ IPeerTransport
 | 6 | `Leave` | `int64 id` | хост → остальные |
 | 7 | `State` | `int32 NetworkSessionState` | хост → клиент |
 | 8 | `RosterRequest` | — | зарезервировано |
+| 9 | `Reject` | `string reason` | хост → клиент |
 
 Строки — `BinaryWriter.Write(string)` (7-bit length prefix + UTF-8).
 
 ### Handshake
 
-1. Клиент подключается, шлёт `Hello` с `ProtocolVersion` и подписью модов.
-2. Хост проверяет версию протокола и подпись (`ModLoader.IsCompatible`).
-   Несовпадение → соединение закрывается, хост получает предупреждение в UI.
+1. Клиент подключается, шлёт `Hello` с `ProtocolVersion`, подписью модов и паролем.
+2. Хост проверяет версию протокола, подпись (`ModLoader.IsCompatible`) и пароль.
+   Несовпадение → кадр `Reject` с причиной, соединение закрывается; клиент показывает
+   «Connection refused: …» и завершает сессию.
 3. Хост выдаёт `Welcome` с id клиента.
 4. Хост шлёт `State` — чтобы поздний подключившийся сразу знал, идёт ли игра.
 5. Хост шлёт `Roster` — кто уже в игре.

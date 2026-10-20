@@ -40,8 +40,11 @@ internal sealed class TcpPeer : IPeerTransport
 
 	private const byte OpRosterRequest = 8;
 
+	/// <summary>Host rejects the connection and explains why (wrong password, mods, version).</summary>
+	private const byte OpReject = 9;
+
 	/// <summary>Bumped whenever the wire format or handshake changes.</summary>
-	public const int ProtocolVersion = 1;
+	public const int ProtocolVersion = 2;
 
 	/// <summary>Same value, exposed to the headless self-test.</summary>
 	public const int ProtocolVersionPublic = ProtocolVersion;
@@ -164,6 +167,7 @@ internal sealed class TcpPeer : IPeerTransport
 			}
 			string gamertag;
 			string signature;
+			string password;
 			int protocol;
 			using (MemoryStream memoryStream = new MemoryStream(frame, 1, frame.Length - 1))
 			{
@@ -171,23 +175,32 @@ internal sealed class TcpPeer : IPeerTransport
 				protocol = binaryReader.ReadInt32();
 				gamertag = binaryReader.ReadString();
 				signature = binaryReader.ReadString();
+				password = (memoryStream.Position < memoryStream.Length) ? binaryReader.ReadString() : "";
 			}
 			if (protocol != ProtocolVersion)
 			{
 				ModLoaderLog("Rejected peer " + gamertag + ": protocol " + protocol);
-				connection.Close();
+				Reject(connection, "Server and client versions differ (protocol " + protocol + " vs " + ProtocolVersion + ").");
 				return;
 			}
 			if (!Terraria.Mods.ModLoader.IsCompatible(signature))
 			{
 				ModLoaderLog("Rejected peer " + gamertag + ": mod signature " + signature + " != " + Terraria.Mods.ModLoader.Signature);
-				connection.Close();
+				Reject(connection, "Mod mismatch: this server runs a different mod set.");
 				_inbox.Enqueue(() => RejectForMods(gamertag));
+				return;
+			}
+			// Password is checked before the peer is registered, so an unauthenticated
+			// connection can never see the roster or receive world data.
+			if (!string.IsNullOrEmpty(NetworkConfig.Password) && !CheckPassword(password))
+			{
+				ModLoaderLog("Rejected peer " + gamertag + ": wrong password");
+				Reject(connection, "Wrong password.");
 				return;
 			}
 			if (RemoteCount() >= NetworkConfig.MaxPlayers)
 			{
-				connection.Close();
+				Reject(connection, "Server is full.");
 				return;
 			}
 			connection.Gamertag = string.IsNullOrEmpty(gamertag) ? "Anonymous" : gamertag;
@@ -211,6 +224,32 @@ internal sealed class TcpPeer : IPeerTransport
 			ModLoaderLog("Peer connection error: " + ex.Message);
 			Disconnect(connection);
 		}
+	}
+
+	/// <summary>
+	/// True when the supplied password matches the configured one. An empty configured
+	/// password means "no password required".
+	/// </summary>
+	internal static bool CheckPassword(string supplied)
+	{
+		if (string.IsNullOrEmpty(NetworkConfig.Password))
+		{
+			return true;
+		}
+		return string.Equals(supplied ?? "", NetworkConfig.Password, StringComparison.Ordinal);
+	}
+
+	/// <summary>Tells the client why it was refused, then closes. Best effort.</summary>
+	private static void Reject(Connection connection, string reason)
+	{
+		try
+		{
+			connection.Send(WireFormat.Frame(OpReject, Encoding.UTF8.GetBytes(reason ?? "")));
+		}
+		catch
+		{
+		}
+		connection.Close();
 	}
 
 	private void ReceiveLoop(Connection connection)
@@ -425,6 +464,7 @@ internal sealed class TcpPeer : IPeerTransport
 		binaryWriter.Write(ProtocolVersion);
 		binaryWriter.Write(gamertag ?? "Terrarian");
 		binaryWriter.Write(Terraria.Mods.ModLoader.Signature);
+		binaryWriter.Write(NetworkConfig.Password ?? "");
 		binaryWriter.Flush();
 		WireFormat.WriteAll(_stream, WireFormat.LengthPrefix(memoryStream.ToArray()));
 	}
@@ -516,6 +556,18 @@ internal sealed class TcpPeer : IPeerTransport
 		{
 			NetworkSessionState state = (NetworkSessionState)BitConverter.ToInt32(frame, 1);
 			_inbox.Enqueue(() => _session.ApplyRemoteSessionState(state));
+			break;
+		}
+		case OpReject:
+		{
+			string reason = Encoding.UTF8.GetString(frame, 1, frame.Length - 1);
+			ModLoaderLog("Host refused the connection: " + reason);
+			string captured = reason;
+			_inbox.Enqueue(delegate
+			{
+				Main.NewText("Connection refused: " + captured, 255, 120, 120);
+				_session.ApplyRemoteSessionState(NetworkSessionState.Ended);
+			});
 			break;
 		}
 		case OpData:

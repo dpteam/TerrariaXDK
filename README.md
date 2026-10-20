@@ -149,6 +149,7 @@ Enabled=True            ; чит-меню доступно только в си�
 
 [Network]
 Port=7777
+Password=               ; пусто = пускать всех
 JoinAddress=            ; "host:port" для быстрого подключения
 
 [Mods]
