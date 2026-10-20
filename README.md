@@ -112,6 +112,9 @@ Copy-Item -Force ..\Settings.ini,..\FAudio.dll,..\FNA3D.dll,..\libtheorafile.dll
 
 Все клавиши переназначаются: **Настройки → Keyboard bindings**. Значения пишутся
 в `Storage/Config/Settings.ini`, секция `[Keys]`; там же их можно править вручную.
+
+Размер окна, полноэкранный режим и внутреннее разрешение (540p / 720p / 1080p) —
+**Настройки → Display**. Окно применяется сразу, внутреннее разрешение — после перезапуска.
 | Колесо | смена предмета в хотбаре |
 | Стрелки | навигация по меню |
 
@@ -133,7 +136,9 @@ PSMode=False
 UnlockAllRecipes=False
 
 [Display]
-ScreenHeight=0          ; 0 = 540p, 1 = 720p, 2 = 1080p
+ScreenHeight=0          ; внутреннее разрешение: 0 = 540p, 1 = 720p, 2 = 1080p
+Width=1280              ; размер окна
+Height=720
 ShowFPS=False
 StartFullscreen=True
 ZoomLevel=0

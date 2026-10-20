@@ -614,6 +614,9 @@ public sealed class UI
 
 	private static Main theGame;
 
+	/// <summary>The game instance, exposed so the display menu can apply window changes.</summary>
+	internal static Main Game => theGame;
+
 	public static byte MouseTextBrightness = 175;
 
 	private static sbyte mouseTextColorChange = 2;
@@ -726,14 +729,15 @@ public sealed class UI
 		new Location(Main.ResolutionWidth / 2, 432)
 	};
 
-	private static readonly Location[] MENU_SETTINGS_COORDS = new Location[6]
+	private static readonly Location[] MENU_SETTINGS_COORDS = new Location[7]
 	{
-		new Location(Main.ResolutionWidth / 2, 250),
-		new Location(Main.ResolutionWidth / 2, 310),
-		new Location(Main.ResolutionWidth / 2, 370),
-		new Location(Main.ResolutionWidth / 2, 430),
-		new Location(Main.ResolutionWidth / 2, 490),
-		new Location(Main.ResolutionWidth / 2, 550)
+		new Location(Main.ResolutionWidth / 2, 210),
+		new Location(Main.ResolutionWidth / 2, 262),
+		new Location(Main.ResolutionWidth / 2, 314),
+		new Location(Main.ResolutionWidth / 2, 366),
+		new Location(Main.ResolutionWidth / 2, 418),
+		new Location(Main.ResolutionWidth / 2, 470),
+		new Location(Main.ResolutionWidth / 2, 522)
 	};
 
 	private string[] menuString = new string[14];
@@ -2010,6 +2014,12 @@ public sealed class UI
 			uiCoords = null;
 			Terraria.Mods.ModMenu.Reset();
 			return;
+		case MenuMode.DISPLAY:
+			uiWidth = 0;
+			uiHeight = 1;
+			uiCoords = null;
+			Terraria.DisplayMenu.Reset();
+			return;
 		case MenuMode.STATUS_SCREEN:
 		case MenuMode.NETPLAY:
 			Progress = 0f;
@@ -2789,6 +2799,14 @@ public sealed class UI
 				SetMenu(MenuMode.SETTINGS);
 			}
 		}
+		else if (CurMenuMode == MenuMode.DISPLAY)
+		{
+			if (Terraria.DisplayMenu.Update())
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.SETTINGS);
+			}
+		}
 		else if (CurMenuMode == MenuMode.CHEATS)
 		{
 			string[] cheatRows = Terraria.Cheats.CheatMenu.BuildRows();
@@ -3238,8 +3256,8 @@ public sealed class UI
 		}
 		else if (CurMenuMode == MenuMode.SETTINGS)
 		{
-			menuSpace = 60;
-			numMenuItems = 6;
+			menuSpace = 52;
+			numMenuItems = 7;
 			if (this == MainUI)
 			{
 				menuString[0] = Lang.MenuText[65];
@@ -3295,7 +3313,15 @@ public sealed class UI
 			menuString[5] = "Mods: " + Terraria.Mods.ModLoader.ModCount + " loaded";
 			MENU_SETTINGS_COORDS[5].X = ViewportHalfWidth;
 			menuHC[5] = 0;
-			if (selectedMenu == 5)
+			menuString[6] = "Display: " + Terraria.DisplaySettings.Width + "x" + Terraria.DisplaySettings.Height;
+			MENU_SETTINGS_COORDS[6].X = ViewportHalfWidth;
+			menuHC[6] = 0;
+			if (selectedMenu == 6)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.DISPLAY);
+			}
+			else if (selectedMenu == 5)
 			{
 				Main.PlaySound(10);
 				SetMenu(MenuMode.MODS);
@@ -3731,6 +3757,10 @@ public sealed class UI
 		else if (CurMenuMode == MenuMode.MODS)
 		{
 			Terraria.Mods.ModMenu.Draw();
+		}
+		else if (CurMenuMode == MenuMode.DISPLAY)
+		{
+			Terraria.DisplayMenu.Draw();
 		}
 		if (Main.HardmodeAlert && CurMenuMode == MenuMode.HARDMODE_UPSELL)
 		{

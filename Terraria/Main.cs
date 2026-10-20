@@ -627,7 +627,9 @@ public sealed class Main : Game
 		settings.Set("Game", "PSMode", "False", "Determines whether the game will run in 'PlayStation 3' mode, rather than 'Xbox 360' mode.\n; This will change the font, controller, D-Pad, and button sprites used in game.");
 		settings.Set("Game", "TouchpadButton", "False", "If you want the game to account for a touchpad button, enable this setting. This will not change the controller labels in-game.\n; This will only function if PSMode is enabled and is akin to the PS4 control scheme.");
 		settings.Set("Game", "UnlockAllRecipes", "False");
-		settings.Set("Display", "ScreenHeight", "0", "This setting will determine the rendering height in pixels, allowing for upscaling from the original 540p.\n; There are 3 options: (0) 540p, (1) 720p, or (2) 1080p.");
+		settings.Set("Display", "ScreenHeight", "0", "Internal render resolution: 0 = 540p, 1 = 720p, 2 = 1080p.\n; Higher values look sharper and cost more.");
+		settings.Set("Display", "Width", "1280", "Window width in pixels.");
+		settings.Set("Display", "Height", "720", "Window height in pixels.");
 		settings.Set("Display", "ShowFPS", "False");
 		settings.Set("Display", "StartFullscreen", "True", "Determines if the game is started in full-screen mode; This will not upscale, but stretch the current resolution to the display's max.\n; You can also toggle full-screen mode in-game by pressing 'F'.");
 		settings.Set("Display", "ZoomLevel", "0", "Sets how zoomed in the camera will be during initial gameplay; This must be a floating-point number between 0 and 1.\n; You can adjust this in-game by pressing '+' or '-', or the trigger buttons when paused.");
@@ -650,6 +652,10 @@ public sealed class Main : Game
 		ScreenMultiplier = 1f;
 		ResolutionHeight = 720;
 		ResolutionWidth = 960;
+		// Display configuration used to be declared in Settings.ini but never read: the game
+		// was hard-wired to the 540p preset and a 640x480 backbuffer.
+		Terraria.DisplaySettings.Load(settings);
+		Terraria.DisplaySettings.ApplyRenderScale();
 		ShowFPS = settings.Get("Display", "ShowFPS").ToLower().Equals("true");
 		StartFullscreen = settings.Get("Display", "StartFullscreen").ToLower().Equals("true");
 		ZoomLevel = Convert.ToSingle(settings.Get("Display", "ZoomLevel"));
@@ -974,10 +980,10 @@ public sealed class Main : Game
 		Program.Log("[MAIN.LoadContent()] Setting resolution...");
 		try
 		{
-			GraphicsGame.PreferredBackBufferWidth = 640;
-			GraphicsGame.PreferredBackBufferHeight = 480;
-			Program.Log($"[MAIN.LoadContent()] BackBuffer: 640x480, FullScreen={StartFullscreen}");
-			if (StartFullscreen)
+			GraphicsGame.PreferredBackBufferWidth = Terraria.DisplaySettings.Width;
+			GraphicsGame.PreferredBackBufferHeight = Terraria.DisplaySettings.Height;
+			Program.Log($"[MAIN.LoadContent()] BackBuffer: {Terraria.DisplaySettings.Width}x{Terraria.DisplaySettings.Height}, FullScreen={Terraria.DisplaySettings.Fullscreen}");
+			if (Terraria.DisplaySettings.Fullscreen)
 			{
 				GraphicsGame.IsFullScreen = true;
 				Program.Log("[MAIN.LoadContent()] Fullscreen mode enabled");
@@ -3580,6 +3586,30 @@ public sealed class Main : Game
 		UI.MainUI.SetPlayer(player);
 		SetTutorial(Tutorial.INTRO);
 		WorldGen.PlayWorld();
+	}
+
+	/// <summary>
+	/// Applies window size / fullscreen changes immediately. A restart is not needed for these;
+	/// the render scale is the only setting that requires one.
+	/// </summary>
+	internal void ApplyDisplayChange()
+	{
+		try
+		{
+			if (GraphicsGame == null)
+			{
+				return;
+			}
+			GraphicsGame.PreferredBackBufferWidth = Terraria.DisplaySettings.Width;
+			GraphicsGame.PreferredBackBufferHeight = Terraria.DisplaySettings.Height;
+			GraphicsGame.IsFullScreen = Terraria.DisplaySettings.Fullscreen;
+			GraphicsGame.ApplyChanges();
+			Program.LogInfo("Display", $"window changed to {Terraria.DisplaySettings.Width}x{Terraria.DisplaySettings.Height} (fullscreen={Terraria.DisplaySettings.Fullscreen})");
+		}
+		catch (Exception ex)
+		{
+			Program.LogWarn("Display", "ApplyChanges failed: " + ex.Message);
+		}
 	}
 
 	public static void StartGame()

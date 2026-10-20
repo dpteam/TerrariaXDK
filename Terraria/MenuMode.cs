@@ -45,5 +45,6 @@ public enum MenuMode : byte
 	CHEATS,
 	KEYBINDS,
 	MODS,
+	DISPLAY,
 	NUM_MENUS
 }

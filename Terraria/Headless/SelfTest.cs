@@ -46,6 +46,7 @@ internal static class SelfTest
 		RunCheck("key bindings", CheckKeyBindings);
 		RunCheck("tconfig import", CheckTConfigImport);
 		RunCheck("virtual keyboard", CheckVirtualKeyboard);
+		RunCheck("display settings", CheckDisplaySettings);
 		ReportMemory();
 		Console.WriteLine();
 		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
@@ -1364,6 +1365,100 @@ internal static class SelfTest
 			Terraria.Input.VirtualKeyboard.Close();
 			Terraria.Input.KeyboardMouseInput.TextInputActive = flag;
 			Terraria.Input.KeyboardMouseInput.SuppressGameInput = false;
+		}
+	}
+
+	// --- Display settings ---------------------------------------------------
+
+	/// <summary>
+	/// The display options were declared in Settings.ini but never applied. These checks pin
+	/// down the mapping from config to resolution and that cycling stays in range.
+	/// </summary>
+	private static bool CheckDisplaySettings()
+	{
+		string text = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-display.ini");
+		try
+		{
+			if (System.IO.File.Exists(text))
+			{
+				System.IO.File.Delete(text);
+			}
+			Settings settings = new Settings(text);
+			settings.Set("Display", "Width", "1920", "");
+			settings.Set("Display", "Height", "1080", "");
+			settings.Set("Display", "ScreenHeight", "2", "");
+			settings.Set("Display", "StartFullscreen", "False", "");
+			settings.Close();
+			Settings settings2 = new Settings(text);
+			Terraria.DisplaySettings.Load(settings2);
+			settings2.Close();
+			if (Terraria.DisplaySettings.Width != 1920 || Terraria.DisplaySettings.Height != 1080)
+			{
+				return Fail("window size was not read from settings");
+			}
+			if (Terraria.DisplaySettings.RenderScale != ScreenHeights.FHD)
+			{
+				return Fail("render scale was not read from settings");
+			}
+			if (Terraria.DisplaySettings.Fullscreen)
+			{
+				return Fail("fullscreen flag was ignored");
+			}
+			// Cycling must wrap and stay inside the preset list.
+			int num = Terraria.DisplaySettings.RenderScale == ScreenHeights.FHD ? 2 : -1;
+			if (num != 2)
+			{
+				return Fail("render scale precondition failed");
+			}
+			Terraria.DisplaySettings.NextRenderScale(1);
+			if (Terraria.DisplaySettings.RenderScale != ScreenHeights.BASE)
+			{
+				return Fail("render scale does not wrap 1080p -> 540p");
+			}
+			Terraria.DisplaySettings.NextRenderScale(-1);
+			if (Terraria.DisplaySettings.RenderScale != ScreenHeights.FHD)
+			{
+				return Fail("render scale does not wrap 540p -> 1080p");
+			}
+			for (int i = 0; i < 12; i++)
+			{
+				Terraria.DisplaySettings.NextWindowSize(1);
+				if (Terraria.DisplaySettings.Width < 320 || Terraria.DisplaySettings.Height < 240)
+				{
+					return Fail("window size cycling left a sane range");
+				}
+			}
+			// Nonsense values in the file fall back to defaults instead of crashing.
+			System.IO.File.WriteAllText(text, "[Display]\r\nWidth=abc\r\nHeight=-5\r\nScreenHeight=99\r\n");
+			Settings settings3 = new Settings(text);
+			Terraria.DisplaySettings.Load(settings3);
+			settings3.Close();
+			if (Terraria.DisplaySettings.Width != 1280 || Terraria.DisplaySettings.Height != 720)
+			{
+				return Fail("invalid window size was not replaced with defaults");
+			}
+			if (Terraria.DisplaySettings.RenderScale != ScreenHeights.BASE)
+			{
+				return Fail("invalid render scale was not clamped");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("display settings check failed: " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				if (System.IO.File.Exists(text))
+				{
+					System.IO.File.Delete(text);
+				}
+			}
+			catch
+			{
+			}
 		}
 	}
 
