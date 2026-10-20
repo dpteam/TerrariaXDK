@@ -38,4 +38,10 @@
     <Reference Include="System.Core" />
     <Reference Include="System.Xml" />
   </ItemGroup>
+  <!-- Examples are separate projects: building them into the game would duplicate their
+       generated assembly attributes and pull test code into the executable. -->
+  <ItemGroup>
+    <Compile Remove="Examples/**/*.cs" />
+    <None Remove="Examples/**" />
+  </ItemGroup>
 </Project>

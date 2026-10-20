@@ -124,8 +124,30 @@ Context.Log("сообщение")
 
 ---
 
-## 7. Отладка
+## 7. Готовый пример
 
+В `Examples/ExampleMod` лежит рабочий мод-образец: он показывает все хуки
+(`Load`, `Unload`, `OnGameUpdate`, `OnPlayerUpdate`, `OnWorldLoaded`, `OnWorldSaving`),
+чтение файла через `ModContext` и вывод в чат через `Main.NewText`.
+
+```powershell
+dotnet build TerrariaXDK.csproj
+dotnet build Examples/ExampleMod/ExampleMod.csproj
+# затем скопировать DLL в Storage/Mods/ExampleMod/
+```
+
+Проверить, что загрузчик его видит:
+
+```powershell
+TerrariaXDK.exe --selftest
+# -> mods loaded: 1, signature <не vanilla>
+```
+
+Подробности — в `Examples/ExampleMod/README.md`.
+
+---
+
+## 8. Отладка
 - Все сообщения загрузчика — с префиксом `[Mods]` в `terraria-debug.log`.
 - Ошибки загрузки доступны в `ModLoader.LoadErrors`.
 - Быстрая проверка, что мод вообще виден:

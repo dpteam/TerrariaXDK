@@ -601,6 +601,11 @@ internal static class SelfTest
 	private static bool CheckModLoader()
 	{
 		Terraria.Mods.ModLoader.Initialize();
+		Console.WriteLine($"       mods loaded: {Terraria.Mods.ModLoader.ModCount}, signature {Terraria.Mods.ModLoader.Signature}");
+		for (int i = 0; i < Terraria.Mods.ModLoader.LoadErrors.Count; i++)
+		{
+			Console.WriteLine("       mod error: " + Terraria.Mods.ModLoader.LoadErrors[i]);
+		}
 		if (!Terraria.Mods.ModLoader.IsInitialized)
 		{
 			return Fail("loader did not initialize");

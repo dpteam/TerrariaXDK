@@ -1,0 +1,1 @@
+Hello from ExampleMod! Edit greeting.txt to change this line.

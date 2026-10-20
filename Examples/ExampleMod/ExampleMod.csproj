@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Reference mod. Build the game first, then this project:
+
+        dotnet build TerrariaXDK.csproj
+        dotnet build Examples/ExampleMod/ExampleMod.csproj
+
+    Copy the produced DLL into Storage/Mods/ExampleMod/ next to the executable.
+  -->
+  <PropertyGroup>
+    <AssemblyName>ExampleMod</AssemblyName>
+    <TargetFramework>net40</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <RootNamespace>ExampleMod</RootNamespace>
+    <!-- The game assembly is a copy of net40 code; its warnings are not ours. -->
+    <NoWarn>MSB3277</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Adjust the hint path if you build into a different configuration. -->
+    <Reference Include="TerrariaXDK">
+      <HintPath>..\..\bin\Debug\net40\TerrariaXDK.exe</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="Microsoft.Xna.Framework.Graphics" />
+  </ItemGroup>
+</Project>
