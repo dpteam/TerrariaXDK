@@ -726,11 +726,12 @@ public sealed class UI
 		new Location(Main.ResolutionWidth / 2, 432)
 	};
 
-	private static readonly Location[] MENU_SETTINGS_COORDS = new Location[3]
+	private static readonly Location[] MENU_SETTINGS_COORDS = new Location[4]
 	{
 		new Location(Main.ResolutionWidth / 2, 270),
 		new Location(Main.ResolutionWidth / 2, 340),
-		new Location(Main.ResolutionWidth / 2, 410)
+		new Location(Main.ResolutionWidth / 2, 410),
+		new Location(Main.ResolutionWidth / 2, 480)
 	};
 
 	private string[] menuString = new string[14];
@@ -3206,7 +3207,7 @@ public sealed class UI
 		else if (CurMenuMode == MenuMode.SETTINGS)
 		{
 			menuSpace = 60;
-			numMenuItems = 3;
+			numMenuItems = 4;
 			if (this == MainUI)
 			{
 				menuString[0] = Lang.MenuText[65];
@@ -3251,7 +3252,25 @@ public sealed class UI
 			{
 				menuString[2] = Lang.MenuText[72];
 			}
-			if (selectedMenu == 2)
+			// In-game toggle for the cheat system. Previously the only way to change it was
+			// editing Settings.ini, which is not something a player should have to do.
+			menuString[3] = "Cheats: " + (Terraria.Cheats.CheatState.Enabled ? "On" : "Off");
+			MENU_SETTINGS_COORDS[3].X = ViewportHalfWidth;
+			menuHC[3] = 0;
+			if (selectedMenu == 3)
+			{
+				Main.PlaySound(12);
+				Terraria.Cheats.CheatState.Enabled = !Terraria.Cheats.CheatState.Enabled;
+				Terraria.Cheats.CheatState.PersistEnabled();
+				if (!Terraria.Cheats.CheatState.Enabled)
+				{
+					// Leaving god mode and friends active after switching cheats off would be
+					// confusing: make the off switch mean off.
+					Terraria.Cheats.CheatState.Reset();
+				}
+				SettingsDirty = true;
+			}
+			else if (selectedMenu == 2)
 			{
 				Main.PlaySound(12);
 				ShowItemText = !ShowItemText;

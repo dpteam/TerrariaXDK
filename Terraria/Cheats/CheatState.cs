@@ -33,6 +33,25 @@ internal static class CheatState
 
 	public static bool NoFallDamageActive => IsAvailable && NoFallDamage;
 
+	/// <summary>
+	/// Writes <see cref="Enabled"/> back to Settings.ini so the choice survives a restart.
+	/// The file may not exist yet; <see cref="Settings"/> creates it on demand.
+	/// </summary>
+	public static void PersistEnabled()
+	{
+		try
+		{
+			Settings settings = new Settings(Terraria.Storage.AppPaths.SettingsFile);
+			settings.Set("Cheats", "Enabled", Enabled ? "True" : "False", "Enables the single-player cheat menu (TerrariaXDK addition). Has no effect in multiplayer.");
+			settings.Close();
+		}
+		catch
+		{
+			// A read-only install must not break the menu; the toggle still applies for the
+			// current session.
+		}
+	}
+
 	/// <summary>Called once per frame before the players update.</summary>
 	public static void Update()
 	{

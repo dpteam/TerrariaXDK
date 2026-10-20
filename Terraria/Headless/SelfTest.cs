@@ -893,6 +893,17 @@ internal static class SelfTest
 		{
 			return Fail("Enter jumps during play instead of opening chat");
 		}
+		// Character creation confirms with Start (A cycles categories), so Enter must map to
+		// Start there - otherwise the character can never be created from a keyboard.
+		GamePadState gamePadState13 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], enter, true, false, true, true);
+		if (!gamePadState13.IsButtonDown(Buttons.Start))
+		{
+			return Fail("Enter does not confirm on the character creation screen");
+		}
+		if (gamePadState13.IsButtonDown(Buttons.A))
+		{
+			return Fail("Enter cycles categories instead of confirming in character creation");
+		}
 		// Typing must not feed the player.
 		KeyboardState movement = new KeyboardState(new Keys[2]
 		{

@@ -242,6 +242,15 @@ public class UI
 		string text = Lang.Controls(Lang.CONTROLS.CREATE_CHARACTER);
 		Vector2 vector2 = Font.MeasureString(text);
 		Main.SpriteBatch.DrawString(Font, text, vector + zero, Color.White, 0f, vector2 * 0.5f, FontScale, SpriteEffects.None, 0f);
+		// Keyboard users have no gamepad buttons to look at, so spell out the two keys that
+		// matter here: confirm (Enter) and back (Escape).
+		if (Terraria.UI.PointerActive)
+		{
+			zero.Y = 410f * Main.ScreenMultiplier;
+			string text2 = "Enter - confirm     Esc - back     Q / R - category";
+			Vector2 vector3 = Font.MeasureString(text2);
+			Main.SpriteBatch.DrawString(Font, text2, vector + zero, new Color(190, 200, 220), 0f, vector3 * 0.5f, FontScale, SpriteEffects.None, 0f);
+		}
 		if (SelPlayer != null)
 		{
 			SelPlayer.velocity.X = 1f;

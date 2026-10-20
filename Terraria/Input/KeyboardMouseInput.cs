@@ -48,6 +48,13 @@ internal static class KeyboardMouseInput
 	private static QuickAction _quickAction = QuickAction.None;
 
 	/// <summary>
+	/// True on the character-creation screen. Enter means "confirm" there, and that screen
+	/// listens for <c>Buttons.Start</c> rather than <c>A</c> (A cycles categories), so the
+	/// mapping has to be context aware.
+	/// </summary>
+	private static bool _enterConfirms;
+
+	/// <summary>
 	/// Escape fires once per press. Without this, the same held key opened the pause menu and
 	/// then immediately activated "Resume" on the next frame, because the mapping changes from
 	/// Start to Back as soon as the menu opens.
@@ -207,6 +214,7 @@ internal static class KeyboardMouseInput
 			return;
 		}
 		MenuContext = ui.CurMenuType != MenuType.NONE || ui.InventoryMode > 0 || MessageBox.IsVisible();
+		_enterConfirms = ui.CurMenuMode == MenuMode.CREATE_CHARACTER;
 		// Only screens that consume the click themselves opt out of "left click = A".
 		MouseHandledByScreen = ui.CurMenuType != MenuType.NONE && (ui.CurMenuMode == MenuMode.CREATE_CHARACTER || ui.CurMenuMode == MenuMode.WORLD_SELECT);
 		// A click that lands nowhere on a menu list must do nothing, not activate the
@@ -264,14 +272,14 @@ internal static class KeyboardMouseInput
 		{
 			_escapeLatched = true;
 		}
-		return BuildSyntheticState(_mouse, _prevMouse, _keys, MenuContext && !TextInputActive, TextInputActive || SuppressGameInput, flag2);
+		return BuildSyntheticState(_mouse, _prevMouse, _keys, MenuContext && !TextInputActive, TextInputActive || SuppressGameInput, flag2, _enterConfirms);
 	}
 
 	/// <summary>
 	/// Pure mapping function: given a device snapshot, produce the equivalent pad state.
 	/// Kept free of instance state so it can be exercised by the headless self-test.
 	/// </summary>
-	internal static GamePadState BuildSyntheticState(MouseState mouse, MouseState prevMouse, KeyboardState keys, bool menuContext, bool textInputActive, bool escapeAllowed = true)
+	internal static GamePadState BuildSyntheticState(MouseState mouse, MouseState prevMouse, KeyboardState keys, bool menuContext, bool textInputActive, bool escapeAllowed = true, bool enterConfirms = false)
 	{
 		Vector2 leftStick = Vector2.Zero;
 		float leftTrigger = 0f;
@@ -330,9 +338,10 @@ internal static class KeyboardMouseInput
 		}
 		// Enter confirms inside menus, but must NOT act as "jump" during play: there it opens
 		// the chat instead (see ChatInput). Space stays the universal confirm/jump.
+		// Screens that confirm with Start (character creation) get Start instead of A.
 		if (keys.IsKeyDown(Keys.Enter) && menuContext)
 		{
-			buttons |= Buttons.A;
+			buttons |= enterConfirms ? Buttons.Start : Buttons.A;
 		}
 		if (keys.IsKeyDown(Keys.LeftShift) || keys.IsKeyDown(Keys.RightShift))
 		{
@@ -343,7 +352,20 @@ internal static class KeyboardMouseInput
 		{
 			buttons |= Buttons.Y; // inventory (character creation reuses Y for randomize)
 		}
-		if (keys.IsKeyDown(Keys.R) || keys.IsKeyDown(Keys.Q))
+		if (enterConfirms)
+		{
+			// Character creation: Q/R cycle the category (the screen listens to the shoulder
+			// buttons), which is otherwise unreachable from a keyboard.
+			if (keys.IsKeyDown(Keys.Q))
+			{
+				buttons |= Buttons.LeftShoulder;
+			}
+			if (keys.IsKeyDown(Keys.R))
+			{
+				buttons |= Buttons.RightShoulder;
+			}
+		}
+		else if (keys.IsKeyDown(Keys.R) || keys.IsKeyDown(Keys.Q))
 		{
 			buttons |= Buttons.X; // throw item (PC uses Q)
 		}
