@@ -65,8 +65,10 @@ FNA/SDL2. Она принципиально отличается от ПК-ве�
 ## 4. Обязательные проверки перед коммитом
 
 ```powershell
+tools\build.ps1                                   # build + self-test одним шагом
+# или вручную:
 dotnet build TerrariaXDK.csproj -v q --nologo     # 0 ошибок
-# staging: Content + Settings.ini + нативные DLL рядом с exe
+# staging: Content + нативные DLL рядом с exe
 .\bin\Debug\net40\TerrariaXDK.exe --selftest       # 0 failed
 ```
 

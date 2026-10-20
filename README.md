@@ -28,6 +28,18 @@ SDL2, с добавленными клавиатурой-мышью, встро�
 Нужен .NET SDK (проверено на 9.0) и Windows для запуска (FNA-нативные DLL — Win64).
 
 ```powershell
+tools\build.ps1                 # сборка + --selftest
+tools\build.ps1 -Pack           # + dist/TerrariaXDK/ — готовая портативная папка
+tools\build.ps1 -Pack -Zip      # + dist/TerrariaXDK-<дата>.zip
+```
+
+Скрипт сам подкладывает к exe нативные DLL (из `bin\Debug\net40`, `native\win64` или
+переменной `TXDK_NATIVE_DIR`) и делает junction на `Content`, поэтому `--selftest`
+работает в любой конфигурации.
+
+Вручную то же самое:
+
+```powershell
 dotnet build TerrariaXDK.csproj -c Release
 ```
 

@@ -5,6 +5,8 @@
 # --- Build output -----------------------------------------------------------
 bin/
 obj/
+# Portable packages produced by tools/build.ps1 -Pack/-Zip
+dist/
 [Dd]ebug/
 [Rr]elease/
 x64/
