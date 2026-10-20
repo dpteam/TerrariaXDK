@@ -88,6 +88,20 @@ internal static class CheatConsole
 		return !string.IsNullOrEmpty(text) && (text[0] == '!' || text[0] == '/');
 	}
 
+	/// <summary>Command names, for tab completion in the chat prompt.</summary>
+	public static string[] CommandNames
+	{
+		get
+		{
+			string[] array = new string[Commands.Count];
+			for (int i = 0; i < Commands.Count; i++)
+			{
+				array[i] = Commands[i].Name;
+			}
+			return array;
+		}
+	}
+
 	/// <summary>
 	/// Runs a command. Returns true when it was recognized, so the caller knows whether the
 	/// text should still be broadcast as normal chat.

@@ -24,6 +24,11 @@ internal static class ChatInput
 
 	private static readonly System.Collections.Generic.List<string> History = new System.Collections.Generic.List<string>();
 
+	/// <summary>Previously sent lines, newest last. Navigated with Up/Down like a terminal.</summary>
+	private static readonly System.Collections.Generic.List<string> Sent = new System.Collections.Generic.List<string>();
+
+	private static int _sentCursor = -1;
+
 	private static readonly StringBuilder Buffer = new StringBuilder(MaxLength);
 
 	private static bool _subscribed;
@@ -95,6 +100,7 @@ internal static class ChatInput
 		}
 		IsActive = true;
 		Buffer.Length = 0;
+		_sentCursor = -1;
 		if (commandMode)
 		{
 			Buffer.Append('!');
@@ -160,8 +166,74 @@ internal static class ChatInput
 			Close();
 			return;
 		}
+		if (KeyboardMouseInput.KeyPressed(Keys.Up))
+		{
+			RecallSent(-1);
+			return;
+		}
+		if (KeyboardMouseInput.KeyPressed(Keys.Down))
+		{
+			RecallSent(1);
+			return;
+		}
+		if (KeyboardMouseInput.KeyPressed(Keys.Tab))
+		{
+			CompleteCommand();
+			return;
+		}
 		// Backspace is NOT handled here: SDL delivers it through TextInputEXT as '\b', and
 		// handling it in both places deleted two characters per press.
+	}
+
+	/// <summary>Steps through previously sent lines. Direction -1 is older, +1 is newer.</summary>
+	private static void RecallSent(int direction)
+	{
+		if (Sent.Count == 0)
+		{
+			return;
+		}
+		if (_sentCursor < 0)
+		{
+			_sentCursor = Sent.Count;
+		}
+		_sentCursor += direction;
+		if (_sentCursor < 0)
+		{
+			_sentCursor = 0;
+		}
+		if (_sentCursor >= Sent.Count)
+		{
+			// Past the newest entry: back to an empty prompt.
+			_sentCursor = -1;
+			Buffer.Length = 0;
+			return;
+		}
+		Buffer.Length = 0;
+		Buffer.Append(Sent[_sentCursor]);
+	}
+
+	/// <summary>Tab-completes a cheat command name when the line starts with '!' or '/'.</summary>
+	private static void CompleteCommand()
+	{
+		string text = Buffer.ToString();
+		if (text.Length < 1 || (text[0] != '!' && text[0] != '/'))
+		{
+			return;
+		}
+		string text2 = text.Substring(1).ToLowerInvariant();
+		string[] names = Cheats.CheatConsole.CommandNames;
+		for (int i = 0; i < names.Length; i++)
+		{
+			if (!names[i].StartsWith(text2, StringComparison.Ordinal))
+			{
+				continue;
+			}
+			Buffer.Length = 0;
+			Buffer.Append(text[0]);
+			Buffer.Append(names[i]);
+			Buffer.Append(' ');
+			return;
+		}
 	}
 
 	private static void Submit()
@@ -171,6 +243,15 @@ internal static class ChatInput
 		if (text.Length == 0)
 		{
 			return;
+		}
+		// Remember it for Up/Down recall.
+		if (Sent.Count == 0 || Sent[Sent.Count - 1] != text)
+		{
+			Sent.Add(text);
+			while (Sent.Count > 50)
+			{
+				Sent.RemoveAt(0);
+			}
 		}
 		// Cheat commands stay local and never reach the network.
 		if (Cheats.CheatConsole.IsCommand(text))
@@ -253,7 +334,7 @@ internal static class ChatInput
 			int num13 = num12 + (int)UI.BoldSmallFont.MeasureString(text2).X;
 			Main.DrawSolidRect(new Rectangle(num13 + 1, num11, 2, (int)UI.BoldSmallFont.MeasureString("A").Y), Color.White);
 		}
-		string text3 = flag ? "Enter = run   Esc = cancel   !help" : "Enter = send   Esc = cancel";
+		string text3 = flag ? "Enter = run   Tab = complete   Up/Down = history   Esc = cancel" : "Enter = send   Up/Down = history   Esc = cancel";
 		UI.DrawStringLC(UI.BoldSmallFont, text3, num3 + num8, num10 + num7 + (int)(2f * num2), new Color(140, 140, 150));
 	}
 
