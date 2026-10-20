@@ -16,6 +16,7 @@
 | `T111M` | Terraria **1.1.1** + tConfig | ~60 .cs | def-хендлеры, `Config.cs`, формат модов |
 | `TShock` | Серверный мод с админкой | большой | права, регионы, баны, анти-чит, RCON/REST, UPnP |
 | `NATUPNPLib` | Проброс портов через UPnP | 4 .cs | автопроброс порта для хоста |
+| `XnaRessurector.cs` | Распаковщик XNB/XWB/XSB | 179 КБ, 1 файл | LZX, DXT1/3/5, `Texture2DReader`, `SoundEffectReader`, `XwbExtractor` — для конвертации контента в PNG/OGG |
 
 Ни одна из этих сборок не компилируется вместе с TerrariaXDK: разные версии игры
 и разные базовые типы.
@@ -150,6 +151,9 @@ TerrariaXDK:  Content/Images/_sheetSprites.xnb   (атлас, 1489 кадров)
    `ProjDefHandler`, `BuffDefHandler`) как модель описания контента модами.
 4. **`refs/NATUPNPLib`** — автопроброс порта, чтобы «Host» работал без настройки
    роутера.
+5. **`refs/XnaRessurector.cs`** — распаковка XNB в PNG/WAV (LZX, DXT) и XWB/XSB в
+   отдельные треки. Нужен для перехода на открытые форматы, а он, в свою очередь,
+   открывает путь к отказу от нативных `.dll` (см. `IDEAS.md`).
 
 ---
 
