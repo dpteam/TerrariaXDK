@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Standalone content tool: extracts PNGs from the game's .xnb textures.
+       It is deliberately not part of TerrariaXDK.csproj (which excludes tools/**). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net40</TargetFramework>
+    <AssemblyName>xnb2png</AssemblyName>
+    <RootNamespace>XnbToPng</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+  <!-- The runtime already ships an LZX decoder for compressed XNB; reuse it instead of
+       writing a second one. -->
+  <ItemGroup>
+    <Compile Include="..\..\Microsoft.Xna.Framework.Content\LzxDecoder.cs" Link="LzxDecoder.cs" />
+    <Compile Include="..\..\Microsoft.Xna.Framework.Content\LzxConstants.cs" Link="LzxConstants.cs" />
+    <Compile Include="..\..\Microsoft.Xna.Framework.Content\UnsupportedWindowSizeRange.cs" Link="UnsupportedWindowSizeRange.cs" />
+  </ItemGroup>
+</Project>

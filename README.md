@@ -216,13 +216,16 @@ MinMinutes=15           ; интервал между копиями (0 = при
   Terraria/                 игровая логика консольной версии
     Input/                  клавиатура + мышь
     Cheats/                 чит-меню (сингл)
-    Net/                    встроенный TCP-транспорт
+    Net/                    встроенный TCP-транспорт, мастер-сервер
     Mods/                   API и загрузчик модов
     Storage/                единая точка путей (AppPaths)
     Headless/               self-test
-  Microsoft.Xna.Framework*/ FNA-совместимый слой XNA
+  Microsoft.Xna.Framework*/  FNA-совместимый слой XNA
   Lidgren.Network/          сетевой стек (legacy-транспорт)
   SDL2/, FAudio.cs, ...     нативные обёртки
+  tools/
+    build.ps1               сборка + self-test + упаковка
+    XnbToPng/               извлечение PNG из .xnb (отдельный проект)
   README.md, AGENTS.md      документация проекта
   IDEAS.md, ROADMAP.md
   docs/                     подробные гайды
@@ -249,6 +252,8 @@ MinMinutes=15           ; интервал между копиями (0 = при
 - `docs/MULTIPLAYER.md` — как устроен встроенный сетевой стек.
 - `docs/MODDING.md` — как писать моды.
 - `docs/CONTENT_AUDIT.md` — что и почему вычищено из `Content/`.
+- `docs/XNB.md` — `tools/XnbToPng`: как достать PNG из `.xnb` и почему декодер устроен
+  именно так.
 - `docs/REFS_DIFF.md` — сравнение архитектур TerrariaXDK и сборок из `refs/`.
   Там же — какой функционал стоит перенести из `TShock` (`refs/TShock`).
 - `docs/PERFORMANCE.md` — аудит загрузки и ОЗУ: почему старт бывал нестабильным,

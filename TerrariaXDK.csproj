@@ -39,9 +39,12 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <!-- Examples are separate projects: building them into the game would duplicate their
-       generated assembly attributes and pull test code into the executable. -->
+       generated assembly attributes and pull test code into the executable.
+       tools/** holds standalone utilities (build script, xnb2png) with their own projects. -->
   <ItemGroup>
     <Compile Remove="Examples/**/*.cs" />
     <None Remove="Examples/**" />
+    <Compile Remove="tools/**/*.cs" />
+    <None Remove="tools/**" />
   </ItemGroup>
 </Project>

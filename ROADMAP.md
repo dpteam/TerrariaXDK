@@ -112,7 +112,10 @@
       потокобезопасный `ContentManager`, защита сплэша от null (см. `docs/PERFORMANCE.md`).
 - [x] Стриминг музыки через OGG: −80 МБ ОЗУ. Треки сконвертированы, `MusicEntry`
       предпочитает `.ogg` и стримит через `MediaPlayer`, `.wav` остаётся фолбэком.
-- [ ] Конвертер контента XNB → PNG/WAV по фичам из `refs/XnaRessurector.cs`
+- [x] Конвертер контента XNB → PNG: `tools/XnbToPng` (свой LZX-декодер, форматы
+      Color/Bgr565/Bgra5551/Bgra4444/Dxt1/Dxt3/Dxt5/Alpha8, Xbox-свап байтов).
+      На текущем `Content/`: 194 текстуры, 0 ошибок, 102 звука пропущены. Проверено
+      глазами на Dxt1/Dxt5/Color. См. `docs/XNB.md`.
       (LZX, DXT, XWB/XSB). Шрифты не трогать: `SpriteFontReader` там не разобран.
 - [ ] Кастомные TrueType-шрифты и вынос `Lang.cs` в файлы (мультиязычность).
 - [x] Нормальная система настроек: экран `Display` (размер окна, полноэкранный режим,
