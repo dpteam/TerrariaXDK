@@ -72,6 +72,13 @@ internal static class KeyboardMouseInput
 	/// </summary>
 	public static bool TextInputActive { get; set; }
 
+	/// <summary>
+	/// Suppresses game input for the rest of the current frame. Set when a text field closes
+	/// on Escape/Enter, so the same keystroke cannot also open the pause menu or swing an item.
+	/// Cleared at the start of each <see cref="Update"/>.
+	/// </summary>
+	public static bool SuppressGameInput { get; set; }
+
 	/// <summary>Absolute mouse position in backbuffer pixels.</summary>
 	public static int MouseX { get; private set; }
 
@@ -97,6 +104,7 @@ internal static class KeyboardMouseInput
 			CursorOverride = false;
 			return;
 		}
+		SuppressGameInput = false;
 		_prevMouse = _mouse;
 		_prevKeys = _keys;
 		try
@@ -233,7 +241,7 @@ internal static class KeyboardMouseInput
 	/// <summary>Builds the synthetic pad state for the current keyboard/mouse state.</summary>
 	public static GamePadState BuildSyntheticState()
 	{
-		return BuildSyntheticState(_mouse, _prevMouse, _keys, MenuContext && !TextInputActive, TextInputActive);
+		return BuildSyntheticState(_mouse, _prevMouse, _keys, MenuContext && !TextInputActive, TextInputActive || SuppressGameInput);
 	}
 
 	/// <summary>

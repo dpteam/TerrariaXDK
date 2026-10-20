@@ -95,8 +95,10 @@ public class LeaderboardData
 			row.Statistics = new uint[num3];
 			for (int num5 = num3 - 1; num5 > -1; num5--)
 			{
-				string key = array[num5];
-				row.Statistics[num5] = (uint)leaderboardEntry.Columns[key];
+				// Columns are optional: a board entry that does not carry them (or a local
+				// synthetic board) must render as zeros instead of throwing.
+				object obj;
+				row.Statistics[num5] = leaderboardEntry.Columns.TryGetValue(array[num5], out obj) && obj != null ? (uint)obj : 0u;
 			}
 			row.Available = true;
 			num2++;

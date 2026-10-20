@@ -39,14 +39,39 @@ internal static class ChatInput
 		TextInputEXT.TextInput += OnTextInput;
 	}
 
+	/// <summary>
+	/// Single source of truth for typed characters. FNA raises this for printable characters
+	/// (from SDL_TEXTINPUT) and for editing keys (backspace, delete, tab, enter, home/end),
+	/// so nothing else may also append or delete - that was the source of the doubled input.
+	/// </summary>
 	private static void OnTextInput(char c)
 	{
 		if (!IsActive)
 		{
 			return;
 		}
-		// Control characters are handled by the key loop; newline would break the line.
-		if (c < ' ' || c == '\u007F')
+		switch (c)
+		{
+		case '\b':
+			// Backspace.
+			if (Buffer.Length > 0)
+			{
+				Buffer.Length--;
+			}
+			return;
+		case '\u007f':
+			// Delete: no caret movement model, so treat it like backspace.
+			if (Buffer.Length > 0)
+			{
+				Buffer.Length--;
+			}
+			return;
+		case '\r':
+			// Enter is handled by the key loop, which also knows whether we are opening or
+			// submitting; ignore the duplicate from the text input path.
+			return;
+		}
+		if (c < ' ')
 		{
 			return;
 		}
@@ -90,6 +115,8 @@ internal static class ChatInput
 		IsActive = false;
 		Buffer.Length = 0;
 		KeyboardMouseInput.TextInputActive = false;
+		// The keystroke that closed the prompt must not also reach the game this frame.
+		KeyboardMouseInput.SuppressGameInput = true;
 		try
 		{
 			TextInputEXT.StopTextInput();
@@ -131,51 +158,8 @@ internal static class ChatInput
 			Close();
 			return;
 		}
-		if (KeyboardMouseInput.KeyPressed(Keys.Back))
-		{
-			if (Buffer.Length > 0)
-			{
-				Buffer.Length--;
-			}
-			return;
-		}
-		// Fallback for platforms where TextInputEXT is not wired to SDL: accept plain ASCII
-		// from A-Z, 0-9 and the space bar.
-		AppendFallbackKeys();
-	}
-
-	private static void AppendFallbackKeys()
-	{
-		for (Keys key = Keys.A; key <= Keys.Z; key++)
-		{
-			if (KeyboardMouseInput.KeyPressed(key))
-			{
-				bool shift = KeyboardMouseInput.KeyDown(Keys.LeftShift) || KeyboardMouseInput.KeyDown(Keys.RightShift);
-				char c = (char)('a' + (key - Keys.A));
-				if (shift)
-				{
-					c = char.ToUpperInvariant(c);
-				}
-				if (Buffer.Length < MaxLength)
-				{
-					Buffer.Append(c);
-				}
-			}
-		}
-		for (Keys key2 = Keys.D0; key2 <= Keys.D9; key2++)
-		{
-			if (!KeyboardMouseInput.KeyPressed(key2))
-			{
-				continue;
-			}
-			// Skip the hotbar digits: while typing they are text, not slot selection, and
-			// TextInputEXT already delivered them on platforms that support it.
-			break;
-		}
-		if (KeyboardMouseInput.KeyPressed(Keys.Space) && Buffer.Length < MaxLength && Buffer.Length > 0)
-		{
-			Buffer.Append(' ');
-		}
+		// Backspace is NOT handled here: SDL delivers it through TextInputEXT as '\b', and
+		// handling it in both places deleted two characters per press.
 	}
 
 	private static void Submit()

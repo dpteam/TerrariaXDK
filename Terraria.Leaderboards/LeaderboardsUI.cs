@@ -101,7 +101,9 @@ internal class LeaderboardsUI
 
 	public void Update()
 	{
-		if (!ParentUI.HasOnline() || !Data.Update())
+		// Xbox Live is gone, but the board itself is served locally now, so the screen works
+		// offline instead of returning early forever.
+		if (!Data.Update())
 		{
 			MessageBox.Show(ParentUI.controller, Lang.MenuText[5], Lang.InterfaceText[36], new string[1] { Lang.MenuText[90] });
 			ParentUI.PrevMenu();
