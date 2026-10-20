@@ -96,9 +96,9 @@ internal static class Program
 
 	private static void CheckCriticalPaths(string baseDir)
 	{
-		string[] array = new string[14]
+		string[] array = new string[13]
 		{
-			"Content", "Content/Achievements", "Content/ExtMusic", "Content/Fonts", "Content/Fonts/HD", "Content/FontsOld", "Content/Images", "Content/Sounds", "Content/UI", "Content/UI/CharacterCreation",
+			"Content", "Content/Achievements", "Content/ExtMusic", "Content/Fonts", "Content/Fonts/HD", "Content/Images", "Content/Sounds", "Content/UI", "Content/UI/CharacterCreation",
 			"Content/UI/HowToPlay", "Content/UI/Leaderboards", "Content/UI/Upsell", "Content/Worlds"
 		};
 		string[] array2 = array;

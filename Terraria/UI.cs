@@ -1841,6 +1841,16 @@ public sealed class UI
 			uiHeight = 3;
 			uiCoords = MENU_SETTINGS_COORDS;
 			return;
+		case MenuMode.CHEATS:
+		{
+			Terraria.Cheats.CheatMenu.ResetPage();
+			string[] cheatRows = Terraria.Cheats.CheatMenu.BuildRows();
+			Terraria.Cheats.CheatMenu.SyncLayout(cheatRows);
+			uiWidth = 1;
+			uiHeight = (sbyte)cheatRows.Length;
+			uiCoords = Terraria.Cheats.CheatMenu.Coords;
+			return;
+		}
 		case MenuMode.STATUS_SCREEN:
 		case MenuMode.NETPLAY:
 			Progress = 0f;
@@ -2503,6 +2513,14 @@ public sealed class UI
 			menuString[num2 + 2] = Lang.MenuText[107];
 			menuString[num2 + 3] = Lang.MenuText[99];
 			menuString[num2 + 4] = Lang.MenuText[101];
+			if (!Main.IsTrial && Terraria.Cheats.CheatState.IsAvailable)
+			{
+				// Extra single-player-only entry appended after the stock pause options.
+				menuString[num2 + 5] = "Cheats";
+				MENU_PAUSE_COORDS[num2 + 5].X = ViewportHalfWidth;
+				menuHC[num2 + 5] = 0;
+				numMenuItems = (byte)(num2 + 6);
+			}
 			for (int k = 0; k < numMenuItems; k++)
 			{
 				menuScale[k] = 0.75f;
@@ -2577,6 +2595,35 @@ public sealed class UI
 					MessageBox.Show(controller, Lang.MenuText[100], Lang.InterfaceText[5], boxOptions, ShouldAutoUpdate: false);
 				}
 				SetMenu(MenuMode.EXIT);
+			}
+			else if (!Main.IsTrial && Terraria.Cheats.CheatState.IsAvailable && selectedMenu == num2 + 5)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.CHEATS);
+			}
+		}
+		else if (CurMenuMode == MenuMode.CHEATS)
+		{
+			string[] cheatRows = Terraria.Cheats.CheatMenu.BuildRows();
+			Terraria.Cheats.CheatMenu.SyncLayout(cheatRows);
+			numMenuItems = (byte)cheatRows.Length;
+			for (int num9 = 0; num9 < numMenuItems; num9++)
+			{
+				menuString[num9] = cheatRows[num9];
+				menuScale[num9] = 0.75f;
+				menuHC[num9] = 0;
+			}
+			menuTop = Terraria.Cheats.CheatMenu.MenuTop;
+			menuSpace = Terraria.Cheats.CheatMenu.MenuSpace;
+			if (selectedMenu >= 0)
+			{
+				Terraria.Cheats.CheatMenu.Activate(selectedMenu);
+				uiY = selectedMenu;
+			}
+			else if (IsBackButtonTriggered() || IsButtonUntriggered(Buttons.Start) || IsButtonTriggered(Buttons.Y))
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.PAUSE);
 			}
 		}
 		else if (CurMenuMode == MenuMode.EXIT)
@@ -3200,7 +3247,7 @@ public sealed class UI
 				{
 					Main.PlaySound(12);
 				}
-				if ((CurMenuMode != MenuMode.PAUSE) ? IsSelectButtonTriggered() : IsButtonTriggered(Buttons.A))
+				if ((CurMenuMode != MenuMode.PAUSE && CurMenuMode != MenuMode.CHEATS) ? IsSelectButtonTriggered() : IsButtonTriggered(Buttons.A))
 				{
 					selectedMenu = (sbyte)num3;
 				}
@@ -3231,7 +3278,7 @@ public sealed class UI
 
 	private void DrawMenu()
 	{
-		if (CurMenuMode != MenuMode.CONTROLS && CurMenuMode != MenuMode.HARDMODE_UPSELL && CurMenuMode != MenuMode.MAP && CurMenuMode != MenuMode.HOW_TO_PLAY && CurMenuMode != MenuMode.LEADERBOARDS && CurMenuMode != MenuMode.ACHIEVEMENTS && CurMenuMode != MenuMode.WORLD_SELECT && CurMenuMode != MenuMode.CREATE_CHARACTER && CurMenuMode != MenuMode.CREDITS && CurMenuMode != MenuMode.UPSELL)
+		if (CurMenuMode != MenuMode.CONTROLS && CurMenuMode != MenuMode.HARDMODE_UPSELL && CurMenuMode != MenuMode.MAP && CurMenuMode != MenuMode.HOW_TO_PLAY && CurMenuMode != MenuMode.LEADERBOARDS && CurMenuMode != MenuMode.ACHIEVEMENTS && CurMenuMode != MenuMode.WORLD_SELECT && CurMenuMode != MenuMode.CREATE_CHARACTER && CurMenuMode != MenuMode.CREDITS && CurMenuMode != MenuMode.UPSELL && CurMenuMode != MenuMode.CHEATS)
 		{
 			DrawLogo();
 		}
@@ -3451,6 +3498,10 @@ public sealed class UI
 		else if (CurMenuMode == MenuMode.UPSELL)
 		{
 			theGame.DrawUpsell();
+		}
+		else if (CurMenuMode == MenuMode.CHEATS)
+		{
+			Terraria.Cheats.CheatMenu.DrawBackdrop(Main.SpriteBatch, CurrentView.ViewWidth);
 		}
 		if (Main.HardmodeAlert && CurMenuMode == MenuMode.HARDMODE_UPSELL)
 		{
@@ -4754,8 +4805,74 @@ public sealed class UI
 		cursorScale = (float)(num + 0.1);
 	}
 
+	/// <summary>
+	/// Absolute mouse cursor path: the desktop pointer drives the in-game cursor directly
+	/// instead of the stick-emulated virtual cursor. Used while the mouse is being moved.
+	/// </summary>
+	private void UpdateMouseAbsolute()
+	{
+		int num = Terraria.Input.KeyboardMouseInput.MouseX;
+		int num2 = Terraria.Input.KeyboardMouseInput.MouseY;
+		if (num < 0)
+		{
+			num = 0;
+		}
+		else if (num > Main.ResolutionWidth - 1)
+		{
+			num = Main.ResolutionWidth - 1;
+		}
+		if (num2 < 0)
+		{
+			num2 = 0;
+		}
+		else if (num2 > Main.ResolutionHeight - 1)
+		{
+			num2 = Main.ResolutionHeight - 1;
+		}
+		MouseX = (short)num;
+		MouseY = (short)num2;
+		oldMouseX = MouseX;
+		uiDelay = 0;
+		uiDelayValue = 12;
+		if (uiCoords == null || uiWidth <= 0 || uiHeight <= 0)
+		{
+			// Gameplay / inventory: Player.UpdateMouse resolves the world target from MouseX/Y.
+			return;
+		}
+		// Menu: highlight the entry closest to the pointer, so clicking works intuitively.
+		int num3 = Math.Min(uiWidth * uiHeight, uiCoords.Length);
+		int num4 = -1;
+		long num5 = long.MaxValue;
+		for (int i = 0; i < num3; i++)
+		{
+			Location location = uiCoords[i];
+			if (location.X == 0 && location.Y == 0)
+			{
+				continue;
+			}
+			long num6 = location.X - num;
+			long num7 = location.Y - num2;
+			long num8 = num6 * num6 + num7 * num7;
+			if (num8 < num5)
+			{
+				num5 = num8;
+				num4 = i;
+			}
+		}
+		if (num4 >= 0 && num5 < 160 * 160)
+		{
+			uiX = (short)(num4 % uiWidth);
+			uiY = (short)(num4 / uiWidth);
+		}
+	}
+
 	private void UpdateMouse()
 	{
+		if (Terraria.Input.KeyboardMouseInput.Enabled && Terraria.Input.KeyboardMouseInput.CursorOverride && NumActiveViews <= 1)
+		{
+			UpdateMouseAbsolute();
+			return;
+		}
 		if (uiCoords == null)
 		{
 			int num = 0;
@@ -5039,7 +5156,14 @@ public sealed class UI
 		if (Main.HasFocus)
 		{
 			gpPrevState = PadState;
-			PadState = GamePad.GetState(controller);
+			GamePadState gamePadState = GamePad.GetState(controller);
+			if (controller == PlayerIndex.One)
+			{
+				// Only the first player owns the keyboard and the mouse.
+				Terraria.Input.KeyboardMouseInput.MenuContext = CurMenuType != MenuType.NONE || InventoryMode > 0;
+				gamePadState = Terraria.Input.KeyboardMouseInput.Merge(gamePadState);
+			}
+			PadState = gamePadState;
 		}
 		else
 		{
@@ -5070,6 +5194,15 @@ public sealed class UI
 		CurrentUI = this;
 		if (CurMenuType == MenuType.NONE)
 		{
+			if (this == MainUI && Terraria.Cheats.CheatState.IsAvailable && Terraria.Input.KeyboardMouseInput.KeyPressed(Keys.F1))
+			{
+				// Keyboard shortcut straight into the single-player cheat menu.
+				Main.PlaySound(10);
+				CurMenuType = MenuType.PAUSE;
+				SetMenu(MenuMode.CHEATS);
+				ClearButtonTriggers();
+				return;
+			}
 			if (IsButtonUntriggered(Buttons.Start))
 			{
 				Main.PlaySound(10);

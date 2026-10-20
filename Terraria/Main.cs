@@ -600,6 +600,15 @@ public sealed class Main : Game
 		}
 	}
 
+	private static int ParsePort(string text, int fallback)
+	{
+		if (int.TryParse(text, out var result) && result > 0 && result <= 65535)
+		{
+			return result;
+		}
+		return fallback;
+	}
+
 	public static ulong GetWorldId()
 	{
 		return (ulong)(((long)WorldID << 32) | (uint)WorldTimestamp);
@@ -626,6 +635,12 @@ public sealed class Main : Game
 		settings.Set("Display", "AlwaysOnDepth", "False", "Determines whether the information of the Depth Meter accessory will always active in-game.");
 		settings.Set("Display", "AlwaysOnCompass", "False", "Determines whether the information of the Compass accessory will always active in-game.");
 		settings.Set("Additions", "HardmodeAlert", "False", "Implements a pop-up alert once hardmode is activated within a world а la Pre-1.3 Terraria Mobile.\n; This basically just shows an introductory message about what hardmode is and what you can do from there.");
+		settings.Set("Input", "KeyboardMouse", "True", "Enables desktop keyboard and mouse support for player one (WASD, space, mouse aim/use).\n; Set to False to get the original gamepad-only behaviour.");
+		settings.Set("Cheats", "Enabled", "True", "Enables the single-player cheat menu (TerrariaXDK addition). Has no effect in multiplayer.");
+		settings.Set("Network", "Port", "7777", "TCP/UDP port used when this game hosts a multiplayer world in-process.");
+		settings.Set("Network", "JoinAddress", "", "Optional 'host:port' to offer as a one-click join target in the netplay menu.\n; Leave empty to only browse LAN worlds.");
+		settings.Set("Mods", "Enabled", "True", "Loads mods from the Mods folder next to the executable.");
+		settings.Set("Mods", "RequireMatchingMods", "True", "Rejects multiplayer clients whose mod set differs from the host's.");
 		Gamertag = settings.Get("Game", "Gamertag");
 		IsTrial = settings.Get("Game", "TrialActive").ToLower().Equals("true");
 		PSMode = settings.Get("Game", "PSMode").ToLower().Equals("true");
@@ -646,6 +661,12 @@ public sealed class Main : Game
 		AlwaysOnDepth = settings.Get("Display", "AlwaysOnDepth").ToLower().Equals("true");
 		AlwaysOnCompass = settings.Get("Display", "AlwaysOnCompass").ToLower().Equals("true");
 		HardmodeAlert = settings.Get("Additions", "HardmodeAlert").ToLower().Equals("true");
+		Terraria.Input.KeyboardMouseInput.Enabled = settings.Get("Input", "KeyboardMouse").ToLower().Equals("true");
+		Terraria.Cheats.CheatState.Enabled = settings.Get("Cheats", "Enabled").ToLower().Equals("true");
+		Terraria.Net.NetworkConfig.Port = ParsePort(settings.Get("Network", "Port"), 7777);
+		Terraria.Net.NetworkConfig.JoinAddress = settings.Get("Network", "JoinAddress");
+		Terraria.Mods.ModLoader.Enabled = settings.Get("Mods", "Enabled").ToLower().Equals("true");
+		Terraria.Mods.ModLoader.RequireMatchingMods = settings.Get("Mods", "RequireMatchingMods").ToLower().Equals("true");
 		settings.Close();
 		Program.Log("[MAIN] ⚡ Constructor exiting, about to be Initialize()'d");
 	}
@@ -1642,6 +1663,7 @@ public sealed class Main : Game
 		{
 			Program.Log("[Update] \ud83c\udfae Entered normal game loop for first time!");
 		}
+		Terraria.Input.KeyboardMouseInput.Update();
 		for (int i = 0; i < UIInstance.Length; i++)
 		{
 			UIInstance[i].UpdateGamePad();
@@ -1650,6 +1672,7 @@ public sealed class Main : Game
 		{
 			UpdateTutorial();
 		}
+		Terraria.Cheats.CheatState.Update();
 		for (int j = 0; j < UIInstance.Length; j++)
 		{
 			UIInstance[j].Update();

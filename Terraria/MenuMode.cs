@@ -42,5 +42,6 @@ public enum MenuMode : byte
 	UPSELL,
 	ACHIEVEMENTS,
 	HARDMODE_UPSELL,
+	CHEATS,
 	NUM_MENUS
 }

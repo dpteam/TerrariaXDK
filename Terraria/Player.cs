@@ -1682,7 +1682,7 @@ public sealed class Player
 			fireWalk = false;
 			noKnockback = false;
 			jumpBoost = false;
-			noFallDmg = false;
+			noFallDmg = Terraria.Cheats.CheatState.NoFallDamageActive || Terraria.Cheats.CheatState.NoClipActive;
 			accFlipper = false;
 			spawnMax = false;
 			spaceGun = false;
@@ -4117,10 +4117,33 @@ public sealed class Player
 			}
 			else
 			{
-				Collision.TileCollision(ref Position, ref velocity, 20, 42, IsControlDown);
-				if (waterWalk)
+				if (Terraria.Cheats.CheatState.NoClipActive)
 				{
-					velocity = Collision.WaterCollision(Position, velocity, 20, 42, IsControlDown);
+					// Cheat: fly through tiles. Vertical movement is driven by the stick/keyboard.
+					if (controlUp)
+					{
+						velocity.Y = -6f;
+					}
+					else if (IsControlDown)
+					{
+						velocity.Y = 6f;
+					}
+					else if (velocity.Y != 0f)
+					{
+						velocity.Y *= 0.5f;
+						if (Math.Abs(velocity.Y) < 0.1f)
+						{
+							velocity.Y = 0f;
+						}
+					}
+				}
+				else
+				{
+					Collision.TileCollision(ref Position, ref velocity, 20, 42, IsControlDown);
+					if (waterWalk)
+					{
+						velocity = Collision.WaterCollision(Position, velocity, 20, 42, IsControlDown);
+					}
 				}
 				Position.X += velocity.X;
 				Position.Y += velocity.Y;
@@ -5672,7 +5695,7 @@ public sealed class Player
 
 	public unsafe double Hurt(int Damage, int hitDirection, bool pvp, bool quiet, uint deathText, bool Crit = false)
 	{
-		if (!immune)
+		if (!immune && !Terraria.Cheats.CheatState.GodModeActive)
 		{
 			int num = Damage;
 			if (pvp)
@@ -6613,14 +6636,20 @@ public sealed class Player
 					{
 						if (statMana >= (int)((float)(int)ptr->Mana * manaCost))
 						{
-							statMana -= (short)((float)(int)ptr->Mana * manaCost);
+							if (!Terraria.Cheats.CheatState.InfiniteManaActive)
+							{
+								statMana -= (short)((float)(int)ptr->Mana * manaCost);
+							}
 						}
 						else if (manaFlower)
 						{
 							QuickMana();
 							if (statMana >= (int)((float)(int)ptr->Mana * manaCost))
 							{
-								statMana -= (short)((float)(int)ptr->Mana * manaCost);
+								if (!Terraria.Cheats.CheatState.InfiniteManaActive)
+								{
+									statMana -= (short)((float)(int)ptr->Mana * manaCost);
+								}
 							}
 							else
 							{
@@ -9246,8 +9275,31 @@ public sealed class Player
 		}
 	}
 
+	/// <summary>
+	/// Resolves the cursor straight from the desktop pointer. Returns false when the mouse
+	/// is idle, in which case the original stick-driven cursor logic runs unchanged.
+	/// </summary>
+	private bool TryUpdateMouseAbsolute()
+	{
+		if (!Terraria.Input.KeyboardMouseInput.TryGetViewCursor(CurrentView.ViewWidth, Main.ResolutionHeight, out var x, out var y))
+		{
+			return false;
+		}
+		ui.MouseX = (short)x;
+		ui.MouseY = (short)y;
+		controlDir.X = ui.MouseX - (XYWH.X + 10 - CurrentView.ScreenPosition.X);
+		controlDir.Y = ui.MouseY - (XYWH.Y + 21 - CurrentView.ScreenPosition.Y);
+		relativeTargetX = controlDir.X;
+		relativeTargetY = controlDir.Y;
+		return true;
+	}
+
 	public void UpdateMouse()
 	{
+		if (TryUpdateMouseAbsolute())
+		{
+			return;
+		}
 		int num = XYWH.X + 10 - CurrentView.ScreenPosition.X;
 		int num2 = XYWH.Y + 21 - CurrentView.ScreenPosition.Y;
 		if (num > CurrentView.ViewWidth || num < 0 || num2 > Main.ResolutionHeight || num2 < 0)
@@ -9312,6 +9364,10 @@ public sealed class Player
 
 	public unsafe void UpdateMouseSmart()
 	{
+		if (TryUpdateMouseAbsolute())
+		{
+			return;
+		}
 		int num = XYWH.X + 10 - CurrentView.ScreenPosition.X;
 		int num2 = XYWH.Y + 21 - CurrentView.ScreenPosition.Y;
 		fixed (Item* ptr = &Inventory[SelectedItem])
