@@ -953,6 +953,8 @@ public sealed class Main : Game
 		Terraria.Input.ChatInput.Initialize();
 		Terraria.Mods.ModLoader.GraphicsDevice = GraphicsDevice;
 		Terraria.Mods.ModLoader.Initialize();
+		// Old tConfig packs dropped into Storage/tConfig are picked up as item overrides.
+		Terraria.Mods.TConfigImporter.ImportIfPresent();
 	}
 
 	protected override void LoadContent()

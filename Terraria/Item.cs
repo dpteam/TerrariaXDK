@@ -1187,6 +1187,7 @@ public struct Item
 		{
 			CheckMaterial();
 		}
+		this = Terraria.Mods.ItemOverrides.Apply(this);
 	}
 
 	public bool CheckMaterial()
@@ -8872,6 +8873,7 @@ public struct Item
 		{
 			CheckMaterial();
 		}
+		this = Terraria.Mods.ItemOverrides.Apply(this);
 	}
 
 	public Color GetAlpha(Color ItemColour)

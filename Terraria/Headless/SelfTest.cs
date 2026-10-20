@@ -44,6 +44,7 @@ internal static class SelfTest
 		RunCheck("settings sections", CheckSettingsSections);
 		RunCheck("network stats", CheckNetworkStats);
 		RunCheck("key bindings", CheckKeyBindings);
+		RunCheck("tconfig import", CheckTConfigImport);
 		ReportMemory();
 		Console.WriteLine();
 		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
@@ -1192,6 +1193,82 @@ internal static class SelfTest
 		{
 			Main.NetMode = netMode;
 			Cheats.CheatState.Reset();
+		}
+	}
+
+	// --- tConfig import -----------------------------------------------------
+
+	/// <summary>
+	/// Imports a tiny synthetic tConfig pack and checks that a known field lands on the item
+	/// and that unknown fields are reported instead of silently dropped.
+	/// </summary>
+	private static bool CheckTConfigImport()
+	{
+		string text = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-tconfig");
+		try
+		{
+			if (System.IO.Directory.Exists(text))
+			{
+				System.IO.Directory.Delete(text, recursive: true);
+			}
+			string text2 = System.IO.Path.Combine(text, "TestPack", "Item");
+			System.IO.Directory.CreateDirectory(text2);
+			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Shortsword.ini"), "; comment\r\n[Stats]\r\ndamage=12\r\nuseTime=17\r\nbogusField=1\r\n");
+			Terraria.Mods.ItemOverrides.Clear();
+			int num = Terraria.Mods.TConfigImporter.Import(text);
+			if (num != 1)
+			{
+				return Fail("expected 1 imported item, got " + num);
+			}
+			if (Terraria.Mods.TConfigImporter.UnsupportedFields != 1)
+			{
+				return Fail("unknown field was not reported (count " + Terraria.Mods.TConfigImporter.UnsupportedFields + ")");
+			}
+			// Applying defaults must now pick up the override.
+			Item item = default(Item);
+			item.SetDefaults("Copper Shortsword");
+			if (item.Damage != 12)
+			{
+				return Fail("override did not reach the item (damage " + item.Damage + ")");
+			}
+			if (item.UseTime != 17)
+			{
+				return Fail("second override did not apply (useTime " + item.UseTime + ")");
+			}
+			// A different item must be untouched.
+			Item other = default(Item);
+			other.SetDefaults("Copper Pickaxe");
+			if (other.Damage == 12 && other.Type != item.Type)
+			{
+				return Fail("override leaked onto another item");
+			}
+			// Unknown item names are skipped, not fatal.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Not A Real Item.ini"), "damage=5\r\n");
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.TConfigImporter.Import(text);
+			if (Terraria.Mods.TConfigImporter.SkippedItems < 1)
+			{
+				return Fail("unknown item name was not skipped");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("tConfig import failed: " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Mods.ItemOverrides.Clear();
+			try
+			{
+				if (System.IO.Directory.Exists(text))
+				{
+					System.IO.Directory.Delete(text, recursive: true);
+				}
+			}
+			catch
+			{
+			}
 		}
 	}
 
