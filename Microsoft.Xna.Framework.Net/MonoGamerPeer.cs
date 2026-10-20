@@ -10,7 +10,7 @@ using Lidgren.Network;
 
 namespace Microsoft.Xna.Framework.Net;
 
-internal class MonoGamerPeer
+internal class MonoGamerPeer : Terraria.Net.IPeerTransport
 {
 	private BackgroundWorker MGServerWorker = new BackgroundWorker();
 
@@ -439,12 +439,27 @@ internal class MonoGamerPeer
 		peer.DiscoverLocalPeers(port);
 	}
 
-	internal void SendData(byte[] data, SendDataOptions options)
+	public void SendData(byte[] data, SendDataOptions options)
 	{
 		SendMessage(NetworkMessageType.Data, data, options, null);
 	}
 
-	internal void SendData(byte[] data, SendDataOptions options, NetworkGamer gamer)
+	public void Drain()
+	{
+		// Lidgren delivers on its own worker thread; nothing to marshal here.
+	}
+
+	public void BroadcastState(NetworkSessionState state)
+	{
+		// MonoGamerPeer already mirrors state through SendSessionStateChange.
+	}
+
+	public void Shutdown()
+	{
+		ShutDown();
+	}
+
+	public void SendData(byte[] data, SendDataOptions options, NetworkGamer gamer)
 	{
 		SendMessage(NetworkMessageType.Data, data, options, gamer);
 	}

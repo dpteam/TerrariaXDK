@@ -564,8 +564,70 @@ public sealed class Netplay
 		}
 	}
 
+	/// <summary>
+	/// LAN discovery for the built-in transport: broadcasts a UDP probe and turns every reply
+	/// into a joinable session. Runs before the legacy Xbox Live friend lookup.
+	/// </summary>
+	private static bool DiscoverLanSessions()
+	{
+		if (!Terraria.Net.NetworkConfig.UseTcpTransport)
+		{
+			return false;
+		}
+		List<AvailableNetworkSession> results = new List<AvailableNetworkSession>(16);
+		try
+		{
+			Terraria.Net.TcpPeer.Discover(results);
+		}
+		catch (Exception ex)
+		{
+			Program.Log("[Netplay] LAN discovery failed: " + ex.Message);
+		}
+		bool added = false;
+		if (Terraria.Net.NetworkConfig.TryParseAddress(Terraria.Net.NetworkConfig.JoinAddress, out var host, out var port))
+		{
+			try
+			{
+				System.Net.IPAddress[] addresses = System.Net.Dns.GetHostAddresses(host);
+				if (addresses.Length != 0)
+				{
+					AvailableNetworkSession manual = new AvailableNetworkSession(0, host, 0, 7, new NetworkSessionProperties(), new QualityOfService());
+					manual.SessionType = NetworkSessionType.SystemLink;
+					manual.EndPoint = new System.Net.IPEndPoint(addresses[0], port);
+					results.Add(manual);
+				}
+			}
+			catch (Exception ex2)
+			{
+				Program.Log("[Netplay] Could not resolve JoinAddress: " + ex2.Message);
+			}
+		}
+		lock (availableSessions)
+		{
+			for (int i = 0; i < results.Count; i++)
+			{
+				bool duplicate = false;
+				for (int j = 0; j < availableSessions.Count; j++)
+				{
+					if (availableSessions[j].AvailableSession.EndPoint == results[i].EndPoint)
+					{
+						duplicate = true;
+						break;
+					}
+				}
+				if (!duplicate)
+				{
+					availableSessions.Add(new JoinableSession(results[i]));
+					added = true;
+				}
+			}
+		}
+		return added;
+	}
+
 	public static void FindSessionsThread()
 	{
+		DiscoverLanSessions();
 		NetworkSessionProperties networkSessionProperties = new NetworkSessionProperties();
 		networkSessionProperties[2] = 2;
 		UI mainUI = UI.MainUI;

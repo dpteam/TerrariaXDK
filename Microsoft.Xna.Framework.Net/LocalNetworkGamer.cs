@@ -86,17 +86,23 @@ public sealed class LocalNetworkGamer : NetworkGamer
 	{
 		byte[] array = new byte[count];
 		Array.Copy(data, offset, array, 0, array.Length);
+		// Local (split-screen) gamers are looped back inside the process ...
 		foreach (NetworkGamer allGamer in Session.AllGamers)
 		{
-			NetworkSession.NetworkEvent evt = new NetworkSession.NetworkEvent
+			if (allGamer.IsLocal)
 			{
-				Type = NetworkSession.NetworkEventType.PacketSend,
-				Gamer = allGamer,
-				Packet = array,
-				Reliable = options
-			};
-			Session.SendNetworkEvent(evt);
+				NetworkSession.NetworkEvent evt = new NetworkSession.NetworkEvent
+				{
+					Type = NetworkSession.NetworkEventType.PacketSend,
+					Gamer = allGamer,
+					Packet = array,
+					Reliable = options
+				};
+				Session.SendNetworkEvent(evt);
+			}
 		}
+		// ... and remote gamers receive it over the transport.
+		Session.SendPacketToAll(array, options);
 	}
 
 	public void SendData(byte[] data, SendDataOptions options, NetworkGamer recipient)
@@ -108,44 +114,30 @@ public sealed class LocalNetworkGamer : NetworkGamer
 	{
 		byte[] array = new byte[count];
 		Array.Copy(data, offset, array, 0, array.Length);
-		NetworkSession.NetworkEvent evt = new NetworkSession.NetworkEvent
-		{
-			Type = NetworkSession.NetworkEventType.PacketSend,
-			Gamer = recipient,
-			Packet = array,
-			Reliable = options
-		};
-		Session.SendNetworkEvent(evt);
-	}
-
-	public void SendData(PacketWriter data, SendDataOptions options)
-	{
-		byte[] packet = (data.BaseStream as MemoryStream).ToArray();
-		data.BaseStream.Seek(0L, SeekOrigin.Begin);
-		foreach (NetworkGamer allGamer in Session.AllGamers)
+		if (recipient != null && recipient.IsLocal)
 		{
 			NetworkSession.NetworkEvent evt = new NetworkSession.NetworkEvent
 			{
 				Type = NetworkSession.NetworkEventType.PacketSend,
-				Gamer = allGamer,
-				Packet = packet,
+				Gamer = recipient,
+				Packet = array,
 				Reliable = options
 			};
 			Session.SendNetworkEvent(evt);
+			return;
 		}
+		Session.SendPacket(array, options, recipient);
+	}
+
+	public void SendData(PacketWriter data, SendDataOptions options)
+	{
+		SendData(((MemoryStream)data.BaseStream).ToArray(), 0, (int)data.Length, options);
+		data.BaseStream.Seek(0L, SeekOrigin.Begin);
 	}
 
 	public void SendData(PacketWriter data, SendDataOptions options, NetworkGamer recipient)
 	{
-		byte[] packet = (data.BaseStream as MemoryStream).ToArray();
+		SendData(((MemoryStream)data.BaseStream).ToArray(), 0, (int)data.Length, options, recipient);
 		data.BaseStream.Seek(0L, SeekOrigin.Begin);
-		NetworkSession.NetworkEvent evt = new NetworkSession.NetworkEvent
-		{
-			Type = NetworkSession.NetworkEventType.PacketSend,
-			Gamer = recipient,
-			Packet = packet,
-			Reliable = options
-		};
-		Session.SendNetworkEvent(evt);
 	}
 }

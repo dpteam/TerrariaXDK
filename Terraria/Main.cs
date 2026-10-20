@@ -945,6 +945,8 @@ public sealed class Main : Game
 		SignedInGamer.SignedIn += SignedInGamer_SignedIn;
 		SignedInGamer.SignedOut += SignedInGamer_SignedOut;
 		NetworkSession.InviteAccepted += Netplay.NetworkSession_InviteAccepted;
+		Terraria.Mods.ModLoader.GraphicsDevice = GraphicsDevice;
+		Terraria.Mods.ModLoader.Initialize();
 	}
 
 	protected override void LoadContent()
@@ -1673,6 +1675,7 @@ public sealed class Main : Game
 			UpdateTutorial();
 		}
 		Terraria.Cheats.CheatState.Update();
+		Terraria.Mods.ModLoader.GameUpdate();
 		for (int j = 0; j < UIInstance.Length; j++)
 		{
 			UIInstance[j].Update();
@@ -3457,6 +3460,7 @@ public sealed class Main : Game
 		MiniMap.OnStartGame();
 		GC.Collect();
 		IsGameStarted = true;
+		Terraria.Mods.ModLoader.WorldLoaded();
 	}
 
 	public static void JoinGame(UI StartUI)
@@ -3473,6 +3477,7 @@ public sealed class Main : Game
 		StartUI.CurrentView.OnStartGame();
 		MiniMap.OnStartGame();
 		IsGameStarted = true;
+		Terraria.Mods.ModLoader.WorldLoaded();
 	}
 
 	public static void DrawSolidRect(Rectangle DestRect, Color Colour)

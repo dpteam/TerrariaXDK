@@ -1967,6 +1967,7 @@ internal static class WorldGen
 		{
 			return;
 		}
+		Terraria.Mods.ModLoader.WorldSaving();
 		saveLock = true;
 		if (hardLock)
 		{

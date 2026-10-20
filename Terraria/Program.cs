@@ -15,6 +15,18 @@ internal static class Program
 
 	public static void Main(string[] args)
 	{
+		if (args != null && args.Length != 0)
+		{
+			for (int i = 0; i < args.Length; i++)
+			{
+				string text = args[i].ToLowerInvariant();
+				if (text == "--selftest" || text == "-selftest")
+				{
+					Environment.ExitCode = Terraria.Headless.SelfTest.Run(args);
+					return;
+				}
+			}
+		}
 		InitLogger();
 		Log("=== TERRARIA XDK - DEBUG v2 ===");
 		Log($"[INIT] DateTime: {DateTime.Now}");

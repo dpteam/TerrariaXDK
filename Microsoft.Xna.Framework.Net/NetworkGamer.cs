@@ -7,7 +7,7 @@ public class NetworkGamer : Gamer
 {
 	private long remoteUniqueIdentifier = -1L;
 
-	public bool HasLeftSession { get; private set; }
+	public bool HasLeftSession { get; internal set; }
 
 	public bool HasVoice { get; private set; }
 

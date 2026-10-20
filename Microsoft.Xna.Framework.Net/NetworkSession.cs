@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Microsoft.Xna.Framework.GamerServices;
+using Terraria.Net;
 
 namespace Microsoft.Xna.Framework.Net;
 
@@ -89,7 +90,7 @@ public sealed class NetworkSession : IDisposable
 
 	internal Queue<CommandEvent> commandQueue;
 
-	internal MonoGamerPeer networkPeer;
+	internal IPeerTransport networkPeer;
 
 	internal static AsyncCallback actCallback;
 
@@ -255,6 +256,19 @@ public sealed class NetworkSession : IDisposable
 		activeSessions.Add(this);
 	}
 
+	/// <summary>
+	/// Chooses the transport. TCP is the default: it hosts inside the game process and needs
+	/// no external server executable. The legacy Lidgren peer stays available as a fallback.
+	/// </summary>
+	private IPeerTransport CreatePeer(AvailableNetworkSession availableSession)
+	{
+		if (Terraria.Net.NetworkConfig.UseTcpTransport)
+		{
+			return new Terraria.Net.TcpPeer(this, availableSession);
+		}
+		return new MonoGamerPeer(this, availableSession);
+	}
+
 	private NetworkSession(NetworkSessionType sessionType, int maxGamers, int privateGamerSlots, NetworkSessionProperties sessionProperties, bool isHost, int hostGamer, AvailableNetworkSession availableSession)
 		: this()
 	{
@@ -269,11 +283,16 @@ public sealed class NetworkSession : IDisposable
 		commandQueue = new Queue<CommandEvent>();
 		if (isHost)
 		{
-			networkPeer = new MonoGamerPeer(this, null);
+			// With the TCP transport the listener is bound by EndCreate() on the session that
+			// is actually returned to the game; binding here would leak a second listener.
+			if (!Terraria.Net.NetworkConfig.UseTcpTransport)
+			{
+				networkPeer = CreatePeer(null);
+			}
 		}
 		else if (networkPeer == null)
 		{
-			networkPeer = new MonoGamerPeer(this, availableSession);
+			networkPeer = CreatePeer(availableSession);
 		}
 		CommandGamerJoined command = new CommandGamerJoined(hostGamer, isHost, isLocal: true);
 		commandQueue.Enqueue(new CommandEvent(command));
@@ -290,8 +309,108 @@ public sealed class NetworkSession : IDisposable
 		{
 			localGamer.packetQueue.Clear();
 		}
+		networkPeer?.Shutdown();
+		networkPeer = null;
 		activeSession = null;
 		IsDisposed = true;
+	}
+
+	// --- Transport-facing helpers (used by IPeerTransport implementations) ----
+
+	/// <summary>Host side: adds a remote gamer and raises the join event on the next Update.</summary>
+	internal NetworkGamer AddRemoteGamer(string gamertag, long remoteId)
+	{
+		NetworkGamer networkGamer = new NetworkGamer(this);
+		networkGamer.Gamertag = gamertag;
+		networkGamer.RemoteUniqueIdentifier = remoteId;
+		RemoteGamers.collection.Add(networkGamer);
+		AllGamers.collection.Add(networkGamer);
+		SendNetworkEvent(new NetworkEvent
+		{
+			Type = NetworkEventType.GamerJoin,
+			Gamer = networkGamer
+		});
+		return networkGamer;
+	}
+
+	/// <summary>Client side: mirrors a host-side gamer into this session.</summary>
+	internal NetworkGamer MirrorRemoteGamer(string gamertag, long remoteId)
+	{
+		NetworkGamer networkGamer = FindGamerByRemoteId(remoteId);
+		if (networkGamer != null)
+		{
+			return networkGamer;
+		}
+		return AddRemoteGamer(gamertag, remoteId);
+	}
+
+	internal NetworkGamer FindGamerByRemoteId(long remoteId)
+	{
+		foreach (NetworkGamer allGamer in AllGamers)
+		{
+			if (allGamer.RemoteUniqueIdentifier == remoteId)
+			{
+				return allGamer;
+			}
+		}
+		return null;
+	}
+
+	internal void RemoveRemoteGamer(long remoteId)
+	{
+		NetworkGamer networkGamer = FindGamerByRemoteId(remoteId);
+		if (networkGamer == null)
+		{
+			return;
+		}
+		networkGamer.HasLeftSession = true;
+		RemoteGamers.collection.Remove(networkGamer);
+		AllGamers.collection.Remove(networkGamer);
+		SendNetworkEvent(new NetworkEvent
+		{
+			Type = NetworkEventType.GamerLeave,
+			Gamer = networkGamer
+		});
+	}
+
+	/// <summary>Queues an inbound packet for the game's own message loop.</summary>
+	internal void EnqueueIncomingPacket(NetworkGamer sender, byte[] data)
+	{
+		if (LocalGamers.Count == 0)
+		{
+			return;
+		}
+		LocalGamers[0].packetQueue.Enqueue(new NetworkEvent
+		{
+			Type = NetworkEventType.PacketSend,
+			Gamer = sender,
+			Packet = data,
+			Reliable = SendDataOptions.Reliable
+		});
+	}
+
+	/// <summary>Host side: binds the listener for a freshly created session.</summary>
+	internal void StartHostPeer()
+	{
+		if (networkPeer == null)
+		{
+			networkPeer = CreatePeer(null);
+		}
+	}
+
+	/// <summary>Applies a session-state change coming from the host.</summary>
+	internal void ApplyRemoteSessionState(NetworkSessionState state)
+	{
+		SendNetworkEvent(new NetworkEvent
+		{
+			Type = NetworkEventType.StateChange,
+			State = state
+		});
+	}
+
+	internal void SetHostGamer(NetworkGamer gamer)
+	{
+		Host = gamer;
 	}
 
 	public void Update()
@@ -300,6 +419,8 @@ public sealed class NetworkSession : IDisposable
 		{
 			throw new ObjectDisposedException("this");
 		}
+		// Inbound traffic is applied on the game thread, before events are dispatched.
+		networkPeer?.Drain();
 		while (networkEvents.Count > 0)
 		{
 			NetworkEvent networkEvent = networkEvents.Dequeue();
@@ -417,6 +538,7 @@ public sealed class NetworkSession : IDisposable
 			State = NetworkSessionState.Playing
 		};
 		SendNetworkEvent(evt);
+		networkPeer?.BroadcastState(NetworkSessionState.Playing);
 	}
 
 	public void EndGame()
@@ -439,11 +561,24 @@ public sealed class NetworkSession : IDisposable
 			State = NetworkSessionState.Lobby
 		};
 		SendNetworkEvent(evt);
+		networkPeer?.BroadcastState(NetworkSessionState.Lobby);
 	}
 
 	internal void SendNetworkEvent(NetworkEvent evt)
 	{
 		networkEvents.Enqueue(evt);
+	}
+
+	/// <summary>Broadcasts a game packet over the transport (remote gamers only).</summary>
+	internal void SendPacketToAll(byte[] data, SendDataOptions options)
+	{
+		networkPeer?.SendData(data, options);
+	}
+
+	/// <summary>Sends a game packet to one gamer over the transport.</summary>
+	internal void SendPacket(byte[] data, SendDataOptions options, NetworkGamer recipient)
+	{
+		networkPeer?.SendData(data, options, recipient);
 	}
 
 	public static NetworkSession Create(NetworkSessionType sessionType, int maxLocalGamers, int maxGamers)
@@ -581,6 +716,7 @@ public sealed class NetworkSession : IDisposable
 			activeAction = new NetworkSessionAction(result.AsyncState, actCallback, actMaxLocal, actGamers, actMaxPriv, actProp, actType);
 		}
 		activeSession = new NetworkSession(activeAction.SessionProperties, activeAction.SessionType, 69, activeAction.MaxPrivateSlots, activeAction.MaxLocalGamers, activeAction.LocalGamers);
+		activeSession.StartHostPeer();
 		activeAction = null;
 		return activeSession;
 	}

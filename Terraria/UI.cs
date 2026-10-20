@@ -997,11 +997,27 @@ public sealed class UI
 
 	public bool CanPlayOnline()
 	{
+		// The Xbox Live gate is gone with the console service; the built-in TCP transport
+		// provides LAN/Internet play without any sign-in, so multiplayer is always available.
+		if (Terraria.Net.NetworkConfig.UseTcpTransport)
+		{
+			return IsUserGeneratedContentAllowed();
+		}
 		if (HasOnlineWithPrivileges())
 		{
 			return IsUserGeneratedContentAllowed();
 		}
 		return false;
+	}
+
+	/// <summary>
+	/// True when multiplayer can be started at all. Xbox Live titles required a Live account;
+	/// the built-in transport only needs a network stack, which is always present on desktop
+	/// and on handheld consoles running this build.
+	/// </summary>
+	public bool IsNetworkAvailable()
+	{
+		return Terraria.Net.NetworkConfig.UseTcpTransport || HasOnline();
 	}
 
 	public bool CanCommunicate()
@@ -2296,7 +2312,7 @@ public sealed class UI
 					uiY = 1;
 				}
 			}
-			if (HasOnline())
+			if (IsNetworkAvailable())
 			{
 				MENU_TITLE_COORDS[2].X = ViewportHalfWidth;
 				menuHC[2] = 0;
@@ -2452,7 +2468,7 @@ public sealed class UI
 				numMenuItems = 6;
 				MENU_PAUSE_COORDS[6].X = 0;
 			}
-			if (!HasOnline())
+			if (!IsNetworkAvailable())
 			{
 				MENU_PAUSE_COORDS[num2 + 1].X = 0;
 				menuHC[num2 + 1] = 3;

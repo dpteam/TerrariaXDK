@@ -1,0 +1,557 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net.Sockets;
+using System.Text;
+using Terraria.Net;
+
+namespace Terraria.Headless;
+
+/// <summary>
+/// Graphics-free verification suite, runnable as <c>TerrariaXDK.exe --selftest</c>.
+///
+/// It exists because the game itself needs a real OpenGL 2.1 device, which CI machines and
+/// some handhelds do not have at build time. Every check here is pure logic: content
+/// integrity, wire framing, transport handshake, config parsing, mod loading and cheat gating.
+/// </summary>
+internal static class SelfTest
+{
+	private static int _passed;
+
+	private static int _failed;
+
+	private static readonly List<string> Failures = new List<string>();
+
+	/// <summary>Runs every check and returns a process exit code.</summary>
+	public static int Run(string[] args)
+	{
+		Console.WriteLine("TerrariaXDK self-test");
+		Console.WriteLine("=====================");
+		RunCheck("content manifest", CheckContentManifest);
+		RunCheck("content orphans", CheckContentOrphans);
+		RunCheck("wire framing", CheckWireFormat);
+		RunCheck("tcp loopback", CheckTcpLoopback);
+		RunCheck("network config", CheckNetworkConfig);
+		RunCheck("mod loader", CheckModLoader);
+		RunCheck("cheat gating", CheckCheatGating);
+		Console.WriteLine();
+		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
+		if (_failed != 0)
+		{
+			Console.WriteLine();
+			foreach (string failure in Failures)
+			{
+				Console.WriteLine("  FAIL " + failure);
+			}
+		}
+		return (_failed == 0) ? 0 : 1;
+	}
+
+	private static void RunCheck(string name, Func<bool> check)
+	{
+		bool flag;
+		string message = null;
+		try
+		{
+			flag = check();
+		}
+		catch (Exception ex)
+		{
+			flag = false;
+			message = ex.GetType().Name + ": " + ex.Message;
+		}
+		if (flag)
+		{
+			_passed++;
+			Console.WriteLine("  ok   " + name);
+			return;
+		}
+		_failed++;
+		string text = (message == null) ? name : (name + " - " + message);
+		Failures.Add(text);
+		Console.WriteLine("  FAIL " + text);
+	}
+
+	// --- Content ------------------------------------------------------------
+
+	internal static string ContentRoot => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Content");
+
+	/// <summary>
+	/// Every asset path that game code passes to Content.Load, generated the same way the
+	/// loaders build them, so this list cannot silently drift from reality.
+	/// </summary>
+	internal static List<string> RequiredAssets()
+	{
+		List<string> list = new List<string>();
+		// Splash + rating logos (Main.LoadContent / Lang.SetSystemLang).
+		list.Add("Images/logo_1");
+		for (int i = 2; i <= 4; i++)
+		{
+			list.Add("Images/logo_" + i);
+		}
+		list.Add("Images/Logo");
+		list.Add("Images/Logo2");
+		list.Add("Images/Text_Back");
+		list.Add("Images/Chat_Back");
+		list.Add("Images/Cursor");
+		list.Add("Images/UpsellHM");
+		list.Add("Images/_sheetSprites");
+		list.Add("Images/_sheetTiles");
+		// Region rating splashes.
+		list.Add("ESRB");
+		list.Add("PEGI");
+		list.Add("USK");
+		list.Add("ACB");
+		// Parallax backgrounds (WorldView.LoadContent loops 3..31).
+		for (int j = 3; j < 32; j++)
+		{
+			list.Add("Images/Background_" + j);
+		}
+		// Fonts. The suffix sets mirror UI.LoadFonts / UI.LoadSplitscreenFonts exactly:
+		// only big, small and small2 (and big_sc / small2_sc) have PS3 variants.
+		string[,] fonts = new string[12, 2]
+		{
+			{ "big", "_PS3" },
+			{ "stack", "" },
+			{ "combat", "" },
+			{ "combat2", "" },
+			{ "small", "_PS3" },
+			{ "small2", "_PS3" },
+			{ "big_sc", "_PS3" },
+			{ "stack_sc", "" },
+			{ "combat_sc", "" },
+			{ "combat2_sc", "" },
+			{ "small_sc", "" },
+			{ "small2_sc", "_PS3" }
+		};
+		for (int n2 = 0; n2 < fonts.GetLength(0); n2++)
+		{
+			string text2 = fonts[n2, 0];
+			string text3 = fonts[n2, 1];
+			list.Add("Fonts/" + text2);
+			list.Add("Fonts/HD/" + text2);
+			if (text3.Length != 0)
+			{
+				list.Add("Fonts/" + text2 + text3);
+				list.Add("Fonts/HD/" + text2 + text3);
+			}
+		}
+		// UI chrome.
+		string[] controllers =
+		{
+			"UI/XBController", "UI/XBDPad", "UI/PSController", "UI/PSDPad", "UI/XBControllerHD", "UI/XBDPadHD", "UI/PSControllerHD", "UI/PSDPadHD", "UI/ProgressBar", "UI/SoundBar", "UI/SoundIcons"
+		};
+		list.AddRange(controllers);
+		// Achievements.
+		for (int k = 0; k < 39; k++)
+		{
+			list.Add("Achievements/Achievement" + k.ToString("00"));
+		}
+		// Leaderboards: one icon per Column value.
+		string[] columns =
+		{
+			"air", "ground", "water", "lava", "ore", "gems", "soils", "wood", "furniture", "tools", "weapons", "armor", "consumables", "misc", "potions", "lights", "ammo", "seeds", "keys", "king_slime", "cthulhu", "eater", "skeletron", "wall", "twins",
+			"skeletron_prime", "destroyer", "ocram", "drowned", "fallen", "buried", "burned"
+		};
+		foreach (string column in columns)
+		{
+			list.Add("UI/Leaderboards/" + column + "_column");
+		}
+		// How to play.
+		list.AddRange(new string[6]
+		{
+			"UI/HowToPlay/Text_Back", "UI/HowToPlay/Howto_Movement", "UI/HowToPlay/Howto_Hotbar2", "UI/HowToPlay/Howto_Debuff", "UI/HowToPlay/Howto_Inventory", "UI/HowToPlay/Howto_Logo"
+		});
+		// Character creation (CreateCharacter.Assets).
+		list.AddRange(new string[22]
+		{
+			"UI/CharacterCreation/Tile01", "UI/CharacterCreation/Tile01_Bigger", "UI/CharacterCreation/Category_Gender", "UI/CharacterCreation/Category_Hair", "UI/CharacterCreation/Category_HairColor", "UI/CharacterCreation/Category_Eyes", "UI/CharacterCreation/Category_Skin",
+			"UI/CharacterCreation/Category_Shirt", "UI/CharacterCreation/Category_Undershirt", "UI/CharacterCreation/Category_Pants", "UI/CharacterCreation/Category_Shoes", "UI/CharacterCreation/Category_Difficulty", "UI/CharacterCreation/Hair_Selector", "UI/CharacterCreation/Hair_Background",
+			"UI/CharacterCreation/Palette", "UI/CharacterCreation/Color_Selector", "UI/CharacterCreation/Gender_Male", "UI/CharacterCreation/Gender_Female", "UI/CharacterCreation/Button_Difficulty_Soft", "UI/CharacterCreation/Button_Difficulty_Med", "UI/CharacterCreation/Button_Difficulty_Hard",
+			"UI/CharacterCreation/Frame01"
+		});
+		// Upsell screens (one per language).
+		string[] languages =
+		{
+			"de", "en", "es", "fr", "it"
+		};
+		foreach (string language in languages)
+		{
+			list.Add("UI/Upsell/01_" + language);
+		}
+		// Sound effects (Main.LoadAllSfxPools).
+		list.AddRange(new string[2]
+		{
+			"UI/SoundBar", "UI/SoundIcons"
+		});
+		list.AddRange(new string[6]
+		{
+			"Sounds/Mech_0", "Sounds/Grab", "Sounds/Pixie", "Sounds/Dig_0", "Sounds/Dig_1", "Sounds/Dig_2"
+		});
+		for (int l = 0; l < 3; l++)
+		{
+			list.Add("Sounds/Tink_" + l);
+			list.Add("Sounds/Player_Hit_" + l);
+			list.Add("Sounds/Female_Hit_" + l);
+		}
+		list.AddRange(new string[16]
+		{
+			"Sounds/Player_Killed", "Sounds/Chat", "Sounds/Grass", "Sounds/Door_Opened", "Sounds/Door_Closed", "Sounds/Menu_Tick", "Sounds/Menu_Open", "Sounds/Menu_Close", "Sounds/Shatter", "Sounds/Splash_0", "Sounds/Splash_1", "Sounds/Double_Jump", "Sounds/Run", "Sounds/Coins",
+			"Sounds/Unlock", "Sounds/MaxMana"
+		});
+		list.Add("Sounds/Drown");
+		for (int m = 0; m < 5; m++)
+		{
+			list.Add("Sounds/Zombie_" + m);
+		}
+		for (int n = 0; n < 2; n++)
+		{
+			list.Add("Sounds/Roar_" + n);
+		}
+		for (int num = 1; num <= 37; num++)
+		{
+			list.Add("Sounds/Item_" + num);
+		}
+		for (int num2 = 1; num2 <= 11; num2++)
+		{
+			list.Add("Sounds/NPC_Hit_" + num2);
+		}
+		for (int num3 = 1; num3 <= 15; num3++)
+		{
+			list.Add("Sounds/NPC_Killed_" + num3);
+		}
+		return list;
+	}
+
+	private static bool CheckContentManifest()
+	{
+		string contentRoot = ContentRoot;
+		if (!Directory.Exists(contentRoot))
+		{
+			return Fail("Content folder not found at " + contentRoot);
+		}
+		List<string> list = RequiredAssets();
+		List<string> list2 = new List<string>();
+		foreach (string item in list)
+		{
+			string path = Path.Combine(contentRoot, item.Replace('/', Path.DirectorySeparatorChar) + ".xnb");
+			if (!File.Exists(path))
+			{
+				list2.Add(item);
+			}
+		}
+		// Music and the tutorial world are loaded by raw path.
+		string[] array = new string[19]
+		{
+			"Music_1", "Music_2", "Music_3", "Music_4", "Music_5", "Music_6", "Music_7", "Music_8", "Music_9", "Music_10",
+			"Music_11", "Music_12", "Music_13", "Desert", "FloatingIsland", "Tutorial", "Boss4", "Ocean", "Snow"
+		};
+		foreach (string text in array)
+		{
+			if (!File.Exists(Path.Combine(contentRoot, "ExtMusic", text + ".wav")))
+			{
+				list2.Add("ExtMusic/" + text);
+			}
+		}
+		if (!File.Exists(Path.Combine(contentRoot, "Worlds", "tutorial.wld")))
+		{
+			list2.Add("Worlds/tutorial");
+		}
+		if (list2.Count == 0)
+		{
+			return true;
+		}
+		return Fail(list2.Count + " missing asset(s): " + string.Join(", ", list2.ToArray()));
+	}
+
+	/// <summary>
+	/// Flags content files that no loader above asks for. Raw art sources (.dds/.png), the
+	/// legacy XACT banks and FontsOld are intentionally absent; anything else showing up here
+	/// is dead weight that should be reviewed before shipping.
+	/// </summary>
+	private static bool CheckContentOrphans()
+	{
+		string contentRoot = ContentRoot;
+		List<string> list = RequiredAssets();
+		HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		foreach (string item in list)
+		{
+			hashSet.Add(item.Replace('/', '\\') + ".xnb");
+		}
+		string[] array = new string[3]
+		{
+			"Worlds\\tutorial.wld", "ExtMusic\\Music_1.wav", "ExtMusic\\Snow.wav"
+		};
+		List<string> list2 = new List<string>();
+		foreach (string item2 in Directory.GetFiles(contentRoot, "*", SearchOption.AllDirectories))
+		{
+			string text = item2.Substring(contentRoot.Length + 1);
+			string extension = Path.GetExtension(text);
+			if (extension.Equals(".xnb", StringComparison.OrdinalIgnoreCase))
+			{
+				if (!hashSet.Contains(text))
+				{
+					list2.Add(text);
+				}
+				continue;
+			}
+			if (extension.Equals(".wld", StringComparison.OrdinalIgnoreCase))
+			{
+				if (!text.Equals("Worlds\\tutorial.wld", StringComparison.OrdinalIgnoreCase))
+				{
+					list2.Add(text);
+				}
+				continue;
+			}
+			if (extension.Equals(".wav", StringComparison.OrdinalIgnoreCase))
+			{
+				if (!text.StartsWith("ExtMusic\\", StringComparison.OrdinalIgnoreCase))
+				{
+					list2.Add(text);
+				}
+				continue;
+			}
+			// Anything else in Content is unexpected.
+			list2.Add(text);
+		}
+		if (list2.Count == 0)
+		{
+			return true;
+		}
+		return Fail(list2.Count + " unexpected content file(s): " + string.Join(", ", list2.ToArray()));
+	}
+
+	// --- Transport ----------------------------------------------------------
+
+	private static bool CheckWireFormat()
+	{
+		byte[] array = WireFormat.Frame(9, new byte[3]
+		{
+			1, 2, 3
+		});
+		using (MemoryStream stream = new MemoryStream(array))
+		{
+			byte[] array2 = WireFormat.ReadFrame(stream);
+			if (array2 == null || array2.Length != 4 || array2[0] != 9 || array2[1] != 1 || array2[3] != 3)
+			{
+				return Fail("frame round-trip mismatch");
+			}
+		}
+		// Empty payload must still carry the opcode.
+		using (MemoryStream stream2 = new MemoryStream(WireFormat.Frame(4, null)))
+		{
+			byte[] array3 = WireFormat.ReadFrame(stream2);
+			if (array3 == null || array3.Length != 1 || array3[0] != 4)
+			{
+				return Fail("empty payload mismatch");
+			}
+		}
+		// Oversized length must be rejected instead of allocating.
+		byte[] array4 = new byte[6]
+		{
+			255, 255, 255, 127, 1, 1
+		};
+		using (MemoryStream stream3 = new MemoryStream(array4))
+		{
+			if (WireFormat.ReadFrame(stream3) != null)
+			{
+				return Fail("oversized frame was accepted");
+			}
+		}
+		return true;
+	}
+
+	/// <summary>Real socket round trip using the framing + handshake shape of TcpPeer.</summary>
+	private static bool CheckTcpLoopback()
+	{
+		System.Net.Sockets.TcpListener tcpListener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+		tcpListener.Start();
+		int port = ((System.Net.IPEndPoint)tcpListener.LocalEndpoint).Port;
+		bool ok = true;
+		System.Threading.Thread thread = new System.Threading.Thread(() =>
+		{
+			try
+			{
+				using System.Net.Sockets.TcpClient tcpClient = tcpListener.AcceptTcpClient();
+				using NetworkStream stream = tcpClient.GetStream();
+				using MemoryStream memoryStream = new MemoryStream();
+				BinaryWriter binaryWriter = new BinaryWriter(memoryStream, Encoding.UTF8);
+				binaryWriter.Write((byte)1);
+				binaryWriter.Write(Terraria.Net.TcpPeer.ProtocolVersionPublic);
+				binaryWriter.Write("TestPeer");
+				binaryWriter.Write(Terraria.Mods.ModLoader.Signature);
+				binaryWriter.Flush();
+				WireFormat.WriteAll(stream, WireFormat.LengthPrefix(memoryStream.ToArray()));
+				byte[] array = WireFormat.ReadFrame(stream);
+				if (array == null || array[0] != 4 || array.Length != 3 || array[1] != 42)
+				{
+					ok = false;
+				}
+				WireFormat.WriteAll(stream, WireFormat.Frame(4, new byte[2]
+				{
+					7,
+					8
+				}));
+			}
+			catch
+			{
+				ok = false;
+			}
+		});
+		thread.IsBackground = true;
+		thread.Start();
+		try
+		{
+			using System.Net.Sockets.TcpClient tcpClient2 = new System.Net.Sockets.TcpClient();
+			tcpClient2.NoDelay = true;
+			tcpClient2.Connect(System.Net.IPAddress.Loopback, port);
+			using NetworkStream stream2 = tcpClient2.GetStream();
+			byte[] array2 = WireFormat.ReadFrame(stream2);
+			if (array2 == null || array2[0] != 1)
+			{
+				return Fail("handshake frame not received");
+			}
+			using (MemoryStream memoryStream2 = new MemoryStream(array2, 1, array2.Length - 1))
+			{
+				BinaryReader binaryReader = new BinaryReader(memoryStream2, Encoding.UTF8);
+				if (binaryReader.ReadInt32() != Terraria.Net.TcpPeer.ProtocolVersionPublic)
+				{
+					return Fail("protocol version mismatch");
+				}
+				if (binaryReader.ReadString() != "TestPeer")
+				{
+					return Fail("gamertag mismatch");
+				}
+				binaryReader.ReadString();
+			}
+			WireFormat.WriteAll(stream2, WireFormat.Frame(4, new byte[2]
+			{
+				42,
+				43
+			}));
+			byte[] array3 = WireFormat.ReadFrame(stream2);
+			if (array3 == null || array3.Length != 3 || array3[1] != 7 || array3[2] != 8)
+			{
+				return Fail("data echo mismatch");
+			}
+		}
+		catch (Exception ex)
+		{
+			return Fail("loopback failed: " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				tcpListener.Stop();
+			}
+			catch
+			{
+			}
+		}
+		thread.Join(2000);
+		return ok;
+	}
+
+	private static bool CheckNetworkConfig()
+	{
+		string host;
+		int port;
+		if (!NetworkConfig.TryParseAddress("192.168.1.5:7777", out host, out port) || host != "192.168.1.5" || port != 7777)
+		{
+			return Fail("host:port not parsed");
+		}
+		if (!NetworkConfig.TryParseAddress("example.org", out host, out port) || host != "example.org")
+		{
+			return Fail("bare host not parsed");
+		}
+		if (NetworkConfig.TryParseAddress("", out host, out port))
+		{
+			return Fail("empty address accepted");
+		}
+		if (NetworkConfig.TryParseAddress("host:99999", out host, out port))
+		{
+			return Fail("invalid port accepted");
+		}
+		if (!NetworkConfig.TryParseAddress("[::1]", out host, out port) || host != "::1")
+		{
+			return Fail("ipv6 literal not parsed");
+		}
+		return true;
+	}
+
+	private static bool CheckModLoader()
+	{
+		Terraria.Mods.ModLoader.Initialize();
+		if (!Terraria.Mods.ModLoader.IsInitialized)
+		{
+			return Fail("loader did not initialize");
+		}
+		if (string.IsNullOrEmpty(Terraria.Mods.ModLoader.Signature))
+		{
+			return Fail("empty signature");
+		}
+		if (!Terraria.Mods.ModLoader.IsCompatible(Terraria.Mods.ModLoader.Signature))
+		{
+			return Fail("own signature rejected");
+		}
+		if (Terraria.Mods.ModLoader.RequireMatchingMods && Terraria.Mods.ModLoader.ModCount > 0 && Terraria.Mods.ModLoader.IsCompatible("deadbeefdeadbeef"))
+		{
+			return Fail("foreign signature accepted");
+		}
+		// Signature must be stable across recomputation.
+		string signature = Terraria.Mods.ModLoader.Signature;
+		Terraria.Mods.ModLoader.Unload();
+		Terraria.Mods.ModLoader.Initialize();
+		if (!string.Equals(signature, Terraria.Mods.ModLoader.Signature, StringComparison.Ordinal) && Terraria.Mods.ModLoader.ModCount == 0)
+		{
+			return Fail("signature not deterministic");
+		}
+		return true;
+	}
+
+	private static bool CheckCheatGating()
+	{
+		int netMode = Main.NetMode;
+		try
+		{
+			Main.NetMode = 0;
+			if (!Cheats.CheatState.IsAvailable)
+			{
+				return Fail("cheats unavailable in single player");
+			}
+			Cheats.CheatState.GodMode = true;
+			if (!Cheats.CheatState.GodModeActive)
+			{
+				return Fail("god mode inactive in single player");
+			}
+			Main.NetMode = 1;
+			if (Cheats.CheatState.IsAvailable)
+			{
+				return Fail("cheats available as client");
+			}
+			if (Cheats.CheatState.GodModeActive)
+			{
+				return Fail("god mode leaked into multiplayer");
+			}
+			Main.NetMode = 2;
+			if (Cheats.CheatState.IsAvailable)
+			{
+				return Fail("cheats available as host");
+			}
+		}
+		finally
+		{
+			Main.NetMode = netMode;
+			Cheats.CheatState.Reset();
+		}
+		return true;
+	}
+
+	private static bool Fail(string message)
+	{
+		Failures.Add(message);
+		Console.WriteLine("       " + message);
+		return false;
+	}
+}

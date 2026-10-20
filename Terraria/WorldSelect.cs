@@ -437,6 +437,17 @@ public static class WorldSelect
 
 	public static AvailableNetworkSession Session()
 	{
+		if (session == null)
+		{
+			return null;
+		}
+		// Built-in transport: we already know the endpoint, no Xbox Live round trip needed.
+		if (Terraria.Net.NetworkConfig.UseTcpTransport)
+		{
+			AvailableNetworkSession availableSession = session.AvailableSession;
+			session = null;
+			return availableSession;
+		}
 		List<SignedInGamer> list = new List<SignedInGamer>(1);
 		list.Add(UI.MainUI.SignedInGamer);
 		AvailableNetworkSessionCollection availableNetworkSessionCollection = NetworkSession.Find(NetworkSessionType.PlayerMatch, list, session.AvailableSession.SessionProperties);

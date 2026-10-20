@@ -14,6 +14,18 @@ internal static class NetworkConfig
 	/// <summary>Maximum number of remote players accepted by the host.</summary>
 	public static int MaxPlayers = 7;
 
+	/// <summary>
+	/// When true (default) multiplayer runs over the in-process TCP transport. Set to false
+	/// to fall back to the legacy MonoGame/Lidgren peer.
+	/// </summary>
+	public static bool UseTcpTransport = true;
+
+	/// <summary>Actual port the listener bound to (0 until hosting starts).</summary>
+	public static int ActivePort;
+
+	/// <summary>UDP port used for LAN discovery probes.</summary>
+	public static int DiscoveryPort = 7778;
+
 	/// <summary>Optional join password; empty disables the password request.</summary>
 	public static string Password = string.Empty;
 

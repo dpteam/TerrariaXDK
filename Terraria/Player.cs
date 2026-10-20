@@ -4348,6 +4348,7 @@ public sealed class Player
 		{
 			LeaderboardInfo.SubmitStatistics(ui.Statistics, ui.localGamer);
 		}
+		Terraria.Mods.ModLoader.PlayerUpdate(this);
 	}
 
 	private unsafe bool CanInteractWithTile(int x, int y)
