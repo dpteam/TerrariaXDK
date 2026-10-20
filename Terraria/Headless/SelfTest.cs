@@ -42,6 +42,7 @@ internal static class SelfTest
 		RunCheck("input mapping", CheckInputMapping);
 		RunCheck("settings sections", CheckSettingsSections);
 		RunCheck("network stats", CheckNetworkStats);
+		RunCheck("key bindings", CheckKeyBindings);
 		ReportMemory();
 		Console.WriteLine();
 		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
@@ -1064,6 +1065,91 @@ internal static class SelfTest
 			return Fail("Reset did not clear the RTT");
 		}
 		return true;
+	}
+
+	// --- Key bindings -------------------------------------------------------
+
+	/// <summary>
+	/// Rebindable keys must round-trip through the config, and must never allow two actions
+	/// to share a key (that silently disables one of them).
+	/// </summary>
+	private static bool CheckKeyBindings()
+	{
+		string text = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-keys.ini");
+		try
+		{
+			Terraria.Input.KeyBindings.ResetToDefaults();
+			if (Terraria.Input.KeyBindings.Get(Terraria.Input.KeyBindings.Action.MoveLeft) != Keys.A)
+			{
+				return Fail("default MoveLeft is not A");
+			}
+			if (Terraria.Input.KeyBindings.Get(Terraria.Input.KeyBindings.Action.Jump) != Keys.Space)
+			{
+				return Fail("default Jump is not Space");
+			}
+			// Duplicates must be refused.
+			if (Terraria.Input.KeyBindings.TrySet(Terraria.Input.KeyBindings.Action.Heal, Keys.A))
+			{
+				return Fail("binding a key that is already used was allowed");
+			}
+			if (!Terraria.Input.KeyBindings.TrySet(Terraria.Input.KeyBindings.Action.Heal, Keys.F5))
+			{
+				return Fail("free key was refused");
+			}
+			if (Terraria.Input.KeyBindings.Get(Terraria.Input.KeyBindings.Action.Heal) != Keys.F5)
+			{
+				return Fail("rebind did not take effect");
+			}
+			if (Terraria.Input.KeyBindings.TrySet(Terraria.Input.KeyBindings.Action.Heal, Keys.None))
+			{
+				return Fail("Keys.None was accepted as a binding");
+			}
+			// Persist and reload.
+			if (System.IO.File.Exists(text))
+			{
+				System.IO.File.Delete(text);
+			}
+			Settings settings = new Settings(text);
+			Terraria.Input.KeyBindings.Save(settings);
+			settings.Close();
+			Terraria.Input.KeyBindings.ResetToDefaults();
+			Settings settings2 = new Settings(text);
+			Terraria.Input.KeyBindings.Load(settings2);
+			settings2.Close();
+			if (Terraria.Input.KeyBindings.Get(Terraria.Input.KeyBindings.Action.Heal) != Keys.F5)
+			{
+				return Fail("binding was not restored from config");
+			}
+			if (Terraria.Input.KeyBindings.Get(Terraria.Input.KeyBindings.Action.MoveLeft) != Keys.A)
+			{
+				return Fail("default binding was lost on reload");
+			}
+			// Reset restores everything.
+			Terraria.Input.KeyBindings.ResetToDefaults();
+			if (Terraria.Input.KeyBindings.Get(Terraria.Input.KeyBindings.Action.Heal) != Keys.H)
+			{
+				return Fail("reset did not restore the default key");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("key binding round-trip failed: " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				if (System.IO.File.Exists(text))
+				{
+					System.IO.File.Delete(text);
+				}
+			}
+			catch
+			{
+			}
+			Terraria.Input.KeyBindings.ResetToDefaults();
+		}
 	}
 
 	private static bool Fail(string message)

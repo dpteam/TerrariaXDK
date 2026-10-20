@@ -726,12 +726,13 @@ public sealed class UI
 		new Location(Main.ResolutionWidth / 2, 432)
 	};
 
-	private static readonly Location[] MENU_SETTINGS_COORDS = new Location[4]
+	private static readonly Location[] MENU_SETTINGS_COORDS = new Location[5]
 	{
 		new Location(Main.ResolutionWidth / 2, 270),
 		new Location(Main.ResolutionWidth / 2, 340),
 		new Location(Main.ResolutionWidth / 2, 410),
-		new Location(Main.ResolutionWidth / 2, 480)
+		new Location(Main.ResolutionWidth / 2, 480),
+		new Location(Main.ResolutionWidth / 2, 550)
 	};
 
 	private string[] menuString = new string[14];
@@ -1995,6 +1996,13 @@ public sealed class UI
 			uiCoords = Terraria.Cheats.CheatMenu.Coords;
 			return;
 		}
+		case MenuMode.KEYBINDS:
+			// Own screen: no generic menu rows, no console cursor.
+			uiWidth = 0;
+			uiHeight = 1;
+			uiCoords = null;
+			Terraria.Input.KeyBindScreen.Reset();
+			return;
 		case MenuMode.STATUS_SCREEN:
 		case MenuMode.NETPLAY:
 			Progress = 0f;
@@ -2757,6 +2765,14 @@ public sealed class UI
 				SetMenu(MenuMode.CHEATS);
 			}
 		}
+		else if (CurMenuMode == MenuMode.KEYBINDS)
+		{
+			if (Terraria.Input.KeyBindScreen.Update(this))
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.SETTINGS);
+			}
+		}
 		else if (CurMenuMode == MenuMode.CHEATS)
 		{
 			string[] cheatRows = Terraria.Cheats.CheatMenu.BuildRows();
@@ -3207,7 +3223,7 @@ public sealed class UI
 		else if (CurMenuMode == MenuMode.SETTINGS)
 		{
 			menuSpace = 60;
-			numMenuItems = 4;
+			numMenuItems = 5;
 			if (this == MainUI)
 			{
 				menuString[0] = Lang.MenuText[65];
@@ -3257,7 +3273,15 @@ public sealed class UI
 			menuString[3] = "Cheats: " + (Terraria.Cheats.CheatState.Enabled ? "On" : "Off");
 			MENU_SETTINGS_COORDS[3].X = ViewportHalfWidth;
 			menuHC[3] = 0;
-			if (selectedMenu == 3)
+			menuString[4] = "Keyboard bindings";
+			MENU_SETTINGS_COORDS[4].X = ViewportHalfWidth;
+			menuHC[4] = 0;
+			if (selectedMenu == 4)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.KEYBINDS);
+			}
+			else if (selectedMenu == 3)
 			{
 				Main.PlaySound(12);
 				Terraria.Cheats.CheatState.Enabled = !Terraria.Cheats.CheatState.Enabled;
@@ -3675,6 +3699,10 @@ public sealed class UI
 		else if (CurMenuMode == MenuMode.CHEATS)
 		{
 			Terraria.Cheats.CheatMenu.DrawBackdrop(Main.SpriteBatch, CurrentView.ViewWidth);
+		}
+		else if (CurMenuMode == MenuMode.KEYBINDS)
+		{
+			Terraria.Input.KeyBindScreen.Draw(this);
 		}
 		if (Main.HardmodeAlert && CurMenuMode == MenuMode.HARDMODE_UPSELL)
 		{
@@ -4196,6 +4224,9 @@ public sealed class UI
 			break;
 		case MenuMode.CHEATS:
 			Main.StrBuilder.Append("LMB - toggle    Esc - back");
+			break;
+		case MenuMode.KEYBINDS:
+			Main.StrBuilder.Append("LMB / Space - rebind    R - reset    Esc - back");
 			break;
 		case MenuMode.PAUSE:
 			Main.StrBuilder.Append("LMB - select    Esc - resume");

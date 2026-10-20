@@ -43,5 +43,6 @@ public enum MenuMode : byte
 	ACHIEVEMENTS,
 	HARDMODE_UPSELL,
 	CHEATS,
+	KEYBINDS,
 	NUM_MENUS
 }

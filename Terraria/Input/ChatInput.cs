@@ -143,7 +143,7 @@ internal static class ChatInput
 	/// </summary>
 	public static void Update()
 	{
-		if (KeyboardMouseInput.KeyPressed(Keys.Enter))
+		if (KeyboardMouseInput.KeyPressed(KeyBindings.Get(KeyBindings.Action.Chat)))
 		{
 			if (IsActive)
 			{

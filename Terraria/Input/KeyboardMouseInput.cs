@@ -184,15 +184,15 @@ internal static class KeyboardMouseInput
 		_quickAction = QuickAction.None;
 		if (!TextInputActive && !MenuContext)
 		{
-			if (KeyPressed(Keys.H))
+			if (KeyPressed(KeyBindings.Get(KeyBindings.Action.Heal)))
 			{
 				_quickAction = QuickAction.Heal;
 			}
-			else if (KeyPressed(Keys.J))
+			else if (KeyPressed(KeyBindings.Get(KeyBindings.Action.Mana)))
 			{
 				_quickAction = QuickAction.Mana;
 			}
-			else if (KeyPressed(Keys.B))
+			else if (KeyPressed(KeyBindings.Get(KeyBindings.Action.Buff)))
 			{
 				_quickAction = QuickAction.Buff;
 			}
@@ -293,20 +293,20 @@ internal static class KeyboardMouseInput
 		bool left = mouse.LeftButton == ButtonState.Pressed;
 		bool right = mouse.RightButton == ButtonState.Pressed;
 
-		// Movement: WASD drives the left stick.
-		if (keys.IsKeyDown(Keys.A))
+		// Movement: bound keys drive the left stick.
+		if (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.MoveLeft)))
 		{
 			leftStick.X -= 1f;
 		}
-		if (keys.IsKeyDown(Keys.D))
+		if (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.MoveRight)))
 		{
 			leftStick.X += 1f;
 		}
-		if (keys.IsKeyDown(Keys.W))
+		if (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.MoveUp)))
 		{
 			leftStick.Y += 1f;
 		}
-		if (keys.IsKeyDown(Keys.S))
+		if (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.MoveDown)))
 		{
 			leftStick.Y -= 1f;
 		}
@@ -332,7 +332,7 @@ internal static class KeyboardMouseInput
 			leftStick.Y = -1f;
 		}
 		// Buttons.
-		if (keys.IsKeyDown(Keys.Space))
+		if (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.Jump)))
 		{
 			buttons |= Buttons.A; // jump / confirm
 		}
@@ -347,8 +347,8 @@ internal static class KeyboardMouseInput
 		{
 			buttons |= Buttons.LeftStick; // BTN_JUMP2
 		}
-		// Inventory: E or I. Tab is freed up for the map, and Escape stays the pause menu.
-		if (keys.IsKeyDown(Keys.E) || keys.IsKeyDown(Keys.I))
+		// Inventory: the bound key plus I as a second, familiar binding.
+		if (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.Inventory)) || keys.IsKeyDown(Keys.I))
 		{
 			buttons |= Buttons.Y; // inventory (character creation reuses Y for randomize)
 		}
@@ -365,22 +365,22 @@ internal static class KeyboardMouseInput
 				buttons |= Buttons.RightShoulder;
 			}
 		}
-		else if (keys.IsKeyDown(Keys.R) || keys.IsKeyDown(Keys.Q))
+		else if (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.Throw)) || keys.IsKeyDown(Keys.R))
 		{
-			buttons |= Buttons.X; // throw item (PC uses Q)
+			buttons |= Buttons.X; // throw item
 		}
-		if (keys.IsKeyDown(Keys.C))
+		if (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.SmartCursor)))
 		{
 			buttons |= Buttons.RightStick; // toggle smart cursor
 		}
-		// Escape is context sensitive: "cancel" inside a menu, "pause" during play. Mapping it
+		// Pause is context sensitive: "cancel" inside a menu, "pause" during play. Mapping it
 		// to Start everywhere made it activate the highlighted entry instead of leaving.
-		if (keys.IsKeyDown(Keys.Escape) && escapeAllowed)
+		if (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.Pause)) && escapeAllowed)
 		{
 			buttons |= menuContext ? Buttons.Back : Buttons.Start;
 		}
-		// Map / cancel. Tab and M open the map; Q is taken by "throw item".
-		if (keys.IsKeyDown(Keys.M) || keys.IsKeyDown(Keys.Back) || keys.IsKeyDown(Keys.Tab))
+		// Map / cancel. The bound key plus M as a second binding.
+		if (keys.IsKeyDown(Keys.M) || keys.IsKeyDown(Keys.Back) || keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.Map)))
 		{
 			buttons |= Buttons.Back;
 		}
@@ -415,8 +415,8 @@ internal static class KeyboardMouseInput
 				buttons |= Buttons.B;
 			}
 		}
-		// Grapple: middle mouse button or V.
-		if (mouse.MiddleButton == ButtonState.Pressed || keys.IsKeyDown(Keys.V))
+		// Grapple: middle mouse button or the bound key.
+		if (mouse.MiddleButton == ButtonState.Pressed || keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.Grapple)))
 		{
 			leftTrigger = 1f;
 			buttons |= Buttons.LeftTrigger;

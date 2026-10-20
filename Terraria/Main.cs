@@ -667,8 +667,11 @@ public sealed class Main : Game
 		Terraria.Net.NetworkConfig.Port = ParsePort(settings.Get("Network", "Port"), 7777);
 		Terraria.Net.NetworkConfig.JoinAddress = settings.Get("Network", "JoinAddress");
 		Terraria.Net.NetworkConfig.Password = settings.Get("Network", "Password");
+		Terraria.Input.KeyBindings.Load(settings);
 		Terraria.Mods.ModLoader.Enabled = settings.Get("Mods", "Enabled").ToLower().Equals("true");
 		Terraria.Mods.ModLoader.RequireMatchingMods = settings.Get("Mods", "RequireMatchingMods").ToLower().Equals("true");
+		// Writes every rebindable action, so the file documents them even when untouched.
+		Terraria.Input.KeyBindings.Save(settings);
 		settings.Close();
 		Program.Log("[MAIN] ⚡ Constructor exiting, about to be Initialize()'d");
 	}
