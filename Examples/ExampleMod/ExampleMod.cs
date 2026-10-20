@@ -19,7 +19,9 @@ namespace ExampleMod;
 /// <item><see cref="OnPlayerUpdate"/> - inspecting the local player each frame, throttled
 /// so it does not spam the log;</item>
 /// <item><see cref="OnWorldSaving"/> - writing your own data next to the world save;</item>
-/// <item><see cref="OnGameUpdate"/> - per-frame game tick, independent of players.</item>
+/// <item><see cref="OnGameUpdate"/> - per-frame game tick, independent of players;</item>
+/// <item><see cref="ModContext.SendPacket"/> plus <see cref="OnPacket"/> - mod-to-mod
+/// traffic without touching the game's own packet ids.</item>
 /// </list>
 ///
 /// It deliberately changes no gameplay: copy it, rename it, and build from there.
@@ -59,17 +61,6 @@ public class ExampleMod : Mod
 		_worldSeconds = 0;
 	}
 
-	public override void OnGameUpdate()
-	{
-		// Runs before players update. Cheap work belongs here; anything heavy should be
-		// throttled like the counter below.
-		_frames++;
-		if (_frames % 60 == 0)
-		{
-			_worldSeconds++;
-		}
-	}
-
 	public override void OnPlayerUpdate(Player player)
 	{
 		if (_frames % LogEveryFrames != 0)
@@ -91,4 +82,37 @@ public class ExampleMod : Mod
 		// A real mod would write to Context.Directory, not into the game's save files.
 		Context.Log("world saving; elapsed " + _worldSeconds + " s");
 	}
+
+	/// <summary>
+	/// Mod traffic: the payload is yours alone, the mod id travels with it, so there is
+	/// nothing to register and no way to collide with another mod or with the game.
+	/// </summary>
+	public override void OnPacket(byte[] payload)
+	{
+		// This runs on the network thread. Never touch Main.*, the world or players here -
+		// stash what you need and act on it in OnGameUpdate.
+		_pendingPackets++;
+	}
+
+	public override void OnGameUpdate()
+	{
+		// Runs before players update. Cheap work belongs here; anything heavy should be
+		// throttled like the counter below.
+		_frames++;
+		if (_frames % 60 == 0)
+		{
+			_worldSeconds++;
+		}
+		if (_pendingPackets == 0)
+		{
+			return;
+		}
+		int num = _pendingPackets;
+		_pendingPackets = 0;
+		// Applied on the game thread, which is where world state is allowed to change.
+		Context.Log("received " + num + " mod packet(s)");
+	}
+
+	/// <summary>Counter filled on the network thread, drained on the game thread.</summary>
+	private volatile int _pendingPackets;
 }

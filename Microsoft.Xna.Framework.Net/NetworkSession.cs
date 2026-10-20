@@ -273,11 +273,18 @@ public sealed class NetworkSession : IDisposable
 	/// </summary>
 	private IPeerTransport CreatePeer(AvailableNetworkSession availableSession)
 	{
+		IPeerTransport peerTransport;
 		if (Terraria.Net.NetworkConfig.UseTcpTransport)
 		{
-			return new Terraria.Net.TcpPeer(this, availableSession);
+			peerTransport = new Terraria.Net.TcpPeer(this, availableSession);
 		}
-		return new MonoGamerPeer(this, availableSession);
+		else
+		{
+			peerTransport = new MonoGamerPeer(this, availableSession);
+		}
+		// Mods send through the same link; attaching here covers host and client alike.
+		Terraria.Net.ModNet.Attach(peerTransport);
+		return peerTransport;
 	}
 
 	private NetworkSession(NetworkSessionType sessionType, int maxGamers, int privateGamerSlots, NetworkSessionProperties sessionProperties, bool isHost, int hostGamer, AvailableNetworkSession availableSession)
@@ -322,6 +329,9 @@ public sealed class NetworkSession : IDisposable
 		}
 		networkPeer?.Shutdown();
 		networkPeer = null;
+		// Leaving a world must not leave a stale link behind: mods would keep "sending"
+		// into a dead session.
+		Terraria.Net.ModNet.Detach();
 		activeSession = null;
 		IsDisposed = true;
 	}

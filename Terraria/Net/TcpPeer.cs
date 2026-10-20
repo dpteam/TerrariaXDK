@@ -48,6 +48,12 @@ internal sealed class TcpPeer : IPeerTransport
 
 	private const byte OpPong = 11;
 
+	/// <summary>
+	/// Mod-to-mod payload: <c>[modIdLength][modId][payload]</c>. Relayed like game data, so
+	/// mods never need a NetMessage id (see <see cref="ModNet"/>).
+	/// </summary>
+	internal const byte OpMod = 12;
+
 	/// <summary>Bumped whenever the wire format or handshake changes.</summary>
 	public const int ProtocolVersion = 2;
 
@@ -286,6 +292,16 @@ internal sealed class TcpPeer : IPeerTransport
 			}
 			if (frame[0] != OpData || frame.Length < 2)
 			{
+				if (frame[0] == OpMod)
+				{
+					// Mod traffic is relayed verbatim to the other players and handed to the
+					// local handlers; it never touches the game's own packet stream.
+					Broadcast(WireFormat.LengthPrefix(frame), connection);
+					if (ModNet.TryDecode(frame, out var modId, out var modPayload))
+					{
+						ModNet.Dispatch(modId, modPayload);
+					}
+				}
 				continue;
 			}
 			byte[] packet = new byte[frame.Length - 1];
@@ -625,10 +641,49 @@ internal sealed class TcpPeer : IPeerTransport
 			});
 			break;
 		}
+		case OpMod:
+		{
+			if (ModNet.TryDecode(frame, out var modId, out var modPayload))
+			{
+				ModNet.Dispatch(modId, modPayload);
+			}
+			break;
+		}
 		}
 	}
 
 	// --- IPeerTransport -----------------------------------------------------
+
+	/// <summary>
+	/// Sends a pre-framed body (first byte is the opcode) to every other player, or to the
+	/// host when this machine is a client. Used by <see cref="ModNet"/>.
+	/// </summary>
+	public void SendFrame(byte[] frame)
+	{
+		if (_stopped || frame == null || frame.Length == 0)
+		{
+			return;
+		}
+		byte[] array = WireFormat.LengthPrefix(frame);
+		if (_isHost)
+		{
+			Broadcast(array, null);
+			NetworkStats.OnSent(array.Length);
+			return;
+		}
+		if (_stream == null)
+		{
+			return;
+		}
+		try
+		{
+			WireFormat.WriteAll(_stream, array);
+			NetworkStats.OnSent(array.Length);
+		}
+		catch
+		{
+		}
+	}
 
 	public void SendData(byte[] data, SendDataOptions options)
 	{

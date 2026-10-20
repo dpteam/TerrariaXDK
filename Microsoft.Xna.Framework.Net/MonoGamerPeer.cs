@@ -449,6 +449,14 @@ internal class MonoGamerPeer : Terraria.Net.IPeerTransport
 		// Lidgren delivers on its own worker thread; nothing to marshal here.
 	}
 
+	/// <summary>
+	/// The legacy Lidgren peer has no room for extra opcodes: its protocol is the stock
+	/// MonoGame one. Mods are a feature of the built-in TCP transport, so this is a no-op.
+	/// </summary>
+	public void SendFrame(byte[] frame)
+	{
+	}
+
 	public void BroadcastState(NetworkSessionState state)
 	{
 		// MonoGamerPeer already mirrors state through SendSessionStateChange.

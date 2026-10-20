@@ -55,6 +55,7 @@ internal static class SelfTest
 		RunCheck("json", CheckJson);
 		RunCheck("master server", CheckMasterServer);
 		RunCheck("lan discovery", CheckLanDiscovery);
+		RunCheck("mod packets", CheckModPackets);
 		RunCheck("world backups", CheckWorldBackups);
 		ReportMemory();
 		Console.WriteLine();
@@ -2157,6 +2158,126 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("LAN discovery check threw: " + ex.Message);
+		}
+	}
+
+	// --- Mod packets --------------------------------------------------------
+
+	/// <summary>
+	/// Mod traffic rides on its own transport opcode, so it needs no NetMessage id and can
+	/// never collide with the console protocol. These checks pin the encoding, the limit,
+	/// the garbage handling, and that a frame really survives a socket round-trip.
+	/// </summary>
+	private static bool CheckModPackets()
+	{
+		try
+		{
+			byte[] payload = new byte[5] { 1, 0, 0, 0, 9 };
+			byte[] array = ModNet.Encode("ExampleMod", payload);
+			if (array == null)
+			{
+				return Fail("a valid mod packet was rejected");
+			}
+			if (array[0] != 12)
+			{
+				return Fail("mod packets do not use their own opcode (got " + array[0] + ")");
+			}
+			if (!ModNet.TryDecode(array, out string modId, out byte[] decoded))
+			{
+				return Fail("a mod packet did not decode");
+			}
+			if (modId != "ExampleMod")
+			{
+				return Fail("the mod id was lost: " + modId);
+			}
+			if (decoded.Length != payload.Length || decoded[4] != 9 || ModNet.ReadInt(decoded, 0) != 1)
+			{
+				return Fail("the mod payload was altered");
+			}
+			// An empty payload is legal: a packet can be a pure signal.
+			byte[] empty = ModNet.Encode("ExampleMod", null);
+			if (empty == null || !ModNet.TryDecode(empty, out modId, out decoded) || decoded.Length != 0)
+			{
+				return Fail("an empty mod payload was not handled");
+			}
+			// Envelope abuse is rejected instead of throwing.
+			string[] badIds = new string[2] { null, "" };
+			for (int i = 0; i < badIds.Length; i++)
+			{
+				if (ModNet.Encode(badIds[i], payload) != null)
+				{
+					return Fail("a packet without a mod id was accepted");
+				}
+			}
+			if (ModNet.Encode("ExampleMod", new byte[ModNet.MaxPayload + 1]) != null)
+			{
+				return Fail("an oversized mod payload was accepted");
+			}
+			if (ModNet.Encode("ExampleMod", new byte[ModNet.MaxPayload]) == null)
+			{
+				return Fail("a payload exactly at the limit was rejected");
+			}
+			string text;
+			byte[] array2;
+			if (ModNet.TryDecode(new byte[3] { 12, 10, (byte)'x' }, out text, out array2))
+			{
+				return Fail("a truncated mod frame was accepted");
+			}
+			if (ModNet.TryDecode(new byte[2] { 12, 0 }, out text, out array2))
+			{
+				return Fail("a frame with an empty mod id was accepted");
+			}
+			if (ModNet.TryDecode(new byte[3] { 4, 1, (byte)'x' }, out text, out array2))
+			{
+				return Fail("a game data frame was mistaken for a mod packet");
+			}
+			// A hostile client claiming a huge id length must not allocate or crash.
+			if (ModNet.TryDecode(new byte[3] { 12, 255, 1 }, out text, out array2))
+			{
+				return Fail("an impossible mod id length was accepted");
+			}
+			// No link: sending reports failure instead of pretending.
+			ModNet.Detach();
+			if (ModNet.IsConnected || ModNet.Send("ExampleMod", payload))
+			{
+				return Fail("a packet was sent with no connection");
+			}
+			// Real socket round-trip: the frame must arrive intact and be recognised as mod
+			// traffic, which is what the host and client loops look at.
+			TcpListener listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
+			listener.Start();
+			try
+			{
+				int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+				using TcpClient sender = new TcpClient();
+				sender.Connect(System.Net.IPAddress.Loopback, port);
+				TcpClient receiver = listener.AcceptTcpClient();
+				using (receiver)
+				{
+					TcpClient capturedSender = sender;
+					byte[] frame = WireFormat.LengthPrefix(array);
+					capturedSender.GetStream().Write(frame, 0, frame.Length);
+					capturedSender.GetStream().Flush();
+					byte[] received = WireFormat.ReadFrame(receiver.GetStream());
+					if (received == null)
+					{
+						return Fail("a mod frame did not survive the socket");
+					}
+					if (!ModNet.TryDecode(received, out modId, out decoded) || modId != "ExampleMod" || decoded[4] != 9)
+					{
+						return Fail("a mod frame was corrupted in transit");
+					}
+				}
+			}
+			finally
+			{
+				listener.Stop();
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("mod packet check threw: " + ex.Message);
 		}
 	}
 

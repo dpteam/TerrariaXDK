@@ -18,6 +18,12 @@ internal interface IPeerTransport
 	/// <summary>Applies inbound traffic on the game thread (called from NetworkSession.Update).</summary>
 	void Drain();
 
+	/// <summary>
+	/// Sends an already-framed transport message (body without the length prefix), used for
+	/// opcodes the game session does not know about, such as mod traffic.
+	/// </summary>
+	void SendFrame(byte[] frame);
+
 	/// <summary>Propagates a host-driven session state change to remote peers.</summary>
 	void BroadcastState(NetworkSessionState state);
 
