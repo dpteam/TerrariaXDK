@@ -3992,11 +3992,25 @@ public sealed class UI
 
 	private void DrawControls()
 	{
-		if (CurMenuType == MenuType.NONE)
+		if (CurMenuType == MenuType.NONE && InventoryMode == 0)
 		{
 			return;
 		}
 		Main.StrBuilder.Length = 0;
+		if (PointerActive)
+		{
+			// Keyboard and mouse players cannot use "A / B / Y" hints - show their own keys.
+			AppendPointerHints();
+			if (Main.StrBuilder.Length > 0)
+			{
+				DrawStringLB(BoldSmallFont, CurrentView.SafeAreaOffsetLeft, CurrentView.SafeAreaOffsetBottom);
+			}
+			return;
+		}
+		if (CurMenuType == MenuType.NONE)
+		{
+			return;
+		}
 		if (saveIconMessageTime > 0)
 		{
 			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CLOSE));
@@ -4154,6 +4168,54 @@ public sealed class UI
 		if (Main.StrBuilder.Length > 0)
 		{
 			DrawStringLB(BoldSmallFont, CurrentView.SafeAreaOffsetLeft, CurrentView.SafeAreaOffsetBottom);
+		}
+	}
+
+	/// <summary>
+	/// Control hints for keyboard and mouse. Mirrors <see cref="DrawControls"/> but names the
+	/// actual keys, which is what a desktop player needs to see.
+	/// </summary>
+	private void AppendPointerHints()
+	{
+		if (InventoryMode > 0)
+		{
+			Main.StrBuilder.Append("LMB - move item    Esc / Tab - close inventory");
+			return;
+		}
+		switch (CurMenuMode)
+		{
+		case MenuMode.MAP:
+			Main.StrBuilder.Append("WASD - move    Tab / Esc - close");
+			break;
+		case MenuMode.CREATE_CHARACTER:
+			Main.StrBuilder.Append("LMB - select    Enter - confirm    Esc - back    Q / R - category");
+			break;
+		case MenuMode.WORLD_SELECT:
+		case MenuMode.GAME_MODE:
+			Main.StrBuilder.Append("LMB - select    Esc - back");
+			break;
+		case MenuMode.CHEATS:
+			Main.StrBuilder.Append("LMB - toggle    Esc - back");
+			break;
+		case MenuMode.PAUSE:
+			Main.StrBuilder.Append("LMB - select    Esc - resume");
+			break;
+		case MenuMode.WELCOME:
+			Main.StrBuilder.Append("Enter - start");
+			break;
+		case MenuMode.WAITING_SCREEN:
+		case MenuMode.NETPLAY:
+		case MenuMode.ERROR:
+		case MenuMode.LOAD_FAILED_NO_BACKUP:
+		case MenuMode.CREDITS:
+		case MenuMode.ACHIEVEMENTS:
+		case MenuMode.LEADERBOARDS:
+		case MenuMode.HOW_TO_PLAY:
+			Main.StrBuilder.Append("Esc - back");
+			break;
+		default:
+			Main.StrBuilder.Append("LMB - select    Esc - back");
+			break;
 		}
 	}
 
@@ -6658,6 +6720,18 @@ public sealed class UI
 	{
 		if (CurMenuType != MenuType.NONE)
 		{
+			return;
+		}
+		if (PointerActive)
+		{
+			// Desktop hint set: the gamepad glyphs below are meaningless with a mouse.
+			Main.StrBuilder.Length = 0;
+			Main.StrBuilder.Append("LMB - pick / place    Esc or Tab - close");
+			if (toolTip.Type > 0 && !reforge && !CraftGuide && toolTip.Stack > 1)
+			{
+				Main.StrBuilder.Append("    RMB - split stack");
+			}
+			DrawStringLB(BoldSmallFont, CurrentView.SafeAreaOffsetLeft, CurrentView.SafeAreaOffsetBottom);
 			return;
 		}
 		Main.StrBuilder.Length = 0;
