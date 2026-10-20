@@ -47,6 +47,7 @@ internal static class SelfTest
 		RunCheck("network stats", CheckNetworkStats);
 		RunCheck("key bindings", CheckKeyBindings);
 		RunCheck("tconfig import", CheckTConfigImport);
+		RunCheck("mod load order", CheckModLoadOrder);
 		RunCheck("virtual keyboard", CheckVirtualKeyboard);
 		RunCheck("display settings", CheckDisplaySettings);
 		RunCheck("direct connect", CheckDirectConnect);
@@ -1219,6 +1220,86 @@ internal static class SelfTest
 		{
 			Main.NetMode = netMode;
 			Cheats.CheatState.Reset();
+		}
+	}
+
+	// --- Mod load order -----------------------------------------------------
+
+	/// <summary>
+	/// Load order decides which mod wins when two touch the same item, so it has to be
+	/// stable, explicit, and safe when the file is incomplete or full of junk.
+	/// </summary>
+	private static bool CheckModLoadOrder()
+	{
+		string text = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-mods");
+		try
+		{
+			if (System.IO.Directory.Exists(text))
+			{
+				System.IO.Directory.Delete(text, recursive: true);
+			}
+			string[] array = new string[3]
+			{
+				System.IO.Path.Combine(text, "Alpha"),
+				System.IO.Path.Combine(text, "Beta"),
+				System.IO.Path.Combine(text, "Gamma")
+			};
+			for (int i = 0; i < array.Length; i++)
+			{
+				System.IO.Directory.CreateDirectory(array[i]);
+			}
+			// No file: alphabetical, so a fresh install is predictable.
+			string[] array2 = Terraria.Mods.ModLoader.ApplyLoadOrder((string[])array.Clone(), text);
+			if (array2.Length != 3 || System.IO.Path.GetFileName(array2[0]) != "Alpha" || System.IO.Path.GetFileName(array2[2]) != "Gamma")
+			{
+				return Fail("the default mod order is not alphabetical");
+			}
+			// Explicit order wins, and folders missing from the file follow alphabetically.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(text, Terraria.Mods.ModLoader.LoadOrderFile), "# comment\r\nGamma\r\n\r\nAlpha\r\n");
+			array2 = Terraria.Mods.ModLoader.ApplyLoadOrder((string[])array.Clone(), text);
+			if (System.IO.Path.GetFileName(array2[0]) != "Gamma" || System.IO.Path.GetFileName(array2[1]) != "Alpha" || System.IO.Path.GetFileName(array2[2]) != "Beta")
+			{
+				return Fail("the explicit mod order was not applied: " + string.Join(", ", Array.ConvertAll(array2, System.IO.Path.GetFileName)));
+			}
+			// Writing and re-reading the same order must be a no-op.
+			List<string> list = new List<string>(3);
+			list.Add("Beta");
+			list.Add("Gamma");
+			list.Add("Alpha");
+			if (!Terraria.Mods.ModLoader.WriteLoadOrder(text, list))
+			{
+				return Fail("the load order could not be written");
+			}
+			array2 = Terraria.Mods.ModLoader.ApplyLoadOrder((string[])array.Clone(), text);
+			if (System.IO.Path.GetFileName(array2[0]) != "Beta" || System.IO.Path.GetFileName(array2[1]) != "Gamma" || System.IO.Path.GetFileName(array2[2]) != "Alpha")
+			{
+				return Fail("a written load order did not survive a round-trip");
+			}
+			// A file naming folders that do not exist must be ignored, not fatal.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(text, Terraria.Mods.ModLoader.LoadOrderFile), "Ghost\r\nBeta\r\n");
+			array2 = Terraria.Mods.ModLoader.ApplyLoadOrder((string[])array.Clone(), text);
+			if (array2.Length != 3 || System.IO.Path.GetFileName(array2[0]) != "Beta")
+			{
+				return Fail("a stale load order broke the mod list");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("mod load order check threw: " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				if (System.IO.Directory.Exists(text))
+				{
+					System.IO.Directory.Delete(text, recursive: true);
+				}
+			}
+			catch
+			{
+			}
 		}
 	}
 
