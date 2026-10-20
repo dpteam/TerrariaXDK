@@ -41,6 +41,7 @@ internal static class SelfTest
 		RunCheck("loading progress", CheckLoadingProgress);
 		RunCheck("input mapping", CheckInputMapping);
 		RunCheck("settings sections", CheckSettingsSections);
+		RunCheck("network stats", CheckNetworkStats);
 		ReportMemory();
 		Console.WriteLine();
 		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
@@ -1010,6 +1011,59 @@ internal static class SelfTest
 			{
 			}
 		}
+	}
+
+	// --- Network stats ------------------------------------------------------
+
+	/// <summary>
+	/// Latency readout drives what the player sees, so its edge cases matter: before any
+	/// measurement it must report "unknown" rather than 0 ms, and counters must reset with
+	/// the session.
+	/// </summary>
+	private static bool CheckNetworkStats()
+	{
+		NetworkStats.Reset();
+		if (NetworkStats.RttMs != -1)
+		{
+			return Fail("ping should be unknown before the first measurement");
+		}
+		if (NetworkStats.BytesSent != 0L || NetworkStats.BytesReceived != 0L)
+		{
+			return Fail("counters were not cleared by Reset");
+		}
+		NetworkStats.OnSent(100);
+		NetworkStats.OnReceived(250);
+		if (NetworkStats.BytesSent != 100L || NetworkStats.PacketsSent != 1L)
+		{
+			return Fail("outgoing counters are wrong");
+		}
+		if (NetworkStats.BytesReceived != 250L || NetworkStats.PacketsReceived != 1L)
+		{
+			return Fail("incoming counters are wrong");
+		}
+		NetworkStats.SetRtt(40);
+		if (NetworkStats.RttMs != 40)
+		{
+			return Fail("first RTT sample was not taken as-is");
+		}
+		// Smoothing must move towards the new sample, not jump to it.
+		NetworkStats.SetRtt(200);
+		int num = NetworkStats.RttMs;
+		if (num <= 40 || num >= 200)
+		{
+			return Fail("RTT smoothing did not average the sample (got " + num + ")");
+		}
+		string text = NetworkStats.Describe();
+		if (!text.Contains("ping") || !text.Contains("kbps"))
+		{
+			return Fail("Describe() does not mention ping and throughput");
+		}
+		NetworkStats.Reset();
+		if (NetworkStats.RttMs != -1)
+		{
+			return Fail("Reset did not clear the RTT");
+		}
+		return true;
 	}
 
 	private static bool Fail(string message)

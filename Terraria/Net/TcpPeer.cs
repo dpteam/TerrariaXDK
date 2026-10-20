@@ -43,6 +43,11 @@ internal sealed class TcpPeer : IPeerTransport
 	/// <summary>Host rejects the connection and explains why (wrong password, mods, version).</summary>
 	private const byte OpReject = 9;
 
+	/// <summary>Latency probe; the peer echoes it back as <see cref="OpPong"/>.</summary>
+	private const byte OpPing = 10;
+
+	private const byte OpPong = 11;
+
 	/// <summary>Bumped whenever the wire format or handshake changes.</summary>
 	public const int ProtocolVersion = 2;
 
@@ -79,6 +84,10 @@ internal sealed class TcpPeer : IPeerTransport
 
 	private int _discoveryPort;
 
+	private long _lastPingTick;
+
+	private long _pendingPingTick;
+
 	internal TcpPeer(NetworkSession session, AvailableNetworkSession availableSession)
 	{
 		_session = session;
@@ -99,6 +108,7 @@ internal sealed class TcpPeer : IPeerTransport
 
 	private void StartHost()
 	{
+		NetworkStats.Reset();
 		int port = NetworkConfig.Port;
 		_listener = new TcpListener(IPAddress.Any, port);
 		_listener.Start();
@@ -261,6 +271,17 @@ internal sealed class TcpPeer : IPeerTransport
 			{
 				break;
 			}
+			NetworkStats.OnReceived(frame.Length);
+			if (frame[0] == OpPing)
+			{
+				// Echo immediately from the transport thread: latency should measure the
+				// network, not the game's frame rate.
+				byte[] array = new byte[frame.Length];
+				Buffer.BlockCopy(frame, 0, array, 0, frame.Length);
+				array[0] = OpPong;
+				connection.Send(WireFormat.LengthPrefix(array));
+				continue;
+			}
 			if (frame[0] != OpData || frame.Length < 2)
 			{
 				continue;
@@ -413,6 +434,7 @@ internal sealed class TcpPeer : IPeerTransport
 		}
 		_client = new TcpClient();
 		_client.NoDelay = true;
+		NetworkStats.Reset();
 		// A dead or firewalled host must fail fast: the game blocks in Join() before it can
 		// show any UI, so the default (tens of seconds) looks like a freeze.
 		if (!ConnectWithTimeout(_client, _remoteEndPoint, NetworkConfig.ConnectTimeoutMs))
@@ -480,6 +502,7 @@ internal sealed class TcpPeer : IPeerTransport
 				{
 					break;
 				}
+				NetworkStats.OnReceived(frame.Length);
 				HandleClientFrame(frame);
 			}
 		}
@@ -570,6 +593,19 @@ internal sealed class TcpPeer : IPeerTransport
 			});
 			break;
 		}
+		case OpPong:
+		{
+			if (frame.Length >= 9)
+			{
+				long num = BitConverter.ToInt64(frame, 1);
+				if (num == _pendingPingTick)
+				{
+					int milliseconds = (int)Math.Max(0L, Environment.TickCount - num);
+					NetworkStats.SetRtt(milliseconds);
+				}
+			}
+			break;
+		}
 		case OpData:
 		{
 			byte[] packet = new byte[frame.Length - 1];
@@ -603,7 +639,9 @@ internal sealed class TcpPeer : IPeerTransport
 		{
 			try
 			{
-				WireFormat.WriteAll(_stream, WireFormat.Frame(OpData, data));
+				byte[] array = WireFormat.Frame(OpData, data);
+				WireFormat.WriteAll(_stream, array);
+				NetworkStats.OnSent(array.Length);
 			}
 			catch
 			{
@@ -664,6 +702,24 @@ internal sealed class TcpPeer : IPeerTransport
 			catch (Exception ex)
 			{
 				ModLoaderLog("Transport drain error: " + ex.Message);
+			}
+		}
+		// Client keeps a latency probe running once per second. Doing it here (game thread)
+		// keeps the transport thread free of timers and reuses the locked write path.
+		if (!_isHost && !_stopped && _stream != null)
+		{
+			long num = Environment.TickCount;
+			if (num - _lastPingTick >= 1000L)
+			{
+				_lastPingTick = num;
+				_pendingPingTick = num;
+				try
+				{
+					WireFormat.WriteAll(_stream, WireFormat.Frame(OpPing, BitConverter.GetBytes(num)));
+				}
+				catch
+				{
+				}
 			}
 		}
 	}

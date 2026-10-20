@@ -1645,12 +1645,38 @@ public sealed class Main : Game
 
 	public void DrawFPS()
 	{
+		bool flag = NetMode != 0 && UI.CurrentUI != null && UI.CurrentUI.CurrentView != null;
+		if (!ShowFPS && !flag)
+		{
+			return;
+		}
+		int num = ResolutionWidth - UI.CurrentUI.CurrentView.SafeAreaOffsetLeft;
+		int safeAreaOffsetTop = UI.CurrentUI.CurrentView.SafeAreaOffsetTop;
+		float num2 = (UI.NumActiveViews <= 1) ? 1 : 2;
+		float num3 = 0f;
 		if (ShowFPS)
 		{
-			Vector2 vector = UI.BoldSmallFont.MeasureString(FPS.ToString());
-			int num = ResolutionWidth - UI.CurrentUI.CurrentView.SafeAreaOffsetLeft;
-			int safeAreaOffsetTop = UI.CurrentUI.CurrentView.SafeAreaOffsetTop;
-			SpriteBatch.DrawString(UI.BoldSmallFont, "FPS: " + FPS, new Vector2((float)num - vector.X, safeAreaOffsetTop), Color.White, 0f, new Vector2(0f, vector.Y), (UI.NumActiveViews <= 1) ? 1 : 2, SpriteEffects.None, 0f);
+			Vector2 vector = UI.BoldSmallFont.MeasureString("FPS: " + FPS);
+			SpriteBatch.DrawString(UI.BoldSmallFont, "FPS: " + FPS, new Vector2((float)num - vector.X, safeAreaOffsetTop), Color.White, 0f, new Vector2(0f, vector.Y), num2, SpriteEffects.None, 0f);
+			num3 = UI.BoldSmallFont.MeasureString("FPS").Y * num2;
+		}
+		if (flag)
+		{
+			// Connection diagnostics: latency and throughput, always visible while online so
+			// a bad connection is obvious instead of just "feels laggy".
+			string text = Terraria.Net.NetworkStats.Describe();
+			Vector2 vector2 = UI.BoldSmallFont.MeasureString(text);
+			int rtt = Terraria.Net.NetworkStats.RttMs;
+			Color color = Color.White;
+			if (rtt >= 0 && rtt > 150)
+			{
+				color = new Color(255, 180, 80);
+			}
+			if (rtt >= 0 && rtt > 300)
+			{
+				color = new Color(255, 110, 110);
+			}
+			SpriteBatch.DrawString(UI.BoldSmallFont, text, new Vector2((float)num - vector2.X * num2, safeAreaOffsetTop + num3), color, 0f, new Vector2(0f, vector2.Y), num2, SpriteEffects.None, 0f);
 		}
 	}
 
