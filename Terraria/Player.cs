@@ -294,6 +294,12 @@ public sealed class Player
 
 	public bool delayUseItem;
 
+	/// <summary>
+	/// PC parity: true while the pointer is over the interface. While set, clicking must not
+	/// swing the held item, dig or build - it belongs to the UI instead.
+	/// </summary>
+	public bool mouseInterface;
+
 	public byte Active;
 
 	public sbyte direction = 1;
@@ -1502,6 +1508,17 @@ public sealed class Player
 								}
 							}
 							controlThrow = ui.IsButtonTriggered(Buttons.X);
+							// PC parity: a click over the interface belongs to the interface.
+							// mouseInterface also drops the "use" that is already queued, so
+							// clicking a HUD element does not swing the held item.
+							mouseInterface = Terraria.Input.KeyboardMouseInput.CursorOverride && ui.CursorOverInterface;
+							if (mouseInterface)
+							{
+								controlUseItem = false;
+								controlUseTile = false;
+								controlThrow = false;
+								delayUseItem = true;
+							}
 							if (ui.IsJumpButtonDown())
 							{
 								controlJump = !flag || ui.WasJumpButtonUp();

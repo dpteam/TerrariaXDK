@@ -392,6 +392,19 @@ public sealed class UI
 
 	private static float inventoryScale;
 
+	/// <summary>
+	/// True when the pointer is over an interface element, so a click belongs to the UI and
+	/// not to the player. Mirrors the PC version's <c>mouseInterface</c>.
+	/// </summary>
+	public bool CursorOverInterface => InventoryMode > 0 || CurMenuType != MenuType.NONE;
+
+	// Inventory slot grid, captured while drawing so mouse hit-testing matches the layout.
+	private Rectangle invMouseGrid;
+
+	private float invMouseCell;
+
+	private bool invMouseLayoutValid;
+
 	public float[] inventoryMenuSectionScale = new float[5] { 0.75f, 0.75f, 1f, 0.75f, 0.75f };
 
 	public byte InventoryMode;
@@ -4888,6 +4901,33 @@ public sealed class UI
 	/// <summary>True while the pointer was the active device on the previous frame.</summary>
 	private bool mouseWasActive;
 
+	/// <summary>
+	/// PC parity: the slot under the pointer becomes the active slot, instead of having to
+	/// walk a console cursor there with the D-Pad. Only the main 10x4 item grid is handled;
+	/// the ammo/coin rows and the trash slot keep their keyboard navigation.
+	/// </summary>
+	private void UpdateInventoryMouseHover()
+	{
+		if (!invMouseLayoutValid || invMouseCell <= 0f || ActiveInvSection != InventorySection.ITEMS)
+		{
+			return;
+		}
+		int num = MouseX - invMouseGrid.X;
+		int num2 = MouseY - invMouseGrid.Y;
+		if (num < 0 || num2 < 0)
+		{
+			return;
+		}
+		int num3 = (int)((float)num / invMouseCell);
+		int num4 = (int)((float)num2 / invMouseCell);
+		if (num3 < 0 || num3 >= 10 || num4 < 0 || num4 >= 4)
+		{
+			return;
+		}
+		inventoryItemX = (sbyte)num3;
+		inventoryItemY = (sbyte)num4;
+	}
+
 	private void UpdateMouse()
 	{
 		if (!Terraria.Input.KeyboardMouseInput.CursorOverride)
@@ -4903,6 +4943,10 @@ public sealed class UI
 				UsingSmartCursor = false;
 			}
 			UpdateMouseAbsolute();
+			if (InventoryMode > 0)
+			{
+				UpdateInventoryMouseHover();
+			}
 			return;
 		}
 		if (uiCoords == null)
@@ -7931,6 +7975,10 @@ public sealed class UI
 
 	private void DrawInventory(int itemsSectionX, int itemsSectionY)
 	{
+		// 10 columns by 4 rows of item slots; the ammo/coin rows and the trash slot sit below.
+		invMouseCell = 52.15f * Main.ScreenMultiplier;
+		invMouseGrid = new Rectangle(itemsSectionX, itemsSectionY, (int)invMouseCell * 10, (int)invMouseCell * 4);
+		invMouseLayoutValid = true;
 		Vector2 pos = default;
 		Color color = new Color(invAlpha, invAlpha, invAlpha, invAlpha);
 		inventoryScale = 149f / 160f;

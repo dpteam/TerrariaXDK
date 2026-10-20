@@ -219,9 +219,10 @@ internal static class KeyboardMouseInput
 		{
 			buttons |= Buttons.Y; // inventory (character creation reuses Y for randomize)
 		}
-		if (_keys.IsKeyDown(Keys.R))
+		// PC uses Q for "throw item"; R is kept as a second binding for convenience.
+		if (_keys.IsKeyDown(Keys.R) || _keys.IsKeyDown(Keys.Q))
 		{
-			buttons |= Buttons.X; // throw / quick trash
+			buttons |= Buttons.X;
 		}
 		if (_keys.IsKeyDown(Keys.C))
 		{
@@ -234,9 +235,10 @@ internal static class KeyboardMouseInput
 		{
 			buttons |= MenuContext ? Buttons.Back : Buttons.Start;
 		}
-		if (_keys.IsKeyDown(Keys.Q) || _keys.IsKeyDown(Keys.M) || _keys.IsKeyDown(Keys.Back))
+		// Map / cancel. Q is taken by "throw item" (PC parity), so the map is M only.
+		if (_keys.IsKeyDown(Keys.M) || _keys.IsKeyDown(Keys.Back))
 		{
-			buttons |= Buttons.Back; // map / cancel
+			buttons |= Buttons.Back;
 		}
 
 		// Mouse buttons.
@@ -258,11 +260,18 @@ internal static class KeyboardMouseInput
 				rightTrigger = 1f; // use item / attack
 				buttons |= Buttons.RightTrigger;
 			}
+			// PC parity: right button places blocks and interacts with tiles
+			// (controlUseTile), it is NOT the grapple. Grapple lives on the middle button.
 			if (RightPressed)
 			{
-				leftTrigger = 1f; // grapple / alt use
-				buttons |= Buttons.LeftTrigger;
+				buttons |= Buttons.B;
 			}
+		}
+		// Grapple: middle mouse button or V, matching the "hook" action on PC.
+		if (_mouse.MiddleButton == ButtonState.Pressed || _keys.IsKeyDown(Keys.V))
+		{
+			leftTrigger = 1f;
+			buttons |= Buttons.LeftTrigger;
 		}
 
 		// Mouse wheel cycles the hotbar.
