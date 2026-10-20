@@ -621,7 +621,7 @@ public sealed class Main : Game
 		GraphicsGame.SynchronizeWithVerticalRetrace = true;
 		IsFixedTimeStep = true;
 		Content.RootDirectory = "Content";
-		Settings settings = new Settings("Settings.ini");
+		Settings settings = new Settings(Terraria.Storage.AppPaths.SettingsFile);
 		settings.Set("Game", "Gamertag", "Terrarian", "Sets the username of the player, since this is typically given by the console.");
 		settings.Set("Game", "TrialActive", "False", "Determines if trial mode is active; Included for archival/legal purposes, as this is not the full version by default.");
 		settings.Set("Game", "PSMode", "False", "Determines whether the game will run in 'PlayStation 3' mode, rather than 'Xbox 360' mode.\n; This will change the font, controller, D-Pad, and button sprites used in game.");

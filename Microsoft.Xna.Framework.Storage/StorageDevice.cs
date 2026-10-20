@@ -47,9 +47,30 @@ public sealed class StorageDevice
 
 	private PlayerIndex? devicePlayer;
 
-	private static readonly string storageRoot = FNAPlatform.GetStorageRoot();
+	private static readonly string defaultStorageRoot = FNAPlatform.GetStorageRoot();
 
-	private static readonly DriveInfo drive = FNAPlatform.GetDriveInfo(storageRoot);
+	private static DriveInfo drive;
+
+	/// <summary>
+	/// Portable mode: when set, every storage container lives under this directory instead
+	/// of the platform's per-user save location. TerrariaXDK points this at
+	/// <c>Storage/Saves</c> next to the executable so the whole install is one folder.
+	/// </summary>
+	public static string RootOverride { get; set; }
+
+	private static string StorageRoot => string.IsNullOrEmpty(RootOverride) ? defaultStorageRoot : RootOverride;
+
+	private static DriveInfo Drive
+	{
+		get
+		{
+			if (drive == null)
+			{
+				drive = FNAPlatform.GetDriveInfo(StorageRoot);
+			}
+			return drive;
+		}
+	}
 
 	public long FreeSpace
 	{
@@ -57,11 +78,12 @@ public sealed class StorageDevice
 		{
 			try
 			{
-				if (drive == null)
+				DriveInfo driveInfo = Drive;
+				if (driveInfo == null)
 				{
 					return long.MaxValue;
 				}
-				return drive.AvailableFreeSpace;
+				return driveInfo.AvailableFreeSpace;
 			}
 			catch (Exception innerException)
 			{
@@ -76,11 +98,12 @@ public sealed class StorageDevice
 		{
 			try
 			{
-				if (drive == null)
+				DriveInfo driveInfo = Drive;
+				if (driveInfo == null)
 				{
 					return true;
 				}
-				return drive.IsReady;
+				return driveInfo.IsReady;
 			}
 			catch
 			{
@@ -95,11 +118,12 @@ public sealed class StorageDevice
 		{
 			try
 			{
-				if (drive == null)
+				DriveInfo driveInfo = Drive;
+				if (driveInfo == null)
 				{
 					return long.MaxValue;
 				}
-				return drive.TotalSize;
+				return driveInfo.TotalSize;
 			}
 			catch (Exception innerException)
 			{
@@ -132,7 +156,7 @@ public sealed class StorageDevice
 
 	public StorageContainer EndOpenContainer(IAsyncResult result)
 	{
-		return new StorageContainer(this, (result as OpenContainerLie).DisplayName, storageRoot, devicePlayer);
+		return new StorageContainer(this, (result as OpenContainerLie).DisplayName, StorageRoot, devicePlayer);
 	}
 
 	public static IAsyncResult BeginShowSelector(AsyncCallback callback, object state)

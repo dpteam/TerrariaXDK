@@ -7,7 +7,7 @@ namespace Terraria;
 
 internal static class Program
 {
-	private static string _logFile = "terraria-debug.log";
+	private static string _logFile = Terraria.Storage.AppPaths.LogFile;
 
 	private static Stopwatch _gameTimer = new Stopwatch();
 
@@ -35,6 +35,8 @@ internal static class Program
 		try
 		{
 			string text = (Environment.CurrentDirectory = AppDomain.CurrentDomain.BaseDirectory);
+			Terraria.Storage.AppPaths.EnsureDirectories();
+			Log("[PATH] Storage root: " + Terraria.Storage.AppPaths.Root);
 			Log("[PATH] BaseDirectory: " + text);
 			Log("[PATH] CurrentDirectory: " + Environment.CurrentDirectory);
 			CheckCriticalPaths(text);
@@ -78,6 +80,11 @@ internal static class Program
 	{
 		try
 		{
+			string directoryName = System.IO.Path.GetDirectoryName(_logFile);
+			if (!string.IsNullOrEmpty(directoryName))
+			{
+				System.IO.Directory.CreateDirectory(directoryName);
+			}
 			if (File.Exists(_logFile))
 			{
 				File.Delete(_logFile);
@@ -127,7 +134,7 @@ internal static class Program
 	{
 		try
 		{
-			using StreamWriter streamWriter = new StreamWriter("client-crashlog.txt", append: true);
+			using StreamWriter streamWriter = new StreamWriter(Terraria.Storage.AppPaths.CrashLogFile, append: true);
 			streamWriter.WriteLine($"=== CRASH {DateTime.Now} ===");
 			streamWriter.WriteLine($"Runtime: {_gameTimer.ElapsedMilliseconds}ms");
 			streamWriter.WriteLine(ex);

@@ -31,7 +31,7 @@ FNA/SDL2. Она принципиально отличается от ПК-ве�
    `Projectile`) трогаем только точечно, с сохранением поведения.
 2. **Новые возможности — отдельными файлами и папками.**
    `Terraria/Input/`, `Terraria/Cheats/`, `Terraria/Net/`, `Terraria/Mods/`,
-   `Terraria/Headless/`. Ничего общего не сваливаем в `Main.cs`.
+   `Terraria/Storage/`, `Terraria/Headless/`. Ничего общего не сваливаем в `Main.cs`.
 3. **Только аддитивные правки в существующих файлах.** По возможности — одна-две строки
    вызова в уже существующую точку (`Main.Update`, `Player.Hurt`, `UI.UpdateGamePad`).
    Если правка большая — выносим в helper и вызываем из одной строки.
@@ -82,7 +82,8 @@ dotnet build TerrariaXDK.csproj -v q --nologo     # 0 ошибок
 ## 5. Content
 
 - Игра грузит **только** `.xnb` (плюс `Content/Worlds/tutorial.wld` и `Content/ExtMusic/*.wav`).
-- `.dds`/`.png` в `Content/` — сырьё, игрой не читаются: не возвращайте их.
+- `Content/` — только чтение. Ничего не пишите туда, и не возвращайте `.dds`/`.png`.
+- `.dds`/`.png` в `Content/` — сырьё, игрой не читаются.
 - Перед удалением любого файла: искать в коде **без расширения** (`_sheetSprites`,
   `Achievement07`, `Background_12`), учитывая, что имена могут собираться конкатенацией
   (`"Achievement" + k.ToString("00")`, `"Fonts/HD/" + name + "_PS3"`).
@@ -92,7 +93,34 @@ dotnet build TerrariaXDK.csproj -v q --nologo     # 0 ошибок
 
 ---
 
-## 6. Git
+## 6. Storage (что и куда пишется)
+
+**Правило: игра не пишет ничего рядом с exe и ничего в профиль пользователя.**
+Всё изменяемое идёт в `Storage/` рядом с exe — это делает установку портативной.
+
+| Что | Куда | Кто пишет |
+|---|---|---|
+| Персонажи | `Storage/Saves/Characters/PlayerN/*.plr` | `StorageContainer` |
+| Миры | `Storage/Saves/Worlds/PlayerN/*.wld` | `StorageContainer` |
+| Настройки игрока | `Storage/Saves/Settings/PlayerN/config.dat` | `StorageContainer` |
+| Настройки игры | `Storage/Config/Settings.ini` | `Settings` |
+| Моды | `Storage/Mods/<Mod>/<Mod>.dll` | `ModLoader` |
+| Отладочный лог | `Storage/Logs/terraria-debug.log` | `Program` |
+| Крашлог | `Storage/Logs/client-crashlog.txt` | `Program` |
+| Резервные копии | `Storage/Backups/` | (задел) |
+| Кэш | `Storage/Cache/` | (задел) |
+
+- **Никогда не хардкодьте пути.** Единственный источник — `Terraria/Storage/AppPaths.cs`.
+  Нужна новая папка — добавьте свойство туда и в `EnsureDirectories()`.
+- `StorageDevice.RootOverride` выставляется в `AppPaths.EnsureDirectories()`; не
+  переопределяйте его в другом месте.
+- `Storage/` не коммитится. `Content/` — тоже (он рядом, вне git).
+- `Settings.ini` рядом с exe — это **шаблон**: при первом запуске копируется в
+  `Storage/Config/`. Не читайте его напрямую.
+
+---
+
+## 7. Git
 
 - Репозиторий — этот корень; код и вся документация в нём.
   `Content/`, `refs/`, `_RemovedContent/` лежат рядом с корнем, но в него не входят.
@@ -103,7 +131,7 @@ dotnet build TerrariaXDK.csproj -v q --nologo     # 0 ошибок
 
 ---
 
-## 7. Что делать при сомнении
+## 8. Что делать при сомнении
 
 1. Прочитать `IDEAS.md` — возможно, вопрос уже решён или отклонён с причиной.
 2. Посмотреть `docs/REFS_DIFF.md` — как это было устроено в ПК-версии.

@@ -27,6 +27,8 @@ internal static class SelfTest
 	{
 		Console.WriteLine("TerrariaXDK self-test");
 		Console.WriteLine("=====================");
+		Terraria.Storage.AppPaths.EnsureDirectories();
+		RunCheck("app paths", CheckAppPaths);
 		RunCheck("content manifest", CheckContentManifest);
 		RunCheck("content orphans", CheckContentOrphans);
 		RunCheck("wire framing", CheckWireFormat);
@@ -70,6 +72,64 @@ internal static class SelfTest
 		string text = (message == null) ? name : (name + " - " + message);
 		Failures.Add(text);
 		Console.WriteLine("  FAIL " + text);
+	}
+
+	// --- Storage ------------------------------------------------------------
+
+	/// <summary>
+	/// The install must be portable: every mutable path lives under Storage/, next to the
+	/// executable, never in a per-user or system location.
+	/// </summary>
+	private static bool CheckAppPaths()
+	{
+		Terraria.Storage.AppPaths.EnsureDirectories();
+		string baseDir = Terraria.Storage.AppPaths.BaseDirectory;
+		string root = Terraria.Storage.AppPaths.Root;
+		if (!root.StartsWith(baseDir, StringComparison.OrdinalIgnoreCase))
+		{
+			return Fail("Storage root is not next to the executable: " + root);
+		}
+		if (!Path.GetFileName(root).Equals("Storage", StringComparison.OrdinalIgnoreCase))
+		{
+			return Fail("Storage folder has unexpected name: " + root);
+		}
+		string[] array = new string[6]
+		{
+			Terraria.Storage.AppPaths.Saves, Terraria.Storage.AppPaths.Logs, Terraria.Storage.AppPaths.Mods, Terraria.Storage.AppPaths.Backups, Terraria.Storage.AppPaths.Config, Terraria.Storage.AppPaths.Cache
+		};
+		foreach (string text in array)
+		{
+			if (!Directory.Exists(text))
+			{
+				return Fail("missing storage subfolder: " + text);
+			}
+			if (!text.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+			{
+				return Fail("storage subfolder escaped the root: " + text);
+			}
+		}
+		if (!Terraria.Storage.AppPaths.LogFile.StartsWith(Terraria.Storage.AppPaths.Logs, StringComparison.OrdinalIgnoreCase))
+		{
+			return Fail("debug log is outside Storage/Logs");
+		}
+		if (!Terraria.Storage.AppPaths.CrashLogFile.StartsWith(Terraria.Storage.AppPaths.Logs, StringComparison.OrdinalIgnoreCase))
+		{
+			return Fail("crash log is outside Storage/Logs");
+		}
+		if (!Terraria.Storage.AppPaths.SettingsFile.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+		{
+			return Fail("settings file is outside Storage/");
+		}
+		// The XNA storage device must be redirected, otherwise saves land in the user profile.
+		if (!string.Equals(Microsoft.Xna.Framework.Storage.StorageDevice.RootOverride, Terraria.Storage.AppPaths.Saves, StringComparison.OrdinalIgnoreCase))
+		{
+			return Fail("storage device is not redirected to Storage/Saves");
+		}
+		if (!string.Equals(Terraria.Mods.ModLoader.ModsDirectory, Terraria.Storage.AppPaths.Mods, StringComparison.OrdinalIgnoreCase))
+		{
+			return Fail("mods folder is not under Storage/");
+		}
+		return true;
 	}
 
 	// --- Content ------------------------------------------------------------
