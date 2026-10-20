@@ -726,12 +726,13 @@ public sealed class UI
 		new Location(Main.ResolutionWidth / 2, 432)
 	};
 
-	private static readonly Location[] MENU_SETTINGS_COORDS = new Location[5]
+	private static readonly Location[] MENU_SETTINGS_COORDS = new Location[6]
 	{
-		new Location(Main.ResolutionWidth / 2, 270),
-		new Location(Main.ResolutionWidth / 2, 340),
-		new Location(Main.ResolutionWidth / 2, 410),
-		new Location(Main.ResolutionWidth / 2, 480),
+		new Location(Main.ResolutionWidth / 2, 250),
+		new Location(Main.ResolutionWidth / 2, 310),
+		new Location(Main.ResolutionWidth / 2, 370),
+		new Location(Main.ResolutionWidth / 2, 430),
+		new Location(Main.ResolutionWidth / 2, 490),
 		new Location(Main.ResolutionWidth / 2, 550)
 	};
 
@@ -2003,6 +2004,12 @@ public sealed class UI
 			uiCoords = null;
 			Terraria.Input.KeyBindScreen.Reset();
 			return;
+		case MenuMode.MODS:
+			uiWidth = 0;
+			uiHeight = 1;
+			uiCoords = null;
+			Terraria.Mods.ModMenu.Reset();
+			return;
 		case MenuMode.STATUS_SCREEN:
 		case MenuMode.NETPLAY:
 			Progress = 0f;
@@ -2773,6 +2780,14 @@ public sealed class UI
 				SetMenu(MenuMode.SETTINGS);
 			}
 		}
+		else if (CurMenuMode == MenuMode.MODS)
+		{
+			if (Terraria.Mods.ModMenu.Update())
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.SETTINGS);
+			}
+		}
 		else if (CurMenuMode == MenuMode.CHEATS)
 		{
 			string[] cheatRows = Terraria.Cheats.CheatMenu.BuildRows();
@@ -3223,7 +3238,7 @@ public sealed class UI
 		else if (CurMenuMode == MenuMode.SETTINGS)
 		{
 			menuSpace = 60;
-			numMenuItems = 5;
+			numMenuItems = 6;
 			if (this == MainUI)
 			{
 				menuString[0] = Lang.MenuText[65];
@@ -3276,7 +3291,15 @@ public sealed class UI
 			menuString[4] = "Keyboard bindings";
 			MENU_SETTINGS_COORDS[4].X = ViewportHalfWidth;
 			menuHC[4] = 0;
-			if (selectedMenu == 4)
+			menuString[5] = "Mods: " + Terraria.Mods.ModLoader.ModCount + " loaded";
+			MENU_SETTINGS_COORDS[5].X = ViewportHalfWidth;
+			menuHC[5] = 0;
+			if (selectedMenu == 5)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.MODS);
+			}
+			else if (selectedMenu == 4)
 			{
 				Main.PlaySound(10);
 				SetMenu(MenuMode.KEYBINDS);
@@ -3703,6 +3726,10 @@ public sealed class UI
 		else if (CurMenuMode == MenuMode.KEYBINDS)
 		{
 			Terraria.Input.KeyBindScreen.Draw(this);
+		}
+		else if (CurMenuMode == MenuMode.MODS)
+		{
+			Terraria.Mods.ModMenu.Draw();
 		}
 		if (Main.HardmodeAlert && CurMenuMode == MenuMode.HARDMODE_UPSELL)
 		{
@@ -4227,6 +4254,9 @@ public sealed class UI
 			break;
 		case MenuMode.KEYBINDS:
 			Main.StrBuilder.Append("LMB / Space - rebind    R - reset    Esc - back");
+			break;
+		case MenuMode.MODS:
+			Main.StrBuilder.Append("LMB / Space - enable or disable    R - rescan    Esc - back");
 			break;
 		case MenuMode.PAUSE:
 			Main.StrBuilder.Append("LMB - select    Esc - resume");
