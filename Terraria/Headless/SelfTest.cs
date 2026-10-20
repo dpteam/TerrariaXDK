@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using Microsoft.Xna.Framework.Input;
+using Microsoft.Xna.Framework.Net;
 using Terraria.Net;
 
 namespace Terraria.Headless;
@@ -48,6 +50,9 @@ internal static class SelfTest
 		RunCheck("virtual keyboard", CheckVirtualKeyboard);
 		RunCheck("display settings", CheckDisplaySettings);
 		RunCheck("direct connect", CheckDirectConnect);
+		RunCheck("session record", CheckSessionRecord);
+		RunCheck("json", CheckJson);
+		RunCheck("master server", CheckMasterServer);
 		RunCheck("world backups", CheckWorldBackups);
 		ReportMemory();
 		Console.WriteLine();
@@ -1601,6 +1606,417 @@ internal static class SelfTest
 		}
 		catch
 		{
+		}
+	}
+
+	// --- Session record -----------------------------------------------------
+
+	/// <summary>
+	/// The decompiled AvailableNetworkSession had every property reading and writing its
+	/// own name, so the first touch recursed until the process died. Constructing a record
+	/// and reading it back is the regression test; if this ever regresses, the self-test
+	/// crashes instead of failing, which is still a loud-enough signal.
+	/// </summary>
+	private static bool CheckSessionRecord()
+	{
+		try
+		{
+			AvailableNetworkSession session = new AvailableNetworkSession(0, "host.example", 0, 7, new NetworkSessionProperties(), new QualityOfService());
+			session.SessionType = NetworkSessionType.SystemLink;
+			session.EndPoint = new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 7777);
+			session.CurrentGamerCount = 3;
+			JoinableSession joinable = new JoinableSession(session);
+			if (joinable.HostTag != "host.example" || joinable.PlayerCount != 3)
+			{
+				return Fail("the session record did not keep its values");
+			}
+			if (joinable.AvailableSession.EndPoint.Port != 7777)
+			{
+				return Fail("the session record lost its endpoint");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("session record round-trip threw: " + ex.Message);
+		}
+	}
+
+	// --- JSON ---------------------------------------------------------------
+
+	private static bool CheckJson()
+	{
+		Dictionary<string, object> obj = Json.Parse("{\"a\":1,\"b\":[true,null,\"x\\ny\"],\"c\":{\"d\":-2.5}}") as Dictionary<string, object>;
+		if (obj == null)
+		{
+			return Fail("a simple object did not parse");
+		}
+		if (Json.GetInt(obj, "a", 0) != 1)
+		{
+			return Fail("integer values are not read back");
+		}
+		List<object> array = Json.GetArray(obj, "b");
+		if (array == null || array.Count != 3 || !(array[0] is bool) || array[1] != null || (string)array[2] != "x\ny")
+		{
+			return Fail("array values are not read back");
+		}
+		Dictionary<string, object> dictionary = obj["c"] as Dictionary<string, object>;
+		if (dictionary == null || Json.GetInt(dictionary, "d", 0) != -2)
+		{
+			return Fail("nested objects are not read back");
+		}
+		// Escaping must survive a round-trip, including quotes and control characters.
+		string text = "a\"b\\c\td\re\nf";
+		Dictionary<string, object> obj2 = Json.Parse("{\"v\":" + Json.Quote(text) + "}") as Dictionary<string, object>;
+		if (obj2 == null || Json.GetString(obj2, "v") != text)
+		{
+			return Fail("quoted text did not round-trip");
+		}
+		// Malformed documents are rejected, never guessed at.
+		string[] malformed = new string[6]
+		{
+			"",
+			"{",
+			"{\"a\":}",
+			"{\"a\":1,}",
+			"[1,2",
+			"{\"a\":\"unterminated}"
+		};
+		for (int i = 0; i < malformed.Length; i++)
+		{
+			try
+			{
+				Json.Parse(malformed[i]);
+				return Fail("malformed JSON was accepted: " + malformed[i]);
+			}
+			catch (FormatException)
+			{
+			}
+		}
+		// A hostile master must not be able to exhaust memory or the stack.
+		try
+		{
+			Json.Parse(new string('[', 64) + new string(']', 64));
+			return Fail("deeply nested JSON was accepted");
+		}
+		catch (FormatException)
+		{
+		}
+		try
+		{
+			Json.Parse("{\"a\":\"" + new string('x', Json.MaxDocumentSize) + "\"}");
+			return Fail("an oversized JSON document was accepted");
+		}
+		catch (FormatException)
+		{
+		}
+		return true;
+	}
+
+	// --- Master server ------------------------------------------------------
+
+	/// <summary>
+	/// Exercises the master client against a local stub over real sockets: fetching,
+	/// caching, announcing, and that a broken or oversized answer is dropped instead of
+	/// breaking the server list.
+	/// </summary>
+	private static bool CheckMasterServer()
+	{
+		string ini = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-master.ini");
+		int timeout = MasterServerClient.TimeoutMs;
+		bool cachedExisted = System.IO.File.Exists(MasterServerClient.CachePath);
+		string cachedBackup = cachedExisted ? System.IO.File.ReadAllText(MasterServerClient.CachePath, Encoding.UTF8) : null;
+		try
+		{
+			using (StubMaster stub = new StubMaster())
+			{
+				stub.ResponseBody = "{\"servers\":[{\"name\":\"Test world\",\"host\":\"127.0.0.1\",\"port\":7777,\"players\":2,\"maxPlayers\":8,\"version\":2,\"passworded\":true,\"worldName\":\"World\",\"motd\":\"hello\",\"modSignature\":\"vanilla\"},{\"name\":\"Broken\",\"port\":7777},{\"name\":\"Bad port\",\"host\":\"127.0.0.1\",\"port\":99999}]}";
+				if (System.IO.File.Exists(ini))
+				{
+					System.IO.File.Delete(ini);
+				}
+				System.IO.File.WriteAllText(ini, "[Network]\r\nMasterServer=127.0.0.1:" + stub.Port + "\r\n");
+				Settings settings = new Settings(ini);
+				MasterServerClient.Configure(settings);
+				settings.Close();
+				MasterServerClient.TimeoutMs = 3000;
+				MasterServerClient.ResetBackoff();
+
+				List<MasterServerEntry> list = MasterServerClient.Fetch();
+				if (list.Count != 1)
+				{
+					return Fail("the server list kept " + list.Count + " entries, expected only the valid one");
+				}
+				MasterServerEntry entry = list[0];
+				if (entry.Name != "Test world" || entry.Host != "127.0.0.1" || entry.Port != 7777)
+				{
+					return Fail("the server entry was parsed incorrectly");
+				}
+				if (entry.Players != 2 || entry.MaxPlayers != 8 || entry.ProtocolVersion != 2 || !entry.Passworded || entry.Motd != "hello")
+				{
+					return Fail("the server entry lost some of its fields");
+				}
+				if (!stub.LastRequestLine.StartsWith("GET /v1/servers"))
+				{
+					return Fail("the client did not request /v1/servers: " + stub.LastRequestLine);
+				}
+				// The good answer is cached, so the list survives an unreachable master.
+				if (!System.IO.File.Exists(MasterServerClient.CachePath) || MasterServerClient.FetchCached().Count != 1)
+				{
+					return Fail("a successful answer was not cached");
+				}
+				// Announcing sends the entry back as JSON.
+				entry.Name = "Renamed \"quoted\" world";
+				if (!MasterServerClient.Announce(entry))
+				{
+					return Fail("announce was refused by the stub");
+				}
+				if (!stub.LastRequestLine.StartsWith("POST /v1/announce"))
+				{
+					return Fail("announce used the wrong endpoint: " + stub.LastRequestLine);
+				}
+				if (stub.LastBody == null || !stub.LastBody.Contains("\"port\":7777") || !stub.LastBody.Contains("quoted"))
+				{
+					return Fail("the announce body is malformed: " + stub.LastBody);
+				}
+				if (MasterServerClient.ParseServers(stub.LastBody) != null)
+				{
+					return Fail("a single entry was parsed as a server list");
+				}
+				// Broken answers are dropped, and repeated failures trigger a backoff.
+				stub.ResponseBody = "{\"servers\":[";
+				MasterServerClient.ResetBackoff();
+				if (MasterServerClient.Fetch().Count != 0)
+				{
+					return Fail("a malformed server list was accepted");
+				}
+				if (MasterServerClient.CanTry())
+				{
+					return Fail("a failure did not trigger the backoff");
+				}
+				stub.ResponseBody = "{\"servers\":[]}";
+				MasterServerClient.ResetBackoff();
+				if (MasterServerClient.Fetch().Count != 0 || !MasterServerClient.CanTry())
+				{
+					return Fail("the backoff did not reset after a good answer");
+				}
+				// An oversized answer is refused before it is parsed.
+				stub.ResponseBody = "{\"servers\":[\"" + new string('x', Json.MaxDocumentSize) + "\"]}";
+				MasterServerClient.ResetBackoff();
+				if (MasterServerClient.Fetch().Count != 0 || MasterServerClient.CanTry())
+				{
+					return Fail("an oversized response was not rejected");
+				}
+				// Leave a good answer in the cache for the "master is gone" check below.
+				stub.ResponseBody = "{\"servers\":[{\"name\":\"Cached world\",\"host\":\"127.0.0.1\",\"port\":7777}]}";
+				MasterServerClient.ResetBackoff();
+				if (MasterServerClient.Fetch().Count != 1)
+				{
+					return Fail("the master stopped answering before the cache check");
+				}
+			}
+			// Publishing must never advertise a singleplayer world (it runs a loopback host
+			// too), so Start() refuses unless NetMode is 2.
+			bool wasPublishing = MasterServerClient.Publish;
+			int netMode = Main.NetMode;
+			MasterServerClient.Publish = true;
+			Main.NetMode = 0;
+			MasterPublisher.Start(12345);
+			bool startedWhileSingleplayer = MasterPublisher.IsRunning;
+			MasterPublisher.Stop();
+			MasterServerClient.Publish = wasPublishing;
+			Main.NetMode = netMode;
+			if (startedWhileSingleplayer)
+			{
+				return Fail("a singleplayer host was prepared for publishing");
+			}
+			// With the master gone, the cached list is still available.
+			MasterServerClient.ResetBackoff();
+			if (MasterServerClient.Fetch().Count != 0)
+			{
+				return Fail("a fetch against a closed port returned entries");
+			}
+			if (MasterServerClient.FetchCached().Count != 1)
+			{
+				return Fail("the cached list was lost when the master went away");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("master server check threw: " + ex.Message);
+		}
+		finally
+		{
+			MasterServerClient.TimeoutMs = timeout;
+			MasterServerClient.ResetBackoff();
+			try
+			{
+				if (System.IO.File.Exists(ini))
+				{
+					System.IO.File.Delete(ini);
+				}
+			}
+			catch
+			{
+			}
+			try
+			{
+				// Restore the cache the game had before the test.
+				if (cachedBackup != null)
+				{
+					System.IO.File.WriteAllText(MasterServerClient.CachePath, cachedBackup, Encoding.UTF8);
+				}
+				else if (System.IO.File.Exists(MasterServerClient.CachePath))
+				{
+					System.IO.File.Delete(MasterServerClient.CachePath);
+				}
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	/// <summary>
+	/// Minimal HTTP/1.1 endpoint for the master-server test. Answers every request with
+	/// <see cref="ResponseBody"/> so the client sees a real socket, not a mock.
+	/// </summary>
+	private sealed class StubMaster : IDisposable
+	{
+		private readonly TcpListener _listener;
+
+		private readonly Thread _thread;
+
+		private volatile bool _stopped;
+
+		public string ResponseBody = "{\"servers\":[]}";
+
+		public int ResponseStatus = 200;
+
+		public volatile string LastRequestLine;
+
+		public volatile string LastBody;
+
+		public StubMaster()
+		{
+			_listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
+			_listener.Start();
+			_thread = new Thread(Loop)
+			{
+				IsBackground = true,
+				Name = "selftest.master"
+			};
+			_thread.Start();
+		}
+
+		public int Port => ((System.Net.IPEndPoint)_listener.LocalEndpoint).Port;
+
+		private void Loop()
+		{
+			while (!_stopped)
+			{
+				TcpClient tcpClient;
+				try
+				{
+					tcpClient = _listener.AcceptTcpClient();
+				}
+				catch
+				{
+					return;
+				}
+				try
+				{
+					Serve(tcpClient);
+				}
+				catch
+				{
+				}
+				finally
+				{
+					try
+					{
+						tcpClient.Close();
+					}
+					catch
+					{
+					}
+				}
+			}
+		}
+
+		private void Serve(TcpClient client)
+		{
+			NetworkStream stream = client.GetStream();
+			MemoryStream memoryStream = new MemoryStream();
+			byte[] array = new byte[1];
+			int num = 0;
+			while (num < 4 && memoryStream.Length < 16384)
+			{
+				int num2 = stream.Read(array, 0, 1);
+				if (num2 <= 0)
+				{
+					return;
+				}
+				memoryStream.WriteByte(array[0]);
+				char c = (char)array[0];
+				if ((num == 0 || num == 2) && c == '\r')
+				{
+					num++;
+				}
+				else if ((num == 1 || num == 3) && c == '\n')
+				{
+					num++;
+				}
+				else
+				{
+					num = (c == '\r') ? 1 : 0;
+				}
+			}
+			string text = Encoding.ASCII.GetString(memoryStream.ToArray());
+			string[] array2 = text.Split(new string[1] { "\r\n" }, StringSplitOptions.None);
+			LastRequestLine = (array2.Length != 0) ? array2[0] : "";
+			int num3 = 0;
+			for (int i = 1; i < array2.Length; i++)
+			{
+				if (array2[i].StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
+				{
+					int.TryParse(array2[i].Substring(15).Trim(), out num3);
+				}
+			}
+			if (num3 > 0 && num3 < 262144)
+			{
+				byte[] array3 = new byte[num3];
+				int num4 = 0;
+				while (num4 < num3)
+				{
+					int num5 = stream.Read(array3, num4, num3 - num4);
+					if (num5 <= 0)
+					{
+						break;
+					}
+					num4 += num5;
+				}
+				LastBody = Encoding.UTF8.GetString(array3, 0, num4);
+			}
+			byte[] bytes = Encoding.UTF8.GetBytes(ResponseBody);
+			string text2 = "HTTP/1.1 " + ResponseStatus + " " + ((ResponseStatus == 200) ? "OK" : "Error") + "\r\nContent-Type: application/json\r\nContent-Length: " + bytes.Length + "\r\nConnection: close\r\n\r\n";
+			byte[] bytes2 = Encoding.ASCII.GetBytes(text2);
+			stream.Write(bytes2, 0, bytes2.Length);
+			stream.Write(bytes, 0, bytes.Length);
+			stream.Flush();
+		}
+
+		public void Dispose()
+		{
+			_stopped = true;
+			try
+			{
+				_listener.Stop();
+			}
+			catch
+			{
+			}
 		}
 	}
 

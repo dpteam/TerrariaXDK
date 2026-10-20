@@ -2,107 +2,32 @@ using System.Net;
 
 namespace Microsoft.Xna.Framework.Net;
 
+/// <summary>
+/// A joinable session as advertised by discovery (or listed by the master server).
+///
+/// The decompiled stub had every property read and write its own name
+/// (<c>get { return CurrentGamerCount; }</c>), which is unbounded recursion: touching any
+/// of them killed the process with a StackOverflowException. So the LAN session list and
+/// the manual "join by address" path crashed as soon as they actually saw a server.
+/// Auto-properties keep the same API without the recursion.
+/// </summary>
 public sealed class AvailableNetworkSession
 {
-	private IPEndPoint _endPoint;
+	public int CurrentGamerCount { get; set; }
 
-	private IPEndPoint _internalendPoint;
+	public string HostGamertag { get; set; }
 
-	public int CurrentGamerCount
-	{
-		get
-		{
-			return CurrentGamerCount;
-		}
-		set
-		{
-			CurrentGamerCount = value;
-		}
-	}
+	public int OpenPrivateGamerSlots { get; set; }
 
-	public string HostGamertag
-	{
-		get
-		{
-			return HostGamertag;
-		}
-		set
-		{
-			HostGamertag = value;
-		}
-	}
+	public int OpenPublicGamerSlots { get; set; }
 
-	public int OpenPrivateGamerSlots
-	{
-		get
-		{
-			return OpenPrivateGamerSlots;
-		}
-		set
-		{
-			OpenPrivateGamerSlots = value;
-		}
-	}
+	public QualityOfService QualityOfService { get; set; }
 
-	public int OpenPublicGamerSlots
-	{
-		get
-		{
-			return OpenPublicGamerSlots;
-		}
-		set
-		{
-			OpenPublicGamerSlots = value;
-		}
-	}
+	public NetworkSessionProperties SessionProperties { get; set; }
 
-	public QualityOfService QualityOfService
-	{
-		get
-		{
-			return QualityOfService;
-		}
-		set
-		{
-			QualityOfService = value;
-		}
-	}
+	internal IPEndPoint EndPoint { get; set; }
 
-	public NetworkSessionProperties SessionProperties
-	{
-		get
-		{
-			return SessionProperties;
-		}
-		set
-		{
-			SessionProperties = value;
-		}
-	}
-
-	internal IPEndPoint EndPoint
-	{
-		get
-		{
-			return _endPoint;
-		}
-		set
-		{
-			_endPoint = value;
-		}
-	}
-
-	internal IPEndPoint InternalEndpont
-	{
-		get
-		{
-			return _internalendPoint;
-		}
-		set
-		{
-			_internalendPoint = value;
-		}
-	}
+	internal IPEndPoint InternalEndpont { get; set; }
 
 	internal NetworkSessionType SessionType { get; set; }
 

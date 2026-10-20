@@ -686,9 +686,105 @@ public sealed class Netplay
 		return true;
 	}
 
+	/// <summary>
+	/// Appends the public server list from the master server to the joinable sessions.
+	/// Runs on the finder thread and never blocks the game; an unreachable master simply
+	/// leaves the list as LAN-only. Cached entries are used when the master is down.
+	/// </summary>
+	private static void DiscoverMasterServers()
+	{
+		if (!Terraria.Net.NetworkConfig.UseTcpTransport)
+		{
+			return;
+		}
+		List<Terraria.Net.MasterServerEntry> entries;
+		try
+		{
+			entries = Terraria.Net.MasterServerClient.Fetch();
+		}
+		catch (Exception ex)
+		{
+			Program.LogWarn("Netplay", "master server lookup failed: " + ex.Message);
+			entries = new List<Terraria.Net.MasterServerEntry>();
+		}
+		if (entries.Count == 0)
+		{
+			entries = Terraria.Net.MasterServerClient.FetchCached();
+		}
+		if (entries.Count == 0)
+		{
+			return;
+		}
+		System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
+		lock (availableSessions)
+		{
+			for (int i = 0; i < entries.Count && !stopSessionFinderThread; i++)
+			{
+				System.Net.IPEndPoint endPoint = ResolveMasterEntry(entries[i], stopwatch);
+				if (endPoint == null)
+				{
+					continue;
+				}
+				bool duplicate = false;
+				for (int j = 0; j < availableSessions.Count; j++)
+				{
+					if (availableSessions[j].AvailableSession.EndPoint != null && availableSessions[j].AvailableSession.EndPoint.Equals(endPoint))
+					{
+						duplicate = true;
+						break;
+					}
+				}
+				if (duplicate)
+				{
+					continue;
+				}
+				AvailableNetworkSession availableNetworkSession = new AvailableNetworkSession(entries[i].Players, entries[i].Name, 0, Math.Max(1, entries[i].MaxPlayers), new NetworkSessionProperties(), new QualityOfService());
+				// SystemLink is the "plain TCP endpoint" type: it makes the join path skip
+				// Xbox Live lookups and go straight to the address.
+				availableNetworkSession.SessionType = NetworkSessionType.SystemLink;
+				availableNetworkSession.EndPoint = endPoint;
+				availableSessions.Add(new JoinableSession(availableNetworkSession));
+			}
+		}
+	}
+
+	/// <summary>
+	/// Turns a listing into an endpoint. Literal addresses are free; names are resolved
+	/// only while there is time budget left, so one slow DNS server cannot stall the list.
+	/// </summary>
+	private static System.Net.IPEndPoint ResolveMasterEntry(Terraria.Net.MasterServerEntry entry, System.Diagnostics.Stopwatch budget)
+	{
+		System.Net.IPAddress address;
+		if (System.Net.IPAddress.TryParse(entry.Host, out address))
+		{
+			return new System.Net.IPEndPoint(address, entry.Port);
+		}
+		if (budget.ElapsedMilliseconds > 3000)
+		{
+			return null;
+		}
+		try
+		{
+			System.Net.IPAddress[] addresses = System.Net.Dns.GetHostAddresses(entry.Host);
+			for (int i = 0; i < addresses.Length; i++)
+			{
+				if (addresses[i].AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+				{
+					return new System.Net.IPEndPoint(addresses[i], entry.Port);
+				}
+			}
+		}
+		catch (Exception ex)
+		{
+			Program.LogInfo("Netplay", "could not resolve listed server '" + entry.Host + "': " + ex.Message);
+		}
+		return null;
+	}
+
 	public static void FindSessionsThread()
 	{
 		DiscoverLanSessions();
+		DiscoverMasterServers();
 		NetworkSessionProperties networkSessionProperties = new NetworkSessionProperties();
 		networkSessionProperties[2] = 2;
 		UI mainUI = UI.MainUI;

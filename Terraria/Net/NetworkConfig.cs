@@ -44,6 +44,12 @@ internal static class NetworkConfig
 	/// <summary>Optional join password; empty disables the password request.</summary>
 	public static string Password = string.Empty;
 
+	/// <summary>
+	/// Address advertised to the master server. Empty means "use the address the master
+	/// sees", which is what a home connection behind NAT needs.
+	/// </summary>
+	public static string PublicAddress = string.Empty;
+
 	/// <summary>Parses "host", "host:port" or "[ipv6]:port".</summary>
 	public static bool TryParseAddress(string text, out string host, out int port)
 	{

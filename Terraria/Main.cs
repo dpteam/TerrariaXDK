@@ -677,6 +677,11 @@ public sealed class Main : Game
 		Terraria.Net.NetworkConfig.Port = ParsePort(settings.Get("Network", "Port"), 7777);
 		Terraria.Net.NetworkConfig.JoinAddress = settings.Get("Network", "JoinAddress");
 		Terraria.Net.NetworkConfig.Password = settings.Get("Network", "Password");
+		Terraria.Net.NetworkConfig.PublicAddress = settings.Get("Network", "PublicAddress");
+		Terraria.Net.MasterServerClient.Configure(settings);
+		settings.Set("Network", "PublishToMaster", Terraria.Net.MasterServerClient.Publish ? "True" : "False", "List this world on the master server while hosting.\n; Off by default: publishing your address is a choice.");
+		settings.Set("Network", "PublicAddress", Terraria.Net.NetworkConfig.PublicAddress, "Address advertised to the master server, e.g. 'myserver.example.com'.\n; Leave empty to let the master use the address it sees.");
+		Terraria.Net.MasterServerClient.Save(settings);
 		Terraria.Input.KeyBindings.Load(settings);
 		Terraria.Mods.ModLoader.Enabled = settings.Get("Mods", "Enabled").ToLower().Equals("true");
 		Terraria.Mods.ModLoader.RequireMatchingMods = settings.Get("Mods", "RequireMatchingMods").ToLower().Equals("true");

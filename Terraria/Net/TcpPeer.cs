@@ -126,6 +126,8 @@ internal sealed class TcpPeer : IPeerTransport
 			Name = "TerrariaXDK.Discovery"
 		};
 		thread.Start();
+		// Optional: list this world publicly. No-op unless [Network] PublishToMaster is on.
+		MasterPublisher.Start(port);
 	}
 
 	private void AcceptLoop()
@@ -750,6 +752,7 @@ internal sealed class TcpPeer : IPeerTransport
 	public void Shutdown()
 	{
 		_stopped = true;
+		MasterPublisher.Stop();
 		try
 		{
 			_listener?.Stop();

@@ -171,6 +171,9 @@ Enabled=True            ; чит-меню доступно только в си�
 Port=7777
 Password=               ; пусто = пускать всех
 JoinAddress=            ; "host:port" для быстрого подключения
+MasterServer=play.dartpower.xyz:17777   ; через запятую можно резервные
+PublishToMaster=False   ; публиковать свой мир в списке серверов
+PublicAddress=          ; пусто = мастер берёт адрес из соединения
 
 [Mods]
 Enabled=True
