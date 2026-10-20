@@ -53,6 +53,7 @@ internal static class SelfTest
 		RunCheck("session record", CheckSessionRecord);
 		RunCheck("json", CheckJson);
 		RunCheck("master server", CheckMasterServer);
+		RunCheck("lan discovery", CheckLanDiscovery);
 		RunCheck("world backups", CheckWorldBackups);
 		ReportMemory();
 		Console.WriteLine();
@@ -2017,6 +2018,64 @@ internal static class SelfTest
 			catch
 			{
 			}
+		}
+	}
+
+	// --- LAN discovery ------------------------------------------------------
+
+	/// <summary>
+	/// Discovery replies must survive both the old six-field format and the new one with
+	/// flags, and the player count must come from the players field - it used to be filled
+	/// with the port, so every world showed "7777/8".
+	/// </summary>
+	private static bool CheckLanDiscovery()
+	{
+		try
+		{
+			System.Net.IPAddress address = System.Net.IPAddress.Parse("192.168.1.50");
+			AvailableNetworkSession session = TcpPeer.ParseDiscoveryReply(new string[6] { "TXDK", "Alice", "3", "5", "vanilla", "7788" }, address);
+			if (session == null)
+			{
+				return Fail("a valid discovery reply was rejected");
+			}
+			if (session.HostGamertag != "Alice" || session.CurrentGamerCount != 3 || session.OpenPublicGamerSlots != 5)
+			{
+				return Fail("the discovery reply was parsed incorrectly");
+			}
+			if (session.EndPoint == null || session.EndPoint.Port != 7788 || !session.EndPoint.Address.Equals(address))
+			{
+				return Fail("the discovery reply produced a wrong endpoint");
+			}
+			if (session.Passworded)
+			{
+				return Fail("a reply without flags was treated as passworded");
+			}
+			// New format: flags say the host needs a password.
+			AvailableNetworkSession flagged = TcpPeer.ParseDiscoveryReply(new string[7] { "TXDK", "Bob", "1", "7", "vanilla", "7777", "1" }, address);
+			if (flagged == null || !flagged.Passworded)
+			{
+				return Fail("the password flag in a discovery reply was ignored");
+			}
+			// Junk is ignored instead of producing a half-built session.
+			if (TcpPeer.ParseDiscoveryReply(new string[6] { "NOPE", "Alice", "3", "5", "vanilla", "7788" }, address) != null)
+			{
+				return Fail("a foreign discovery reply was accepted");
+			}
+			if (TcpPeer.ParseDiscoveryReply(new string[3] { "TXDK", "Alice", "3" }, address) != null)
+			{
+				return Fail("a truncated discovery reply was accepted");
+			}
+			// A broken port falls back to the configured one instead of 0.
+			AvailableNetworkSession noPort = TcpPeer.ParseDiscoveryReply(new string[6] { "TXDK", "Carol", "2", "6", "vanilla", "abc" }, address);
+			if (noPort == null || noPort.EndPoint.Port != NetworkConfig.Port)
+			{
+				return Fail("an invalid port in a discovery reply was not replaced");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("LAN discovery check threw: " + ex.Message);
 		}
 	}
 

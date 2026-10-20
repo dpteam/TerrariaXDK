@@ -151,10 +151,13 @@ IPeerTransport
 UDP на `[Network] DiscoveryPort` (по умолчанию 7778).
 
 - Хост слушает широковещательные запросы длиной ≥4 байта с префиксом `TXDK`.
-- Отвечает строкой: `TXDK|gamertag|players|freeSlots|modSignature|port`.
-- Клиент (`TcpPeer.Discover`) шлёт broadcast, собирает ответы 1.2 с, отбрасывает
-  хосты с несовпадающей подписью модов и добавляет остальные в
-  `Netplay.availableSessions`.
+- Отвечает строкой: `TXDK|gamertag|players|freeSlots|modSignature|port|flags`.
+  `flags` — необязательное поле (бит 0: нужен пароль), чтобы старые хосты
+  оставались видимыми.
+- Клиент (`TcpPeer.ParseDiscoveryReply`) разбирает ответ, ставит пометки «пароль» и
+  «другие моды» и добавляет запись в `Netplay.availableSessions`. Раньше хосты с
+  чужой подписью модов молча выбрасывались из списка — теперь они видны с пометкой,
+  а отказ объясняет handshake.
 
 Дополнительно `Netplay.DiscoverLanSessions()` подмешивает адрес из
 `[Network] JoinAddress` (формат `host` или `host:port`) — ручное подключение,

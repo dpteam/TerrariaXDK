@@ -423,7 +423,10 @@ internal sealed class TcpPeer : IPeerTransport
 		{
 			gamertag = _session.LocalGamers[0].Gamertag;
 		}
-		return "TXDK|" + gamertag + "|" + (RemoteCount() + 1) + "|" + (NetworkConfig.MaxPlayers - RemoteCount()) + "|" + Terraria.Mods.ModLoader.Signature + "|" + _discoveryPort;
+		// Trailing flags keep the reply backward compatible: older clients stop reading
+		// after the port, newer ones also learn whether a password is required.
+		int num = string.IsNullOrEmpty(NetworkConfig.Password) ? 0 : 1;
+		return "TXDK|" + gamertag + "|" + (RemoteCount() + 1) + "|" + (NetworkConfig.MaxPlayers - RemoteCount()) + "|" + Terraria.Mods.ModLoader.Signature + "|" + _discoveryPort + "|" + num;
 	}
 
 	// --- Client -------------------------------------------------------------
@@ -833,6 +836,45 @@ internal sealed class TcpPeer : IPeerTransport
 
 	// --- LAN discovery ------------------------------------------------------
 
+	/// <summary>
+	/// Turns one discovery reply into a session record, or null when the reply is not ours.
+	/// Format: <c>TXDK|gamertag|players|freeSlots|modSignature|port[|flags]</c>; the flags
+	/// field is optional so older hosts stay listable.
+	/// </summary>
+	internal static AvailableNetworkSession ParseDiscoveryReply(string[] fields, IPAddress address)
+	{
+		if (fields == null || fields.Length < 6 || fields[0] != "TXDK")
+		{
+			return null;
+		}
+		int port;
+		int.TryParse(fields[5], out port);
+		if (port <= 0 || port > 65535)
+		{
+			port = NetworkConfig.Port;
+		}
+		int players;
+		int.TryParse(fields[2], out players);
+		int freeSlots;
+		int.TryParse(fields[3], out freeSlots);
+		int flags = 0;
+		if (fields.Length >= 7)
+		{
+			int.TryParse(fields[6], out flags);
+		}
+		// The first constructor argument is the player count. It used to receive the port,
+		// which made every LAN world show "7777/8" players.
+		AvailableNetworkSession session = new AvailableNetworkSession(players, fields[1], 0, freeSlots, new NetworkSessionProperties(), new QualityOfService());
+		session.SessionType = NetworkSessionType.SystemLink;
+		session.EndPoint = new IPEndPoint(address, port);
+		session.Passworded = (flags & 1) != 0;
+		// An incompatible mod set is marked, not hidden: the handshake will refuse it and
+		// say why, but the player can at least see the world exists.
+		session.ModMismatch = !Terraria.Mods.ModLoader.IsCompatible(fields[4]);
+		session.ProtocolVersion = ProtocolVersion;
+		return session;
+	}
+
 	/// <summary>Broadcasts a discovery probe and collects the replies.</summary>
 	internal static void Discover(List<AvailableNetworkSession> results)
 	{
@@ -859,20 +901,11 @@ internal sealed class TcpPeer : IPeerTransport
 					break;
 				}
 				string[] array3 = Encoding.UTF8.GetString(array2).Split('|');
-				if (array3.Length < 6 || array3[0] != "TXDK")
+				AvailableNetworkSession parsed = ParseDiscoveryReply(array3, remoteEP2.Address);
+				if (parsed != null)
 				{
-					continue;
+					results.Add(parsed);
 				}
-				if (!Terraria.Mods.ModLoader.IsCompatible(array3[4]))
-				{
-					continue;
-				}
-				int num = 0;
-				int.TryParse(array3[5], out num);
-				AvailableNetworkSession availableNetworkSession = new AvailableNetworkSession(num > 0 ? num : NetworkConfig.Port, array3[1], 0, 0, new NetworkSessionProperties(), new QualityOfService());
-				availableNetworkSession.SessionType = NetworkSessionType.SystemLink;
-				availableNetworkSession.EndPoint = new IPEndPoint(remoteEP2.Address, num > 0 ? num : NetworkConfig.Port);
-				results.Add(availableNetworkSession);
 			}
 		}
 		finally

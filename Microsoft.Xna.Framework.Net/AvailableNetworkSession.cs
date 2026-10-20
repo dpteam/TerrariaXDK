@@ -31,6 +31,18 @@ public sealed class AvailableNetworkSession
 
 	internal NetworkSessionType SessionType { get; set; }
 
+	/// <summary>Host requires a password. Advertised by discovery and by the master server.</summary>
+	internal bool Passworded { get; set; }
+
+	/// <summary>
+	/// The host runs a different mod set. The list still shows it (so the reason is
+	/// visible), but the handshake will refuse the join.
+	/// </summary>
+	internal bool ModMismatch { get; set; }
+
+	/// <summary>Wire protocol the host speaks; 0 when the listing did not say.</summary>
+	internal int ProtocolVersion { get; set; }
+
 	internal AvailableNetworkSession(int numGamers, string host, int privateSlots, int publicSlots, NetworkSessionProperties properties, QualityOfService qos)
 	{
 		CurrentGamerCount = numGamers;

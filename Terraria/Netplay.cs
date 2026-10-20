@@ -743,6 +743,11 @@ public sealed class Netplay
 				// Xbox Live lookups and go straight to the address.
 				availableNetworkSession.SessionType = NetworkSessionType.SystemLink;
 				availableNetworkSession.EndPoint = endPoint;
+				availableNetworkSession.Passworded = entries[i].Passworded;
+				availableNetworkSession.ProtocolVersion = entries[i].ProtocolVersion;
+				// Only trust the listing when it actually carries a signature; an older
+				// master may omit the field, and "unknown" must not mean "incompatible".
+				availableNetworkSession.ModMismatch = !string.IsNullOrEmpty(entries[i].ModSignature) && !Terraria.Mods.ModLoader.IsCompatible(entries[i].ModSignature);
 				availableSessions.Add(new JoinableSession(availableNetworkSession));
 			}
 		}

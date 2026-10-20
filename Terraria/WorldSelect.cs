@@ -309,9 +309,21 @@ public static class WorldSelect
 					JoinableSession joinableSession = Netplay.availableSessions[j];
 					string s2 = (j + 1).ToStringLookup() + ".";
 					UI.DrawStringLC(UI.BoldSmallFont, s2, destRect.X, destRect.Center.Y, white);
-					UI.DrawStringLC(UI.BoldSmallFont, joinableSession.HostTag, destRect.X + 32, destRect.Center.Y, white);
-					s2 = Lang.MenuText[78] + joinableSession.PlayerCount.ToStringLookup() + "/8";
-					UI.DrawStringRC(UI.BoldSmallFont, s2, destRect.Right, destRect.Center.Y, white);
+					// Markers instead of a second line: the list rows are one line tall.
+					string text = joinableSession.HostTag;
+					if (joinableSession.AvailableSession.Passworded)
+					{
+						text += " [pw]";
+					}
+					if (joinableSession.AvailableSession.ModMismatch)
+					{
+						text += " [mods]";
+					}
+					Color color = joinableSession.AvailableSession.ModMismatch ? new Color(235, 130, 120) : white;
+					UI.DrawStringLC(UI.BoldSmallFont, text, destRect.X + 32, destRect.Center.Y, color);
+					int maxPlayers2 = joinableSession.AvailableSession.OpenPublicGamerSlots + joinableSession.PlayerCount;
+					s2 = Lang.MenuText[78] + joinableSession.PlayerCount.ToStringLookup() + "/" + Math.Max(1, maxPlayers2).ToStringLookup();
+					UI.DrawStringRC(UI.BoldSmallFont, s2, destRect.Right, destRect.Center.Y, color);
 					destRect.Y += num;
 				}
 			}
