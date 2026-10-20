@@ -40,6 +40,7 @@ internal static class SelfTest
 		RunCheck("cheat gating", CheckCheatGating);
 		RunCheck("loading progress", CheckLoadingProgress);
 		RunCheck("input mapping", CheckInputMapping);
+		RunCheck("settings sections", CheckSettingsSections);
 		ReportMemory();
 		Console.WriteLine();
 		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
@@ -910,6 +911,66 @@ internal static class SelfTest
 			return Fail("WASD does not move the player");
 		}
 		return true;
+	}
+
+	// --- Settings -----------------------------------------------------------
+
+	/// <summary>
+	/// Keys must be identified by section AND name. Matching on the name alone made
+	/// "Enabled" in [Cheats] and [Mods] collapse into a single entry, which silently deleted
+	/// the [Cheats] section - so cheats were disabled no matter what the file said.
+	/// </summary>
+	private static bool CheckSettingsSections()
+	{
+		string text = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-settings.ini");
+		try
+		{
+			if (System.IO.File.Exists(text))
+			{
+				System.IO.File.Delete(text);
+			}
+			Settings settings = new Settings(text);
+			settings.Set("Cheats", "Enabled", "True", "cheats");
+			settings.Set("Mods", "Enabled", "False", "mods");
+			settings.Set("Mods", "RequireMatchingMods", "True", "match");
+			settings.Close();
+			string text2 = System.IO.File.ReadAllText(text);
+			if (!text2.Contains("[Cheats]"))
+			{
+				return Fail("[Cheats] section was dropped when writing settings");
+			}
+			Settings settings2 = new Settings(text);
+			string text3 = settings2.Get("Cheats", "Enabled");
+			string text4 = settings2.Get("Mods", "Enabled");
+			settings2.Close();
+			if (text3 != "True")
+			{
+				return Fail("Cheats/Enabled lost its value (got '" + text3 + "')");
+			}
+			if (text4 != "False")
+			{
+				return Fail("Mods/Enabled lost its value (got '" + text4 + "')");
+			}
+			System.IO.File.Delete(text);
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("settings round-trip failed: " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				if (System.IO.File.Exists(text))
+				{
+					System.IO.File.Delete(text);
+				}
+			}
+			catch
+			{
+			}
+		}
 	}
 
 	private static bool Fail(string message)

@@ -209,6 +209,12 @@ internal static class KeyboardMouseInput
 		MenuContext = ui.CurMenuType != MenuType.NONE || ui.InventoryMode > 0 || MessageBox.IsVisible();
 		// Only screens that consume the click themselves opt out of "left click = A".
 		MouseHandledByScreen = ui.CurMenuType != MenuType.NONE && (ui.CurMenuMode == MenuMode.CREATE_CHARACTER || ui.CurMenuMode == MenuMode.WORLD_SELECT);
+		// A click that lands nowhere on a menu list must do nothing, not activate the
+		// previously highlighted entry.
+		if (!MouseHandledByScreen && ui.ClickOutsideMenuEntries)
+		{
+			MouseHandledByScreen = true;
+		}
 	}
 
 	/// <summary>

@@ -35,7 +35,10 @@ internal class Settings
 		}
 		for (int i = 0; i < Keys.Count; i++)
 		{
-			if (Keys[i].Equals(Key))
+			// Match on section AND key. Matching on the key alone meant that a key which
+			// exists in two sections (e.g. "Enabled" in [Cheats] and [Mods]) collapsed into
+			// one entry, silently deleting the other section.
+			if (Keys[i].Equals(Key) && Subsections[i].Equals(Subsection))
 			{
 				Subsections[i] = Subsection;
 				Values[i] = Value;

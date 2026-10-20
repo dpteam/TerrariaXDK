@@ -405,6 +405,38 @@ public sealed class UI
 	/// </summary>
 	public static bool PointerActive => Terraria.Input.KeyboardMouseInput.Enabled && Terraria.Input.KeyboardMouseInput.CursorOverride;
 
+	// Bounds of the visible menu entries, recorded while drawing. Used for real hit-testing
+	// so a click activates the entry under the pointer and nothing else.
+	private readonly Rectangle[] menuHitRects = new Rectangle[14];
+
+	private readonly bool[] menuHitValid = new bool[14];
+
+	/// <summary>True when the last drawn frame contained at least one clickable entry.</summary>
+	private bool menuHitAny;
+
+	/// <summary>Entry index under the pointer, or -1. Valid for the last drawn frame.</summary>
+	public int MenuEntryUnderPointer
+	{
+		get
+		{
+			for (int i = 0; i < menuHitValid.Length; i++)
+			{
+				if (menuHitValid[i] && menuHitRects[i].Contains(MouseX, MouseY))
+				{
+					return i;
+				}
+			}
+			return -1;
+		}
+	}
+
+	/// <summary>
+	/// True when a click must be swallowed: a menu with real entries is open, but the pointer
+	/// is not over any of them. Without this a click anywhere activated whichever entry
+	/// happened to be highlighted - the "only PvP is clickable" symptom.
+	/// </summary>
+	public bool ClickOutsideMenuEntries => menuHitAny && MenuEntryUnderPointer < 0;
+
 	// Inventory slot grid, captured while drawing so mouse hit-testing matches the layout.
 	private Rectangle invMouseGrid;
 
@@ -3666,7 +3698,29 @@ public sealed class UI
 				pivot.X *= 0.5f;
 				pivot.Y *= 0.5f;
 				num11 *= menuScale[i];
-				DrawStringScaled(pos: new Vector2(menuLeft, (float)menuTop * Main.ScreenMultiplier + (float)(int)menuSpace * Main.ScreenMultiplier * (float)i + pivot.Y * menuScale[i] + (float)menuY[i]), font: BigFont, s: menuString[i], c: c, pivot: pivot, scale: num11);
+				Vector2 vector = new Vector2(menuLeft, (float)menuTop * Main.ScreenMultiplier + (float)(int)menuSpace * Main.ScreenMultiplier * (float)i + pivot.Y * menuScale[i] + (float)menuY[i]);
+				DrawStringScaled(pos: vector, font: BigFont, s: menuString[i], c: c, pivot: pivot, scale: num11);
+				// Record the real on-screen bounds so mouse hit-testing matches the text
+				// exactly instead of guessing "nearest entry" from a single point.
+				Vector2 vector2 = MeasureString(BigFont, menuString[i]) * num11;
+				menuHitRects[i] = new Rectangle((int)(vector.X - vector2.X * 0.5f), (int)(vector.Y - vector2.Y * 0.5f), (int)vector2.X, (int)vector2.Y);
+				menuHitValid[i] = true;
+			}
+		}
+		for (int num12 = 0; num12 < 14; num12++)
+		{
+			if (menuString[num12] == null || menuHC[num12] == 3)
+			{
+				menuHitValid[num12] = false;
+			}
+		}
+		menuHitAny = false;
+		for (int num13 = 0; num13 < 14; num13++)
+		{
+			if (menuHitValid[num13])
+			{
+				menuHitAny = true;
+				break;
 			}
 		}
 		for (int j = 0; j < 14; j++)
@@ -4962,35 +5016,49 @@ public sealed class UI
 	/// <summary>Menu only: moves the console selection to the entry nearest the pointer.</summary>
 	private void SelectMenuEntryUnderPointer()
 	{
+		if (menuHitAny)
+		{
+			// Real hit-testing: the pointer must be on an entry for the selection to move.
+			// Leaving the pointer off the list keeps the last selection instead of jumping
+			// to whatever happened to be closest.
+			int num = MenuEntryUnderPointer;
+			if (num >= 0)
+			{
+				int num10 = Math.Max(1, (int)uiWidth);
+				uiX = (short)(num % num10);
+				uiY = (short)(num / num10);
+			}
+			return;
+		}
 		if (uiCoords == null || uiWidth <= 0 || uiHeight <= 0)
 		{
 			return;
 		}
-		int num = MouseX;
-		int num2 = MouseY;
-		int num3 = Math.Min(uiWidth * uiHeight, uiCoords.Length);
-		int num4 = -1;
-		long num5 = long.MaxValue;
-		for (int i = 0; i < num3; i++)
+		int num2 = MouseX;
+		int num3 = MouseY;
+		int num4 = Math.Min(uiWidth * uiHeight, uiCoords.Length);
+		int num5 = -1;
+		long num6 = long.MaxValue;
+		for (int i = 0; i < num4; i++)
 		{
 			Location location = uiCoords[i];
 			if (location.X == 0 && location.Y == 0)
 			{
 				continue;
 			}
-			long num6 = location.X - num;
-			long num7 = location.Y - num2;
-			long num8 = num6 * num6 + num7 * num7;
-			if (num8 < num5)
+			long num7 = location.X - num2;
+			long num8 = location.Y - num3;
+			long num9 = num7 * num7 + num8 * num8;
+			if (num9 < num6)
 			{
-				num5 = num8;
-				num4 = i;
+				num6 = num9;
+				num5 = i;
 			}
 		}
-		if (num4 >= 0 && num5 < 160 * 160)
+		if (num5 >= 0 && num6 < 160 * 160)
 		{
-			uiX = (short)(num4 % uiWidth);
-			uiY = (short)(num4 / uiWidth);
+			uiX = (short)(num5 % uiWidth);
+			uiY = (short)(num5 / uiWidth);
 		}
 	}
 
@@ -5804,17 +5872,20 @@ public sealed class UI
 
 	public void DrawInventoryCursor(int x, int y, double scale, int alpha = 255)
 	{
-		// With the mouse in use the desktop pointer is the cursor: this sprite would be a
-		// second, immobile one. Worse, it also used to write MouseX/MouseY, which dragged the
-		// real pointer back onto the menu row every frame - the "sticky cursor".
-		if (PointerActive)
-		{
-			return;
-		}
+		// This sprite is the SELECTION marker (the highlighted slot / menu row), not a mouse
+		// pointer: it must keep drawing even when the mouse drives the selection, otherwise
+		// the inventory loses its highlight entirely.
+		//
+		// It used to also write MouseX/MouseY, which dragged the real pointer back onto the
+		// marker every frame - the "sticky cursor". That write is what must not happen while
+		// the mouse is the active device.
 		alpha = MouseTextBrightness * alpha >> 8;
 		SpriteSheet<_sheetSprites>.DrawTL(448, x, y, new Color(alpha, alpha, alpha, alpha), (float)scale);
-		MouseX = (short)x;
-		MouseY = (short)y;
+		if (!PointerActive)
+		{
+			MouseX = (short)x;
+			MouseY = (short)y;
+		}
 	}
 
 	public static bool IsStorageEnabledForAnyPlayer()

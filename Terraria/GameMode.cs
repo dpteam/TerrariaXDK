@@ -143,10 +143,9 @@ public static class GameMode
 		MouseRowHeight = (int)(64f * Main.ScreenMultiplier);
 		MouseRowsArea = new Rectangle(num - (int)(8f * Main.ScreenMultiplier), num2 - (int)(8f * Main.ScreenMultiplier), (int)(320f * Main.ScreenMultiplier), MouseRowHeight * 3);
 		bool flag = UI.MainUI.CanPlayOnline();
-		// With the mouse in use the real pointer already shows the target, so the console
-		// selection cursor is not drawn - otherwise it stays "glued" to one row.
-		bool pointer = UI.PointerActive;
-		if (CursorY == 0 && !pointer)
+		// The selection marker is drawn even with the mouse active: it is the highlight, not a
+		// pointer (the pointer is drawn separately and the marker no longer moves it).
+		if (CursorY == 0)
 		{
 			view.Ui.DrawInventoryCursor(num, num2, Main.ScreenMultiplier);
 		}
@@ -161,7 +160,7 @@ public static class GameMode
 		}
 		UI.DrawStringLC(UI.SmallFont, Lang.MenuText[6], num + (int)(60f * Main.ScreenMultiplier), num2 + (int)(26f * Main.ScreenMultiplier), c);
 		num2 += (int)(64f * Main.ScreenMultiplier);
-		if (CursorY == 1 && !pointer)
+		if (CursorY == 1)
 		{
 			view.Ui.DrawInventoryCursor(num, num2, Main.ScreenMultiplier);
 		}

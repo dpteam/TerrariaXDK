@@ -19,6 +19,11 @@ internal static class ChatInput
 {
 	private const int MaxLength = 200;
 
+	/// <summary>Number of previous messages shown above the input.</summary>
+	private const int HistoryLines = 4;
+
+	private static readonly System.Collections.Generic.List<string> History = new System.Collections.Generic.List<string>();
+
 	private static readonly StringBuilder Buffer = new StringBuilder(MaxLength);
 
 	private static bool _subscribed;
@@ -180,6 +185,7 @@ internal static class ChatInput
 			return;
 		}
 		Main.NewText("<Player> " + text, 255, 255, 255);
+		AddHistory("<Player> " + text);
 		if (Main.NetMode != 0)
 		{
 			try
@@ -208,33 +214,61 @@ internal static class ChatInput
 		int num = ((ui != null && ui.CurrentView != null) ? ui.CurrentView.ViewWidth : Main.ResolutionWidth);
 		float num2 = Main.ScreenMultiplier;
 		int num3 = (int)(48f * num2);
-		int num4 = Main.ResolutionHeight - num3 - (int)(90f * num2);
-		int num5 = num - (int)(64f * num2);
-		int num6 = (int)(34f * num2);
-		// Shadowed frame with a slightly lighter interior reads better over the world.
-		Main.DrawSolidRect(new Rectangle(num3 + 2, num4 + 2, num5, num6), new Color(0, 0, 0, 120));
-		Main.DrawSolidRect(new Rectangle(num3, num4, num5, num6), new Color(12, 16, 24, 225));
-		Main.DrawSolidRect(new Rectangle(num3, num4, num5, 1), new Color(70, 110, 170, 255));
-		Main.DrawSolidRect(new Rectangle(num3, num4 + num6 - 1, num5, 1), new Color(70, 110, 170, 255));
-		Main.DrawSolidRect(new Rectangle(num3, num4, 1, num6), new Color(70, 110, 170, 255));
-		Main.DrawSolidRect(new Rectangle(num3 + num5 - 1, num4, 1, num6), new Color(70, 110, 170, 255));
+		// Panel sits above the hotbar and is tall enough for the input plus a short history,
+		// so the prompt no longer feels squeezed into a single line.
+		int num4 = (int)(36f * num2) * (HistoryLines + 1) + (int)(30f * num2);
+		int num5 = Main.ResolutionHeight - (int)(90f * num2) - num4;
+		int num6 = num - (int)(64f * num2);
+		int num7 = (int)(34f * num2);
+		// Shadow, body, border.
+		Main.DrawSolidRect(new Rectangle(num3 + 2, num5 + 2, num6, num4), new Color(0, 0, 0, 120));
+		Main.DrawSolidRect(new Rectangle(num3, num5, num6, num4), new Color(12, 16, 24, 232));
+		Main.DrawSolidRect(new Rectangle(num3, num5, num6, 1), new Color(70, 110, 170, 255));
+		Main.DrawSolidRect(new Rectangle(num3, num5 + num4 - 1, num6, 1), new Color(70, 110, 170, 255));
+		Main.DrawSolidRect(new Rectangle(num3, num5, 1, num4), new Color(70, 110, 170, 255));
+		Main.DrawSolidRect(new Rectangle(num3 + num6 - 1, num5, 1, num4), new Color(70, 110, 170, 255));
+		int num8 = (int)(12f * num2);
+		int num9 = (int)(36f * num2);
+		// History above the input, dimmed.
+		for (int i = 0; i < HistoryLines; i++)
+		{
+			if (i >= History.Count)
+			{
+				break;
+			}
+			string s = History[History.Count - 1 - i];
+			UI.DrawStringLC(UI.BoldSmallFont, s, num3 + num8, num5 + (int)(8f * num2) + i * num9 + (int)(8f * num2), new Color(140, 150, 165));
+		}
+		int num10 = num5 + num4 - num7 - (int)(6f * num2);
+		Main.DrawSolidRect(new Rectangle(num3, num10 - (int)(4f * num2), num6, 1), new Color(40, 60, 90, 255));
 		bool flag = IsCommand(Buffer.ToString());
 		string text = flag ? "Command" : "Say";
-		int num7 = (int)(12f * num2);
-		int num8 = num4 + (num6 - (int)UI.BoldSmallFont.MeasureString("A").Y) / 2;
-		UI.DrawStringLC(UI.BoldSmallFont, text, num3 + num7, num8, flag ? new Color(120, 230, 140) : new Color(130, 170, 220));
-		int num9 = num3 + num7 + (int)UI.BoldSmallFont.MeasureString(text + "  ").X;
+		int num11 = num10 + (num7 - (int)UI.BoldSmallFont.MeasureString("A").Y) / 2;
+		UI.DrawStringLC(UI.BoldSmallFont, text, num3 + num8, num11, flag ? new Color(120, 230, 140) : new Color(130, 170, 220));
+		int num12 = num3 + num8 + (int)UI.BoldSmallFont.MeasureString(text + "  ").X;
 		string text2 = Buffer.ToString();
-		UI.DrawStringLC(UI.BoldSmallFont, text2, num9, num8, Color.White);
-		// Caret: only while it is "on", and always after the text.
+		UI.DrawStringLC(UI.BoldSmallFont, text2, num12, num11, Color.White);
 		if ((Main.FrameCounter / 20) % 2 == 0)
 		{
-			int num10 = num9 + (int)UI.BoldSmallFont.MeasureString(text2).X;
-			Main.DrawSolidRect(new Rectangle(num10 + 1, num8, 2, (int)UI.BoldSmallFont.MeasureString("A").Y), Color.White);
+			int num13 = num12 + (int)UI.BoldSmallFont.MeasureString(text2).X;
+			Main.DrawSolidRect(new Rectangle(num13 + 1, num11, 2, (int)UI.BoldSmallFont.MeasureString("A").Y), Color.White);
 		}
-		// Hint line under the field.
 		string text3 = flag ? "Enter = run   Esc = cancel   !help" : "Enter = send   Esc = cancel";
-		UI.DrawStringLC(UI.BoldSmallFont, text3, num3 + num7, num4 + num6 + (int)(4f * num2), new Color(140, 140, 150));
+		UI.DrawStringLC(UI.BoldSmallFont, text3, num3 + num8, num10 + num7 + (int)(2f * num2), new Color(140, 140, 150));
+	}
+
+	/// <summary>Adds a line to the small history shown above the input.</summary>
+	public static void AddHistory(string line)
+	{
+		if (string.IsNullOrEmpty(line))
+		{
+			return;
+		}
+		History.Add(line);
+		while (History.Count > HistoryLines)
+		{
+			History.RemoveAt(0);
+		}
 	}
 
 	/// <summary>True when the buffer starts with a command marker.</summary>
