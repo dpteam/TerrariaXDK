@@ -27,6 +27,13 @@ public class ContentManager : IDisposable
 
 	private bool disposed;
 
+	/// <summary>
+	/// Number of assets actually decoded since startup. The loading screen uses it to drive a
+	/// progress bar from real work instead of coarse "phase started" markers, which is what
+	/// made the bar jump forward in big steps.
+	/// </summary>
+	internal static int AssetsLoaded;
+
 	private static object ContentManagerLock = new object();
 
 	private static List<WeakReference> ContentManagers = new List<WeakReference>();
@@ -128,6 +135,7 @@ public class ContentManager : IDisposable
 			// the second write would leak the first. Serialising is fine - loads are rare.
 			val = ReadAsset<T>(assetName, null);
 			loadedAssets[key] = val;
+			System.Threading.Interlocked.Increment(ref AssetsLoaded);
 			return val;
 		}
 	}

@@ -5,6 +5,17 @@ using Microsoft.Xna.Framework.Input;
 namespace Terraria.Input;
 
 /// <summary>
+/// Quick actions available on the keyboard, mirroring the PC bindings.
+/// </summary>
+internal enum QuickAction
+{
+	None = 0,
+	Heal,
+	Mana,
+	Buff
+}
+
+/// <summary>
 /// Bridges desktop keyboard + mouse input onto the gamepad-centric input model used by
 /// the Xbox 360 code base. Nothing in the game logic is rewritten: a synthetic
 /// <see cref="GamePadState"/> is merged with the physical one, plus an absolute mouse
@@ -26,6 +37,16 @@ internal static class KeyboardMouseInput
 	private static int _idleFrames;
 	private static float _wheelAccumulator;
 
+	/// <summary>
+	/// True once the mouse has been used since the gamepad last moved. Menus keep the cursor
+	/// visible off this flag instead of off "moved this frame", so the pointer does not
+	/// disappear while the player reads an entry and does not get hijacked by stick logic.
+	/// </summary>
+	private static bool _mouseEngaged;
+
+	private static int _hotbarRequest = -1;
+	private static QuickAction _quickAction = QuickAction.None;
+
 	/// <summary>Master switch (Settings.ini: [Input] KeyboardMouse).</summary>
 	public static bool Enabled = true;
 
@@ -40,11 +61,16 @@ internal static class KeyboardMouseInput
 
 	/// <summary>
 	/// Set by screens that perform their own mouse hit-testing (character creation, world
-	/// select). Without it a click would do the job twice: once through the screen's own
-	/// hit-test and again through the "LMB acts as A" shortcut, which in character creation
-	/// advanced the category on every click.
+	/// select, game mode). Without it a click would do the job twice: once through the
+	/// screen's own hit-test and again through the "LMB acts as A" shortcut.
 	/// </summary>
 	public static bool MouseHandledByScreen { get; set; }
+
+	/// <summary>
+	/// Set while a text field (chat) has focus. Game input is suppressed so typing does not
+	/// move the player or swing the held item.
+	/// </summary>
+	public static bool TextInputActive { get; set; }
 
 	/// <summary>Absolute mouse position in backbuffer pixels.</summary>
 	public static int MouseX { get; private set; }
@@ -96,36 +122,56 @@ internal static class KeyboardMouseInput
 		if (moved || clicked || ScrollDelta != 0)
 		{
 			_idleFrames = 0;
+			_mouseEngaged = true;
 			CursorOverride = true;
-		}
-		else if (MenuContext)
-		{
-			// Menus are pointed at, not steered with a stick: keep the pointer available even
-			// when the mouse sits still, otherwise it vanishes while the player reads an entry.
-			_idleFrames = 0;
 		}
 		else if (CursorOverride && ++_idleFrames > CursorIdleFrames)
 		{
 			// Player went back to the controller (or is idle): restore stick behaviour.
 			CursorOverride = false;
 		}
-		// Hotbar slots 1..9 and 0 map to the ten hotbar entries, like the PC version.
-		_hotbarRequest = -1;
-		for (int i = 0; i < 9; i++)
+		// Menus are pointed at, not steered: as long as the mouse has been used, keep the
+		// pointer in charge. Re-arming here is what fixes "cursor snaps to the buttons".
+		if (MenuContext && _mouseEngaged)
 		{
-			if (KeyPressed((Keys)((int)Keys.D1 + i)))
+			_idleFrames = 0;
+			CursorOverride = true;
+		}
+		_hotbarRequest = -1;
+		if (!TextInputActive)
+		{
+			// Hotbar slots 1..9 and 0 map to the ten hotbar entries, like the PC version.
+			for (int i = 0; i < 9; i++)
 			{
-				_hotbarRequest = i;
-				break;
+				if (KeyPressed((Keys)((int)Keys.D1 + i)))
+				{
+					_hotbarRequest = i;
+					break;
+				}
+			}
+			if (_hotbarRequest < 0 && KeyPressed(Keys.D0))
+			{
+				_hotbarRequest = 9;
 			}
 		}
-		if (_hotbarRequest < 0 && KeyPressed(Keys.D0))
+		// PC bindings: H heal, J mana, B buff.
+		_quickAction = QuickAction.None;
+		if (!TextInputActive && !MenuContext)
 		{
-			_hotbarRequest = 9;
+			if (KeyPressed(Keys.H))
+			{
+				_quickAction = QuickAction.Heal;
+			}
+			else if (KeyPressed(Keys.J))
+			{
+				_quickAction = QuickAction.Mana;
+			}
+			else if (KeyPressed(Keys.B))
+			{
+				_quickAction = QuickAction.Buff;
+			}
 		}
 	}
-
-	private static int _hotbarRequest = -1;
 
 	/// <summary>
 	/// Hotbar slot requested by a number key this frame, or -1. The caller applies it so this
@@ -135,6 +181,14 @@ internal static class KeyboardMouseInput
 	{
 		int result = _hotbarRequest;
 		_hotbarRequest = -1;
+		return result;
+	}
+
+	/// <summary>Quick action requested this frame (H/J/B), or <see cref="QuickAction.None"/>.</summary>
+	public static QuickAction ConsumeQuickAction()
+	{
+		QuickAction result = _quickAction;
+		_quickAction = QuickAction.None;
 		return result;
 	}
 
@@ -156,142 +210,143 @@ internal static class KeyboardMouseInput
 	/// <summary>Builds the synthetic pad state for the current keyboard/mouse state.</summary>
 	public static GamePadState BuildSyntheticState()
 	{
+		return BuildSyntheticState(_mouse, _prevMouse, _keys, MenuContext && !TextInputActive, TextInputActive);
+	}
+
+	/// <summary>
+	/// Pure mapping function: given a device snapshot, produce the equivalent pad state.
+	/// Kept free of instance state so it can be exercised by the headless self-test.
+	/// </summary>
+	internal static GamePadState BuildSyntheticState(MouseState mouse, MouseState prevMouse, KeyboardState keys, bool menuContext, bool textInputActive)
+	{
 		Vector2 leftStick = Vector2.Zero;
-		Vector2 rightStick = Vector2.Zero;
 		float leftTrigger = 0f;
 		float rightTrigger = 0f;
 		Buttons buttons = 0;
+		if (textInputActive)
+		{
+			// Typing: the keyboard belongs to the text field, not to the player.
+			return new GamePadState(leftStick, Vector2.Zero, 0f, 0f, buttons);
+		}
+		bool left = mouse.LeftButton == ButtonState.Pressed;
+		bool right = mouse.RightButton == ButtonState.Pressed;
 
 		// Movement: WASD drives the left stick.
-		if (_keys.IsKeyDown(Keys.A))
+		if (keys.IsKeyDown(Keys.A))
 		{
 			leftStick.X -= 1f;
 		}
-		if (_keys.IsKeyDown(Keys.D))
+		if (keys.IsKeyDown(Keys.D))
 		{
 			leftStick.X += 1f;
 		}
-		if (_keys.IsKeyDown(Keys.W))
+		if (keys.IsKeyDown(Keys.W))
 		{
 			leftStick.Y += 1f;
 		}
-		if (_keys.IsKeyDown(Keys.S))
+		if (keys.IsKeyDown(Keys.S))
 		{
 			leftStick.Y -= 1f;
 		}
-
 		// Menus / cursor nudging: arrow keys act as the D-Pad.
-		if (_keys.IsKeyDown(Keys.Left))
+		if (keys.IsKeyDown(Keys.Left))
 		{
 			buttons |= Buttons.DPadLeft;
 			leftStick.X = -1f;
 		}
-		if (_keys.IsKeyDown(Keys.Right))
+		if (keys.IsKeyDown(Keys.Right))
 		{
 			buttons |= Buttons.DPadRight;
 			leftStick.X = 1f;
 		}
-		if (_keys.IsKeyDown(Keys.Up))
+		if (keys.IsKeyDown(Keys.Up))
 		{
 			buttons |= Buttons.DPadUp;
 			leftStick.Y = 1f;
 		}
-		if (_keys.IsKeyDown(Keys.Down))
+		if (keys.IsKeyDown(Keys.Down))
 		{
 			buttons |= Buttons.DPadDown;
 			leftStick.Y = -1f;
 		}
-
 		// Buttons.
-		if (_keys.IsKeyDown(Keys.Space))
+		if (keys.IsKeyDown(Keys.Space))
 		{
 			buttons |= Buttons.A; // jump / confirm
 		}
-		if (_keys.IsKeyDown(Keys.Enter))
+		if (keys.IsKeyDown(Keys.Enter))
 		{
 			buttons |= Buttons.A;
 		}
-		if (_keys.IsKeyDown(Keys.LeftShift) || _keys.IsKeyDown(Keys.RightShift))
+		if (keys.IsKeyDown(Keys.LeftShift) || keys.IsKeyDown(Keys.RightShift))
 		{
 			buttons |= Buttons.LeftStick; // BTN_JUMP2
 		}
-		if (_keys.IsKeyDown(Keys.E) || _keys.IsKeyDown(Keys.Tab))
+		if (keys.IsKeyDown(Keys.E) || keys.IsKeyDown(Keys.Tab))
 		{
 			buttons |= Buttons.Y; // inventory (character creation reuses Y for randomize)
 		}
-		// PC uses Q for "throw item"; R is kept as a second binding for convenience.
-		if (_keys.IsKeyDown(Keys.R) || _keys.IsKeyDown(Keys.Q))
+		if (keys.IsKeyDown(Keys.R) || keys.IsKeyDown(Keys.Q))
 		{
-			buttons |= Buttons.X;
+			buttons |= Buttons.X; // throw item (PC uses Q)
 		}
-		if (_keys.IsKeyDown(Keys.C))
+		if (keys.IsKeyDown(Keys.C))
 		{
 			buttons |= Buttons.RightStick; // toggle smart cursor
 		}
-		// Escape is context sensitive. On the console "Start" means confirm, so mapping Escape
-		// to Start everywhere made it activate the highlighted entry instead of leaving the
-		// menu. In a menu Escape must be Cancel (Back); in game it opens the pause menu.
-		if (_keys.IsKeyDown(Keys.Escape))
+		// Escape is context sensitive: "cancel" inside a menu, "pause" during play. Mapping it
+		// to Start everywhere made it activate the highlighted entry instead of leaving.
+		if (keys.IsKeyDown(Keys.Escape))
 		{
-			buttons |= MenuContext ? Buttons.Back : Buttons.Start;
+			buttons |= menuContext ? Buttons.Back : Buttons.Start;
 		}
-		// Map / cancel. Q is taken by "throw item" (PC parity), so the map is M only.
-		if (_keys.IsKeyDown(Keys.M) || _keys.IsKeyDown(Keys.Back))
+		// Map / cancel. Q is taken by "throw item", so the map is M only.
+		if (keys.IsKeyDown(Keys.M) || keys.IsKeyDown(Keys.Back))
 		{
 			buttons |= Buttons.Back;
 		}
-
 		// Mouse buttons.
-		if (MenuContext)
+		if (menuContext)
 		{
-			if (LeftPressed && !MouseHandledByScreen)
+			if (left && !MouseHandledByScreen)
 			{
 				buttons |= Buttons.A; // confirm menu entry
 			}
-			if (RightPressed)
+			if (right)
 			{
 				buttons |= Buttons.B; // cancel
 			}
 		}
 		else
 		{
-			if (LeftPressed)
+			if (left)
 			{
 				rightTrigger = 1f; // use item / attack
 				buttons |= Buttons.RightTrigger;
 			}
-			// PC parity: right button places blocks and interacts with tiles
-			// (controlUseTile), it is NOT the grapple. Grapple lives on the middle button.
-			if (RightPressed)
+			// PC parity: the right button places blocks and interacts with tiles
+			// (controlUseTile); the grapple lives on the middle button.
+			if (right)
 			{
 				buttons |= Buttons.B;
 			}
 		}
-		// Grapple: middle mouse button or V, matching the "hook" action on PC.
-		if (_mouse.MiddleButton == ButtonState.Pressed || _keys.IsKeyDown(Keys.V))
+		// Grapple: middle mouse button or V.
+		if (mouse.MiddleButton == ButtonState.Pressed || keys.IsKeyDown(Keys.V))
 		{
 			leftTrigger = 1f;
 			buttons |= Buttons.LeftTrigger;
 		}
-
 		// Mouse wheel cycles the hotbar.
-		if (ScrollDelta > 0)
+		if (mouse.ScrollWheelValue != prevMouse.ScrollWheelValue)
 		{
-			buttons |= Buttons.LeftShoulder;
-			_wheelAccumulator = 0f;
+			buttons |= (mouse.ScrollWheelValue > prevMouse.ScrollWheelValue) ? Buttons.LeftShoulder : Buttons.RightShoulder;
 		}
-		else if (ScrollDelta < 0)
-		{
-			buttons |= Buttons.RightShoulder;
-			_wheelAccumulator = 0f;
-		}
-
 		if (leftStick.LengthSquared() > 1f)
 		{
 			leftStick.Normalize();
 		}
-		GamePadState state = new GamePadState(leftStick, rightStick, leftTrigger, rightTrigger, buttons);
-		return state;
+		return new GamePadState(leftStick, Vector2.Zero, leftTrigger, rightTrigger, buttons);
 	}
 
 	/// <summary>Merges physical gamepad input with the synthetic keyboard/mouse state.</summary>
@@ -301,9 +356,15 @@ internal static class KeyboardMouseInput
 		{
 			return physical;
 		}
+		// A gamepad in use means the player switched devices: hand control back to it so a
+		// controller user never sees a mouse pointer sitting in the middle of the screen.
+		if (PadIsActive(physical))
+		{
+			_mouseEngaged = false;
+			CursorOverride = false;
+			_idleFrames = 0;
+		}
 		GamePadState synthetic = BuildSyntheticState();
-
-		// Union of buttons/dpad; sticks prefer whichever is being moved.
 		Buttons buttons = physical.Buttons.buttons | synthetic.Buttons.buttons;
 		GamePadDPad dpad = physical.DPad;
 		if (synthetic.DPad.Up == ButtonState.Pressed)
@@ -335,6 +396,26 @@ internal static class KeyboardMouseInput
 		float lt = Math.Max(physical.Triggers.Left, synthetic.Triggers.Left > TriggerThreshold ? synthetic.Triggers.Left : 0f);
 		float rt = Math.Max(physical.Triggers.Right, synthetic.Triggers.Right > TriggerThreshold ? synthetic.Triggers.Right : 0f);
 		return new GamePadState(new GamePadThumbSticks(left, right), new GamePadTriggers(lt, rt), new GamePadButtons(buttons), dpad);
+	}
+
+	/// <summary>True when the physical pad shows real activity (stick, trigger or button).</summary>
+	private static bool PadIsActive(GamePadState pad)
+	{
+		if (!pad.IsConnected)
+		{
+			return false;
+		}
+		if (pad.Buttons.buttons != 0)
+		{
+			return true;
+		}
+		// Generous thresholds on purpose: a resting controller with stick drift or a
+		// half-pressed trigger must not steal control from the mouse every few frames.
+		if (pad.Triggers.Left > 0.35f || pad.Triggers.Right > 0.35f)
+		{
+			return true;
+		}
+		return pad.ThumbSticks.Left.LengthSquared() > 0.36f || pad.ThumbSticks.Right.LengthSquared() > 0.36f;
 	}
 
 	/// <summary>

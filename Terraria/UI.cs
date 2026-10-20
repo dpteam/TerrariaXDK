@@ -2059,6 +2059,11 @@ public sealed class UI
 			{
 				DrawTutorial();
 			}
+			else
+			{
+				// Chat prompt lives above the HUD, below menus.
+				Terraria.Input.ChatInput.Draw();
+			}
 			Main.SpriteBatch.End();
 		}
 	}
@@ -5343,6 +5348,18 @@ public sealed class UI
 			{
 				ActivePlayer.SelectedItem = (sbyte)num;
 				Main.PlaySound(12);
+			}
+			switch (Terraria.Input.KeyboardMouseInput.ConsumeQuickAction())
+			{
+			case Terraria.Input.QuickAction.Heal:
+				ActivePlayer.QuickHeal();
+				break;
+			case Terraria.Input.QuickAction.Mana:
+				ActivePlayer.QuickMana();
+				break;
+			case Terraria.Input.QuickAction.Buff:
+				ActivePlayer.QuickBuff();
+				break;
 			}
 		}
 		if (SignedInGamer != null && !SignedInGamer.IsGuest && !Main.IsTrial)

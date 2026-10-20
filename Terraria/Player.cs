@@ -855,6 +855,78 @@ public sealed class Player
 		return statLife < StatLifeMax;
 	}
 
+	/// <summary>
+	/// PC-style quick heal (H): drinks the first healing potion in the inventory.
+	/// Mirrors <see cref="QuickMana"/> so potion delay and effects behave identically.
+	/// </summary>
+	public void QuickHeal()
+	{
+		if (noItems || !canHeal())
+		{
+			return;
+		}
+		for (int i = 0; i < 48; i++)
+		{
+			Item item = Inventory[i];
+			if (item.Stack <= 0 || item.Type <= 0 || item.HealLife <= 0 || (potionDelay != 0 && item.IsPotion))
+			{
+				continue;
+			}
+			Main.PlaySound(2, XYWH.X, XYWH.Y, item.UseSound);
+			if (item.IsPotion)
+			{
+				potionDelay = potionDelayTime;
+				AddBuff(21, potionDelay);
+			}
+			statLife += item.HealLife;
+			if (statLife > StatLifeMax)
+			{
+				statLife = StatLifeMax;
+			}
+			if (isLocal())
+			{
+				HealEffect(item.HealLife);
+			}
+			if (--item.Stack <= 0)
+			{
+				item.Init();
+			}
+			Inventory[i] = item;
+			return;
+		}
+	}
+
+	/// <summary>PC-style quick buff (B): consumes every buff potion in the inventory.</summary>
+	public void QuickBuff()
+	{
+		if (noItems)
+		{
+			return;
+		}
+		bool flag = false;
+		for (int i = 0; i < 48; i++)
+		{
+			Item item = Inventory[i];
+			if (item.Stack <= 0 || item.Type <= 0 || item.BuffType <= 0 || item.IsPotion)
+			{
+				continue;
+			}
+			Main.PlaySound(2, XYWH.X, XYWH.Y, item.UseSound);
+			AddBuff(item.BuffType, item.BuffTime);
+			// Consumable buff potions are one-shot; keep the stack bookkeeping consistent.
+			if (--item.Stack <= 0)
+			{
+				item.Init();
+			}
+			Inventory[i] = item;
+			flag = true;
+		}
+		if (flag && isLocal())
+		{
+			ManaEffect(0);
+		}
+	}
+
 	public void QuickMana()
 	{
 		if (noItems || statMana == statManaMax2)

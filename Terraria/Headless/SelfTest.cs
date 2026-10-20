@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
+using Microsoft.Xna.Framework.Input;
 using Terraria.Net;
 
 namespace Terraria.Headless;
@@ -38,6 +39,7 @@ internal static class SelfTest
 		RunCheck("mod loader", CheckModLoader);
 		RunCheck("cheat gating", CheckCheatGating);
 		RunCheck("loading progress", CheckLoadingProgress);
+		RunCheck("input mapping", CheckInputMapping);
 		ReportMemory();
 		Console.WriteLine();
 		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
@@ -798,6 +800,102 @@ internal static class SelfTest
 		if (num2 == 0)
 		{
 			return Fail("no frames simulated");
+		}
+		return true;
+	}
+
+	// --- Input --------------------------------------------------------------
+
+	/// <summary>
+	/// Verifies the keyboard/mouse to gamepad mapping. These are the exact rules that broke
+	/// silently before: right button must place blocks (not grapple), left button must attack,
+	/// Escape must cancel in menus, and typing must not move the player.
+	/// </summary>
+	private static bool CheckInputMapping()
+	{
+		MouseState[] array = new MouseState[3];
+		for (int i = 0; i < array.Length; i++)
+		{
+			array[i] = new MouseState(0, 0, 0, ButtonState.Released, ButtonState.Released, ButtonState.Released, ButtonState.Released, ButtonState.Released);
+		}
+		MouseState leftDown = new MouseState(0, 0, 0, ButtonState.Pressed, ButtonState.Released, ButtonState.Released, ButtonState.Released, ButtonState.Released);
+		MouseState rightDown = new MouseState(0, 0, 0, ButtonState.Released, ButtonState.Released, ButtonState.Pressed, ButtonState.Released, ButtonState.Released);
+		MouseState middleDown = new MouseState(0, 0, 0, ButtonState.Released, ButtonState.Pressed, ButtonState.Released, ButtonState.Released, ButtonState.Released);
+		KeyboardState empty = new KeyboardState(new Keys[0]);
+		// Gameplay: left button attacks.
+		GamePadState gamePadState = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(leftDown, array[0], empty, false, false);
+		if (!gamePadState.IsButtonDown(Buttons.RightTrigger))
+		{
+			return Fail("left mouse button does not map to 'use item'");
+		}
+		if (gamePadState.IsButtonDown(Buttons.B))
+		{
+			return Fail("left mouse button also maps to tile use");
+		}
+		// Gameplay: right button places blocks.
+		GamePadState gamePadState2 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(rightDown, array[0], empty, false, false);
+		if (!gamePadState2.IsButtonDown(Buttons.B))
+		{
+			return Fail("right mouse button does not map to tile use");
+		}
+		if (gamePadState2.IsButtonDown(Buttons.LeftTrigger))
+		{
+			return Fail("right mouse button still grapples");
+		}
+		// Gameplay: middle button grapples.
+		GamePadState gamePadState3 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(middleDown, array[0], empty, false, false);
+		if (!gamePadState3.IsButtonDown(Buttons.LeftTrigger))
+		{
+			return Fail("middle mouse button does not grapple");
+		}
+		// Menu: left click confirms, right click cancels.
+		Terraria.Input.KeyboardMouseInput.MouseHandledByScreen = false;
+		GamePadState gamePadState4 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(leftDown, array[0], empty, true, false);
+		if (!gamePadState4.IsButtonDown(Buttons.A))
+		{
+			return Fail("left click does not confirm in menus");
+		}
+		GamePadState gamePadState5 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(rightDown, array[0], empty, true, false);
+		if (!gamePadState5.IsButtonDown(Buttons.B))
+		{
+			return Fail("right click does not cancel in menus");
+		}
+		// Menu: a screen with its own hit-testing must not also fire "confirm".
+		Terraria.Input.KeyboardMouseInput.MouseHandledByScreen = true;
+		GamePadState gamePadState6 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(leftDown, array[0], empty, true, false);
+		if (gamePadState6.IsButtonDown(Buttons.A))
+		{
+			return Fail("click double-fires on screens that handle the mouse");
+		}
+		Terraria.Input.KeyboardMouseInput.MouseHandledByScreen = false;
+		// Escape: cancel in menus, pause in game.
+		KeyboardState escape = new KeyboardState(new Keys[1] { Keys.Escape });
+		GamePadState gamePadState7 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], escape, true, false);
+		if (!gamePadState7.IsButtonDown(Buttons.Back) || gamePadState7.IsButtonDown(Buttons.Start))
+		{
+			return Fail("Escape does not cancel in menus");
+		}
+		GamePadState gamePadState8 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], escape, false, false);
+		if (!gamePadState8.IsButtonDown(Buttons.Start))
+		{
+			return Fail("Escape does not pause during play");
+		}
+		// Typing must not feed the player.
+		KeyboardState movement = new KeyboardState(new Keys[2]
+		{
+			Keys.W,
+			Keys.D
+		});
+		GamePadState gamePadState9 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], movement, false, true);
+		if (gamePadState9.ThumbSticks.Left.LengthSquared() > 0.001f || gamePadState9.Buttons.buttons != 0)
+		{
+			return Fail("movement is not suppressed while typing");
+		}
+		// ...but works normally otherwise.
+		GamePadState gamePadState10 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], movement, false, false);
+		if (gamePadState10.ThumbSticks.Left.LengthSquared() < 0.5f)
+		{
+			return Fail("WASD does not move the player");
 		}
 		return true;
 	}

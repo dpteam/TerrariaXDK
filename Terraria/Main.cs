@@ -945,13 +945,18 @@ public sealed class Main : Game
 		SignedInGamer.SignedIn += SignedInGamer_SignedIn;
 		SignedInGamer.SignedOut += SignedInGamer_SignedOut;
 		NetworkSession.InviteAccepted += Netplay.NetworkSession_InviteAccepted;
+		Terraria.Input.ChatInput.Initialize();
 		Terraria.Mods.ModLoader.GraphicsDevice = GraphicsDevice;
 		Terraria.Mods.ModLoader.Initialize();
 	}
 
 	protected override void LoadContent()
 	{
-		Program.Log("[MAIN.LoadContent()] ⬇\ufe0f === START ===");
+		Program.LogSection("LOADING CONTENT");
+		// Baseline for the progress bar: total assets on disk vs. assets decoded so far.
+		_expectedAssets = CountExpectedAssets();
+		Microsoft.Xna.Framework.Content.ContentManager.AssetsLoaded = 0;
+		Program.LogInfo("Loading", _expectedAssets + " assets to load");
 		Program.Log("[MAIN.LoadContent()] Setting up GraphicsDevice states...");
 		try
 		{
@@ -1070,6 +1075,12 @@ public sealed class Main : Game
 	private int _gpuPhase;
 
 	/// <summary>
+	/// Number of .xnb assets the GPU phases will pull in. Counted once at startup so the
+	/// loading bar can advance proportionally to real work instead of jumping between phases.
+	/// </summary>
+	private static int _expectedAssets = 1;
+
+	/// <summary>
 	/// Loads one GPU resource stage. Must run on the main thread: FNA's GL context is current
 	/// only there, so creating textures from the loader thread is undefined behaviour
 	/// (it happens to work on some drivers and fails randomly on others).
@@ -1080,37 +1091,67 @@ public sealed class Main : Game
 		{
 		case 0:
 			_loadingStatusText = "Loading tiles...";
-			_loadingProgress = 0.42f;
 			_sheetTiles.LoadContent(Content);
 			break;
 		case 1:
 			_loadingStatusText = "Loading sprites...";
-			_loadingProgress = 0.55f;
 			_sheetSprites.LoadContent(Content);
 			break;
 		case 2:
 			_loadingStatusText = "Loading backgrounds...";
-			_loadingProgress = 0.68f;
 			WorldView.LoadContent(Content);
 			break;
 		case 3:
 			_loadingStatusText = "Preparing buffers...";
-			_loadingProgress = 0.76f;
 			WhiteTexture = new Texture2D(GraphicsDevice, 1, 1, mipMap: false, SurfaceFormat.Color);
 			WhiteTexture.SetData(new Color[1] { Color.White });
 			break;
 		case 4:
 			_loadingStatusText = "Loading interface...";
-			_loadingProgress = 0.88f;
 			UI.LoadContent(Content);
 			break;
 		case 5:
 			_loadingStatusText = "Finalizing...";
-			_loadingProgress = 0.96f;
 			CRC32.Initialize();
 			break;
 		}
 		Program.LogDebug("Loading", $"stage {phase + 1}/{GpuPhaseCount} '{_loadingStatusText}' done");
+	}
+
+	/// <summary>
+	/// Maps "assets decoded" onto the 30%..96% band that the GPU phases occupy. Audio takes
+	/// the first 30%, the remaining 4% is the final hand-off to the game.
+	/// </summary>
+	private void UpdateLoadProgressFromAssets()
+	{
+		float num = (float)Microsoft.Xna.Framework.Content.ContentManager.AssetsLoaded / (float)Math.Max(1, _expectedAssets);
+		if (num > 1f)
+		{
+			num = 1f;
+		}
+		float num2 = 0.3f + 0.66f * num;
+		// Never let the bar move backwards if a stage loads nothing.
+		if (num2 > _loadingProgress)
+		{
+			_loadingProgress = num2;
+		}
+	}
+
+	/// <summary>Counts the .xnb files once, for the progress bar denominator.</summary>
+	private static int CountExpectedAssets()
+	{
+		try
+		{
+			string text = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Content");
+			if (System.IO.Directory.Exists(text))
+			{
+				return System.IO.Directory.GetFiles(text, "*.xnb", System.IO.SearchOption.AllDirectories).Length;
+			}
+		}
+		catch
+		{
+		}
+		return 1;
 	}
 
 	/// <summary>
@@ -1669,10 +1710,13 @@ public sealed class Main : Game
 					GC.WaitForPendingFinalizers();
 				}
 				// Phase B: GPU uploads, one stage per frame so the bar actually animates.
+				// Within the whole phase the bar follows the number of assets actually decoded,
+				// so it moves continuously rather than in six jumps.
 				if (_gpuPhase < GpuPhaseCount)
 				{
 					LoadGpuPhase(_gpuPhase);
 					_gpuPhase++;
+					UpdateLoadProgressFromAssets();
 					return;
 				}
 				// Phase C: hold at 100% until the bar visually catches up, then start.
@@ -1701,6 +1745,8 @@ public sealed class Main : Game
 			Program.Log("[Update] \ud83c\udfae Entered normal game loop for first time!");
 		}
 		Terraria.Input.KeyboardMouseInput.Update();
+		// Chat runs before anything reads input, so typing never moves the player.
+		Terraria.Input.ChatInput.Update();
 		for (int i = 0; i < UIInstance.Length; i++)
 		{
 			UIInstance[i].UpdateGamePad();
