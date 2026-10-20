@@ -38,6 +38,7 @@ internal static class SelfTest
 		RunCheck("network config", CheckNetworkConfig);
 		RunCheck("mod loader", CheckModLoader);
 		RunCheck("cheat gating", CheckCheatGating);
+		RunCheck("cheat badge", CheckCheatBadge);
 		RunCheck("loading progress", CheckLoadingProgress);
 		RunCheck("input mapping", CheckInputMapping);
 		RunCheck("settings sections", CheckSettingsSections);
@@ -1152,10 +1153,51 @@ internal static class SelfTest
 		}
 	}
 
+	// --- Cheat badge --------------------------------------------------------
+
+	/// <summary>
+	/// The HUD badge must appear exactly when a cheat is on, and must say so honestly when
+	/// the game is in multiplayer (where the toggles are ignored).
+	/// </summary>
+	private static bool CheckCheatBadge()
+	{
+		int netMode = Main.NetMode;
+		try
+		{
+			Main.NetMode = 0;
+			Cheats.CheatState.Reset();
+			if (Cheats.CheatState.ActiveLabel != null)
+			{
+				return Fail("badge shown with no cheats active");
+			}
+			Cheats.CheatState.GodMode = true;
+			if (Cheats.CheatState.ActiveLabel != "CHEATS ACTIVE")
+			{
+				return Fail("badge not shown while a cheat is on (" + Cheats.CheatState.ActiveLabel + ")");
+			}
+			Main.NetMode = 1;
+			string text = Cheats.CheatState.ActiveLabel;
+			if (text == null || !text.Contains("inactive"))
+			{
+				return Fail("badge does not warn that cheats are inactive online");
+			}
+			Cheats.CheatState.Reset();
+			if (Cheats.CheatState.ActiveLabel != null)
+			{
+				return Fail("badge still shown after reset");
+			}
+			return true;
+		}
+		finally
+		{
+			Main.NetMode = netMode;
+			Cheats.CheatState.Reset();
+		}
+	}
+
 	private static bool Fail(string message)
 	{
-		Failures.Add(message);
-		Console.WriteLine("       " + message);
+		Failures.Add(message);		Console.WriteLine("       " + message);
 		return false;
 	}
 }

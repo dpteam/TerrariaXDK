@@ -1649,7 +1649,12 @@ public sealed class Main : Game
 	public void DrawFPS()
 	{
 		bool flag = NetMode != 0 && UI.CurrentUI != null && UI.CurrentUI.CurrentView != null;
-		if (!ShowFPS && !flag)
+		string activeLabel = Terraria.Cheats.CheatState.ActiveLabel;
+		if (!ShowFPS && !flag && activeLabel == null)
+		{
+			return;
+		}
+		if (UI.CurrentUI == null || UI.CurrentUI.CurrentView == null)
 		{
 			return;
 		}
@@ -1680,6 +1685,15 @@ public sealed class Main : Game
 				color = new Color(255, 110, 110);
 			}
 			SpriteBatch.DrawString(UI.BoldSmallFont, text, new Vector2((float)num - vector2.X * num2, safeAreaOffsetTop + num3), color, 0f, new Vector2(0f, vector2.Y), num2, SpriteEffects.None, 0f);
+			num3 += UI.BoldSmallFont.MeasureString(text).Y * num2;
+		}
+		// Cheat badge: a world played with cheats should never look like a fair one,
+		// especially in screenshots.
+		if (activeLabel != null)
+		{
+			Vector2 vector3 = UI.BoldSmallFont.MeasureString(activeLabel);
+			Color color2 = Terraria.Cheats.CheatState.IsAvailable ? new Color(255, 210, 90) : new Color(160, 160, 160);
+			SpriteBatch.DrawString(UI.BoldSmallFont, activeLabel, new Vector2((float)num - vector3.X * num2, safeAreaOffsetTop + num3), color2, 0f, new Vector2(0f, vector3.Y), num2, SpriteEffects.None, 0f);
 		}
 	}
 

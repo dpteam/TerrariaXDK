@@ -4433,10 +4433,12 @@ public sealed class Player
 			NetMessage.CreateMessage1(13, i);
 			NetMessage.SendMessage();
 		}
-		if (ui.localGamer != null)
+		if (ui.localGamer != null && !Terraria.Cheats.CheatState.AnyActive)
 		{
 			// Statistic submission talks to the (no longer existing) Live service. It must
 			// never be able to abort a player update, so failures are swallowed and logged.
+			// A run with cheats enabled is also never submitted: a cheated score does not
+			// belong on a leaderboard.
 			try
 			{
 				LeaderboardInfo.SubmitStatistics(ui.Statistics, ui.localGamer);

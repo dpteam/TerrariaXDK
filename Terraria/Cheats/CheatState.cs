@@ -33,6 +33,27 @@ internal static class CheatState
 
 	public static bool NoFallDamageActive => IsAvailable && NoFallDamage;
 
+	/// <summary>True when at least one cheat toggle is currently on.</summary>
+	public static bool AnyActive => GodMode || NoClip || InfiniteMana || InfiniteBuffs || NoFallDamage;
+
+	/// <summary>Short label for the HUD badge, or null when nothing is active.</summary>
+	public static string ActiveLabel
+	{
+		get
+		{
+			if (!AnyActive)
+			{
+				return null;
+			}
+			if (!IsAvailable)
+			{
+				// Toggles are ignored in multiplayer; saying so avoids "why is god mode off".
+				return "cheats inactive (multiplayer)";
+			}
+			return "CHEATS ACTIVE";
+		}
+	}
+
 	/// <summary>
 	/// Writes <see cref="Enabled"/> back to Settings.ini so the choice survives a restart.
 	/// The file may not exist yet; <see cref="Settings"/> creates it on demand.
