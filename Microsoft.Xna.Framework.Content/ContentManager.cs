@@ -17,6 +17,14 @@ public class ContentManager : IDisposable
 
 	private List<IDisposable> disposableAssets = new List<IDisposable>();
 
+	/// <summary>
+	/// Guards <see cref="loadedAssets"/> and <see cref="disposableAssets"/>. TerrariaXDK decodes
+	/// audio on a loader thread while the main thread may still request splash assets, and a
+	/// plain Dictionary tolerates no concurrent access at all - corruption there shows up as a
+	/// hang or a bogus "asset not found" on an otherwise healthy install.
+	/// </summary>
+	private readonly object assetLock = new object();
+
 	private bool disposed;
 
 	private static object ContentManagerLock = new object();
@@ -109,24 +117,32 @@ public class ContentManager : IDisposable
 		}
 		T val = default;
 		string key = assetName.Replace('\\', '/');
-		object value = null;
-		if (!loadedAssets.TryGetValue(key, out value) || !(value is T result))
+		lock (assetLock)
 		{
+			object value = null;
+			if (loadedAssets.TryGetValue(key, out value) && value is T result)
+			{
+				return result;
+			}
+			// Load outside the lock is unsafe: two threads would decode the same asset and
+			// the second write would leak the first. Serialising is fine - loads are rare.
 			val = ReadAsset<T>(assetName, null);
 			loadedAssets[key] = val;
 			return val;
 		}
-		return result;
 	}
 
 	public virtual void Unload()
 	{
-		foreach (IDisposable disposableAsset in disposableAssets)
+		lock (assetLock)
 		{
-			disposableAsset?.Dispose();
+			foreach (IDisposable disposableAsset in disposableAssets)
+			{
+				disposableAsset?.Dispose();
+			}
+			disposableAssets.Clear();
+			loadedAssets.Clear();
 		}
-		disposableAssets.Clear();
-		loadedAssets.Clear();
 	}
 
 	protected virtual Stream OpenStream(string assetName)
@@ -239,7 +255,10 @@ public class ContentManager : IDisposable
 				}
 				else
 				{
-					disposableAssets.Add(disposable);
+					lock (assetLock)
+					{
+						disposableAssets.Add(disposable);
+					}
 				}
 			}
 			stream.Close();

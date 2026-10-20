@@ -36,6 +36,7 @@ internal static class SelfTest
 		RunCheck("network config", CheckNetworkConfig);
 		RunCheck("mod loader", CheckModLoader);
 		RunCheck("cheat gating", CheckCheatGating);
+		ReportMemory();
 		Console.WriteLine();
 		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
 		if (_failed != 0)
@@ -606,6 +607,82 @@ internal static class SelfTest
 			Cheats.CheatState.Reset();
 		}
 		return true;
+	}
+
+	// --- Memory report ------------------------------------------------------
+
+	/// <summary>
+	/// Prints where RAM actually goes, derived from the files on disk. Not a pass/fail check:
+	/// it exists so a regression ("loading got slower / hungrier") is visible as a number
+	/// instead of a feeling. Music is the dominant term because WAV decodes to full PCM.
+	/// </summary>
+	private static void ReportMemory()
+	{
+		string contentRoot = ContentRoot;
+		if (!Directory.Exists(contentRoot))
+		{
+			return;
+		}
+		long num = DirSize(contentRoot);
+		long num2 = DirSize(Path.Combine(contentRoot, "ExtMusic"));
+		long num3 = DirSize(Path.Combine(contentRoot, "Fonts"));
+		long num4 = DirSize(Path.Combine(contentRoot, "Sounds"));
+		// Count only the font set that a given display mode actually loads, so the number
+		// reflects runtime RAM rather than everything sitting in the folder.
+		long num5 = 0L;
+		string[] files = Directory.GetFiles(contentRoot, "*", SearchOption.AllDirectories);
+		foreach (string text in files)
+		{
+			string extension = Path.GetExtension(text);
+			if (extension.Equals(".xnb", StringComparison.OrdinalIgnoreCase) && !text.Contains("Fonts"))
+			{
+				num5 += new FileInfo(text).Length;
+			}
+		}
+		long num8 = DirSize(Path.Combine(contentRoot, "Fonts", "HD"));
+		Console.WriteLine();
+		Console.WriteLine("Storage / memory report");
+		Console.WriteLine("-----------------------");
+		Console.WriteLine($"  Content on disk        {Mb(num)}");
+		Console.WriteLine($"    textures + images    {Mb(num5)}   decoded in RAM (uncompressed RGBA)");
+		Console.WriteLine($"    fonts, both sets     {Mb(num3)}   only one set is loaded at a time");
+		Console.WriteLine($"      of which Fonts/HD  {Mb(num8)}   loaded only at 1080p");
+		Console.WriteLine($"    sounds               {Mb(num4)}   decoded to PCM on load");
+		Console.WriteLine($"    music (WAV)          {Mb(num2)}   decoded to PCM -> resident the whole session");
+		int num6 = Directory.GetFiles(Path.Combine(contentRoot, "ExtMusic"), "*.wav").Length;
+		int num7 = Directory.GetFiles(Path.Combine(contentRoot, "ExtMusic"), "*.ogg").Length;
+		if (num6 > 0 && num7 == 0)
+		{
+			Console.WriteLine($"  note: {num6} WAV track(s), no OGG. Streaming needs OGG (see docs/PERFORMANCE.md).");
+		}
+		Console.WriteLine($"  Storage/               {Mb(DirSize(Terraria.Storage.AppPaths.Root))}");
+		Console.WriteLine();
+	}
+
+	private static long DirSize(string path)
+	{
+		if (!Directory.Exists(path))
+		{
+			return 0L;
+		}
+		long num = 0L;
+		string[] files = Directory.GetFiles(path, "*", SearchOption.AllDirectories);
+		foreach (string path2 in files)
+		{
+			try
+			{
+				num += new FileInfo(path2).Length;
+			}
+			catch
+			{
+			}
+		}
+		return num;
+	}
+
+	private static string Mb(long bytes)
+	{
+		return (bytes / 1048576.0).ToString("0.0") + " MB";
 	}
 
 	private static bool Fail(string message)

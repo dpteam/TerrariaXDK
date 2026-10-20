@@ -550,9 +550,11 @@ public sealed class Main : Game
 
 	public static Stopwatch RunTimer = new Stopwatch();
 
-	public static string _loadingStatusText = "Loading...";
+	// Written by the audio loader thread, read by the main thread every frame: volatile is
+	// required, otherwise the loop can observe a stale value and wait out the full timeout.
+	public static volatile string _loadingStatusText = "Loading...";
 
-	public static float _loadingProgress = 0f;
+	public static volatile float _loadingProgress = 0f;
 
 	private float _displayProgress = 0f;
 
@@ -562,7 +564,7 @@ public sealed class Main : Game
 
 	private int _drawCount = 0;
 
-	private bool _loadingThreadComplete = false;
+	private volatile bool _loadingThreadComplete = false;
 
 	private int _drawSplashCount = 0;
 
@@ -1037,75 +1039,87 @@ public sealed class Main : Game
 		{
 			Program.Log("[MAIN.LoadContent()] \ud83d\udca5 Splash loading error: " + ex6.Message);
 		}
-		Program.Log("[MAIN.LoadContent()] === STARTING LOADING THREAD ===");
-		Program.Log("[MAIN.LoadContent()] ⚠\ufe0f LoadingThread runs in BACKGROUND - main thread continues to Update()/Draw()");
+		// The remaining splash logos are tiny (a few KB each) but they are GPU resources.
+		// Loading them here, on the main thread, removes the race where the splash advances
+		// to a logo that the loader thread has not produced yet.
+		for (int i = 2; i <= 4; i++)
+		{
+			try
+			{
+				SplashTextures[i] = Content.Load<Texture2D>("Images/logo_" + i);
+			}
+			catch (Exception ex7)
+			{
+				Program.Log("[MAIN.LoadContent()] Splash logo_" + i + " failed: " + ex7.Message);
+			}
+		}
+		Program.Log("[MAIN.LoadContent()] === STARTING LOADING THREAD (audio only) ===");
 		ContentThread = new Thread(LoadingThread);
 		ContentThread.Name = "ContentLoader";
 		ContentThread.IsBackground = true;
 		ContentThread.Start();
-		Program.Log("[MAIN.LoadContent()] ✅ ContentThread started - LoadContent() returning to game loop!");
-		Program.Log("[MAIN.LoadContent()] ⬆\ufe0f === LOAD CONTENT COMPLETE (async loading continues in background) ===");
+		Program.Log("[MAIN.LoadContent()] ✅ ContentThread started - GPU phases will run on the main thread");
+		Program.Log("[MAIN.LoadContent()] ⬆\ufe0f === LOAD CONTENT COMPLETE ===");
 	}
 
+	/// <summary>
+	/// Loads every GPU resource. Must run on the main thread: FNA's GL context is current
+	/// only there, so creating textures from the loader thread is undefined behaviour
+	/// (it happens to work on some drivers and fails randomly on others).
+	/// </summary>
+	private void LoadGpuContent()
+	{
+		Program.Log("[LoadGpuContent] Loading _sheetTiles...");
+		_sheetTiles.LoadContent(Content);
+		_loadingProgress = 0.4f;
+		Program.Log("[LoadGpuContent] Loading _sheetSprites...");
+		_sheetSprites.LoadContent(Content);
+		_loadingProgress = 0.6f;
+		Program.Log("[LoadGpuContent] Loading WorldView...");
+		WorldView.LoadContent(Content);
+		_loadingProgress = 0.75f;
+		Program.Log("[LoadGpuContent] Creating WhiteTexture...");
+		WhiteTexture = new Texture2D(GraphicsDevice, 1, 1, mipMap: false, SurfaceFormat.Color);
+		WhiteTexture.SetData(new Color[1] { Color.White });
+		_loadingProgress = 0.85f;
+		Program.Log("[LoadGpuContent] Loading UI...");
+		UI.LoadContent(Content);
+		_loadingProgress = 0.95f;
+		Program.Log("[LoadGpuContent] Initializing CRC32...");
+		CRC32.Initialize();
+		_loadingProgress = 1f;
+		_loadingStatusText = "Complete!";
+		Program.Log("[LoadGpuContent] ✅ GPU content loaded");
+	}
+
+	/// <summary>
+	/// Background part of loading: audio only. Everything that touches the GraphicsDevice is
+	/// done by <see cref="LoadGpuContent"/> on the main thread.
+	/// Running one half off-thread keeps the splash responsive while ~80 MB of music and
+	/// ~100 sound effects are decoded.
+	/// </summary>
 	private void LoadingThread()
 	{
-		Program.Log("[LoadingThread] \ud83e\uddf5 === THREAD STARTED ===");
+		Program.Log("[LoadingThread] \ud83e\uddf5 === THREAD STARTED (audio) ===");
 		Stopwatch stopwatch = new Stopwatch();
 		stopwatch.Start();
 		try
 		{
-			Program.Log("[LoadingThread] Phase 1: Loading splash logos 2-4...");
-			for (int i = 2; i <= 4; i++)
-			{
-				string text = "Images/logo_" + i;
-				Program.Log("[LoadingThread]   Loading " + text + "...");
-				SplashTextures[i] = Content.Load<Texture2D>(text);
-				Program.Log($"[LoadingThread]   ✅ {text} loaded ({stopwatch.ElapsedMilliseconds}ms)");
-			}
-			Program.Log($"[LoadingThread] ✅ Phase 1 done ({stopwatch.ElapsedMilliseconds}ms)");
-			_loadingProgress = 0.1f;
-			Program.Log("[LoadingThread] Phase 2: Creating SoundManager...");
+			Program.Log("[LoadingThread] Phase 1: Creating SoundManager...");
 			UsedManager = new SoundManager(MusicCueNames);
 			Program.Log($"[LoadingThread] ✅ SoundManager done ({stopwatch.ElapsedMilliseconds}ms)");
 			_loadingProgress = 0.2f;
-			Program.Log("[LoadingThread] Phase 3: Loading SFX pools...");
+			Program.Log("[LoadingThread] Phase 2: Loading SFX pools...");
 			LoadAllSfxPools(stopwatch);
-			Program.Log($"[LoadingThread] ✅ Phase 3 (SFX) done ({stopwatch.ElapsedMilliseconds}ms)");
-			if (Environment.OSVersion.Platform == PlatformID.Unix)
-			{
-				Program.Log("[LoadingThread] \ud83d\udd27 ARM device detected - Stopping background thread here!");
-				Program.Log("[LoadingThread] ⚠\ufe0f ALL graphics loading will be deferred to the MAIN thread.");
-				_loadingThreadComplete = true;
-				return;
-			}
+			Program.Log($"[LoadingThread] ✅ SFX done ({stopwatch.ElapsedMilliseconds}ms)");
 			_loadingProgress = 0.3f;
-			Program.Log("[LoadingThread] Phase 4: Loading _sheetTiles (TILES)...");
-			_sheetTiles.LoadContent(Content);
-			_loadingProgress = 0.4f;
-			Program.Log("[LoadingThread] Phase 5: Loading _sheetSprites...");
-			_sheetSprites.LoadContent(Content);
-			_loadingProgress = 0.5f;
-			Program.Log("[LoadingThread] Phase 6: Loading WorldView...");
-			WorldView.LoadContent(Content);
-			_loadingProgress = 0.6f;
-			Program.Log("[LoadingThread] Phase 7: Creating WhiteTexture...");
-			WhiteTexture = new Texture2D(GraphicsDevice, 1, 1, mipMap: false, SurfaceFormat.Color);
-			WhiteTexture.SetData(new Color[1] { Color.White });
-			_loadingProgress = 0.7f;
-			Program.Log("[LoadingThread] Phase 8: Loading UI...");
-			UI.LoadContent(Content);
-			_loadingProgress = 0.8f;
-			Program.Log("[LoadingThread] Phase 9: Initializing CRC32...");
-			CRC32.Initialize();
-			_loadingProgress = 0.9f;
-			_loadingStatusText = "Complete!";
-			_loadingProgress = 1f;
 		}
 		catch (Exception ex)
 		{
-			Program.Log("[LoadingThread] \ud83d\udca5\ud83d\udca5\ud83d\udca5 EXCEPTION: " + ex.Message);
+			Program.Log("[LoadingThread] \ud83d\udca5\ud83d\udca5\ud83d\udca5 EXCEPTION: " + ex);
 		}
 		stopwatch.Stop();
+		// Volatile write last: the main thread keys off this flag to start the GPU phases.
 		_loadingThreadComplete = true;
 		Program.Log("[LoadingThread] \ud83e\uddf5 === THREAD COMPLETED ===");
 	}
@@ -1461,6 +1475,23 @@ public sealed class Main : Game
 	{
 		GraphicsDevice.Clear(default);
 		base.Draw(GTime);
+		// A missing logo means the asset failed to load (or is still being produced).
+		// Hold the splash on the last good frame instead of dereferencing null - on slow
+		// storage the old code crashed here, which looked like "does not start sometimes".
+		if (SplashTextures[SplashLogo] == null)
+		{
+			if (SplashLogo < NumSplashLogos)
+			{
+				SplashLogo = NumSplashLogos;
+			}
+			if (!_loadingThreadComplete)
+			{
+				DrawLoadingBar();
+				return;
+			}
+			ShowSplash = 1;
+			return;
+		}
 		if (SplashCounter == SplashDelay + 16 + 16)
 		{
 			SplashTextures[SplashLogo].Dispose();
@@ -1496,35 +1527,38 @@ public sealed class Main : Game
 		};
 		SpriteBatch.Draw(SplashTextures[SplashLogo], position, new Color(num, num, num, num));
 		SpriteBatch.End();
-		if (!_loadingThreadComplete || _displayProgress < 0.99f)
+		DrawLoadingBar();
+	}
+
+	/// <summary>Progress bar shown while content is still being loaded.</summary>
+	private void DrawLoadingBar()
+	{
+		_displayProgress += (_loadingProgress - _displayProgress) * 0.1f;
+		if (_pixelTexture == null)
 		{
-			_displayProgress += (_loadingProgress - _displayProgress) * 0.1f;
-			if (_pixelTexture == null)
-			{
-				_pixelTexture = new Texture2D(GraphicsDevice, 1, 1);
-				_pixelTexture.SetData(new Color[1] { Color.White });
-			}
-			int num2 = 300;
-			int num3 = 16;
-			int num4 = (ResolutionWidth - num2) / 2;
-			int num5 = ResolutionHeight - 60;
-			Color color = new Color(0, 136, 255);
-			Color color2 = new Color(40, 40, 40, 255);
-			int num6 = num4 - 2;
-			int num7 = num5 - 2;
-			int width = num2 + 4;
-			int height = num3 + 4;
-			SpriteBatch.Begin();
-			SpriteBatch.Draw(_pixelTexture, new Rectangle(num6 + 6, num7 + 6, width, height), color2);
-			SpriteBatch.Draw(_pixelTexture, new Rectangle(num6, num7, width, height), Color.White);
-			SpriteBatch.Draw(_pixelTexture, new Rectangle(num4, num5, num2, num3), new Color(20, 20, 20));
-			int num8 = (int)((float)num2 * _displayProgress);
-			if (num8 > 0)
-			{
-				SpriteBatch.Draw(_pixelTexture, new Rectangle(num4, num5, num8, num3), color);
-			}
-			SpriteBatch.End();
+			_pixelTexture = new Texture2D(GraphicsDevice, 1, 1);
+			_pixelTexture.SetData(new Color[1] { Color.White });
 		}
+		int num = 300;
+		int num2 = 16;
+		int num3 = (ResolutionWidth - num) / 2;
+		int num4 = ResolutionHeight - 60;
+		Color color = new Color(0, 136, 255);
+		Color color2 = new Color(40, 40, 40, 255);
+		int num5 = num3 - 2;
+		int num6 = num4 - 2;
+		int width = num + 4;
+		int height = num2 + 4;
+		SpriteBatch.Begin();
+		SpriteBatch.Draw(_pixelTexture, new Rectangle(num5 + 6, num6 + 6, width, height), color2);
+		SpriteBatch.Draw(_pixelTexture, new Rectangle(num5, num6, width, height), Color.White);
+		SpriteBatch.Draw(_pixelTexture, new Rectangle(num3, num4, num, num2), new Color(20, 20, 20));
+		int num7 = (int)((float)num * _displayProgress);
+		if (num7 > 0)
+		{
+			SpriteBatch.Draw(_pixelTexture, new Rectangle(num3, num4, num7, num2), color);
+		}
+		SpriteBatch.End();
 	}
 
 	public void LoadUpsell()
@@ -1626,27 +1660,14 @@ public sealed class Main : Game
 				}
 				ContentThread = null;
 				ShowSplash = 2;
-				if (Environment.OSVersion.Platform == PlatformID.Unix)
-				{
-					Program.Log("[Update] ⚠\ufe0f ARM DETECTED: Loading all graphics on MAIN thread...");
-					Program.Log("[Update] ⚠\ufe0f Game screen will freeze for a few seconds. This is normal.");
-					GC.Collect();
-					GC.WaitForPendingFinalizers();
-					Program.Log("[Update] Loading Tiles...");
-					_sheetTiles.LoadContent(Content);
-					Program.Log("[Update] Loading Sprites...");
-					_sheetSprites.LoadContent(Content);
-					Program.Log("[Update] Loading WorldView...");
-					WorldView.LoadContent(Content);
-					Program.Log("[Update] Creating WhiteTexture...");
-					WhiteTexture = new Texture2D(GraphicsDevice, 1, 1, mipMap: false, SurfaceFormat.Color);
-					WhiteTexture.SetData(new Color[1] { Color.White });
-					Program.Log("[Update] Loading UI...");
-					UI.LoadContent(Content);
-					Program.Log("[Update] Initializing CRC32...");
-					CRC32.Initialize();
-					Program.Log("[Update] ✅ All graphics loaded safely on MAIN thread!");
-				}
+				// Collect once, before the biggest allocation burst of the whole run: it keeps
+				// the decoder's temporaries out of the way of the texture uploads.
+				GC.Collect();
+				GC.WaitForPendingFinalizers();
+				Program.Log("[Update] ⚠\ufe0f Loading all graphics on MAIN thread (GL context lives here)...");
+				LoadGpuContent();
+				// Drop the decoded-image temporaries the loaders allocated.
+				GC.Collect();
 				Program.Log("[Update] → Calling InitializePostSplash()...");
 				InitializePostSplash();
 				Program.Log("[Update] ✅ InitializePostSplash() done");

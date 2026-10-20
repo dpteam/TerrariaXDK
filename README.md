@@ -215,6 +215,8 @@ RequireMatchingMods=True
 - `docs/CONTENT_AUDIT.md` — что и почему вычищено из `Content/`.
 - `docs/REFS_DIFF.md` — сравнение архитектур TerrariaXDK и сборок из `refs/`.
   Там же — какой функционал стоит перенести из `TShock` (`refs/TShock`).
+- `docs/PERFORMANCE.md` — аудит загрузки и ОЗУ: почему старт бывал нестабильным,
+  куда уходит память и что осталось оптимизировать.
 
 ---
 
