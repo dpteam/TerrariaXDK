@@ -138,14 +138,11 @@ internal static class ChatInput
 			{
 				Submit();
 			}
-			else if (Main.NetMode != 0 || Cheats.CheatState.IsAvailable)
+			else if (!KeyboardMouseInput.MenuContext)
 			{
-				// Chat only opens during play. In menus Enter means "confirm", and it must not
-				// be swallowed here or the menu would stop responding to it.
-				if (!KeyboardMouseInput.MenuContext)
-				{
-					Open();
-				}
+				// Chat is always available during play. In single player it is the console:
+				// commands run when cheats are enabled, and plain text simply echoes locally.
+				Open();
 			}
 			return;
 		}

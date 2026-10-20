@@ -2146,6 +2146,12 @@ public sealed class UI
 				// Chat prompt lives above the HUD, below menus.
 				Terraria.Input.ChatInput.Draw();
 			}
+			// Pointer on top of everything, for menus and for the inventory (which keeps
+			// CurMenuType == NONE, so DrawCursor returns early and would leave no cursor).
+			if (PointerActive && (CurMenuType != MenuType.NONE || InventoryMode > 0))
+			{
+				DrawMenuCursor();
+			}
 			Main.SpriteBatch.End();
 		}
 	}
@@ -3692,8 +3698,6 @@ public sealed class UI
 			DrawPlayer(player, new Vector2(x, y3), scale);
 		}
 		DrawControls();
-		// Last, so the pointer is never hidden behind a dialog or menu row.
-		DrawMenuCursor();
 	}
 
 	private void ResumeGame()
@@ -5022,10 +5026,12 @@ public sealed class UI
 
 	private void UpdateMouse()
 	{
+		// The pointer must be tracked on EVERY screen, including ones without menu entries
+		// (map, inventory): otherwise MouseX/MouseY stay at their last value and the rendered
+		// cursor freezes in place while the real pointer moves. That was the "stuck cursor".
 		bool flag2 = Terraria.Input.KeyboardMouseInput.Enabled
 			&& Terraria.Input.KeyboardMouseInput.CursorOverride
-			&& NumActiveViews <= 1
-			&& uiCoords != null;
+			&& NumActiveViews <= 1;
 		if (!flag2)
 		{
 			mouseWasActive = false;
@@ -5798,6 +5804,13 @@ public sealed class UI
 
 	public void DrawInventoryCursor(int x, int y, double scale, int alpha = 255)
 	{
+		// With the mouse in use the desktop pointer is the cursor: this sprite would be a
+		// second, immobile one. Worse, it also used to write MouseX/MouseY, which dragged the
+		// real pointer back onto the menu row every frame - the "sticky cursor".
+		if (PointerActive)
+		{
+			return;
+		}
 		alpha = MouseTextBrightness * alpha >> 8;
 		SpriteSheet<_sheetSprites>.DrawTL(448, x, y, new Color(alpha, alpha, alpha, alpha), (float)scale);
 		MouseX = (short)x;
