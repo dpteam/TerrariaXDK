@@ -26,6 +26,21 @@ internal static class NetworkConfig
 	/// <summary>UDP port used for LAN discovery probes.</summary>
 	public static int DiscoveryPort = 7778;
 
+	/// <summary>
+	/// How long a client waits for a host to accept the TCP connection. Kept short because
+	/// the game blocks inside Join() while this runs, with a frozen screen.
+	/// </summary>
+	public static int ConnectTimeoutMs = 5000;
+
+	/// <summary>
+	/// Master server used for the public server list. Empty disables online browsing;
+	/// LAN discovery keeps working regardless.
+	/// </summary>
+	public static string MasterServer = "play.dartpower.xyz";
+
+	/// <summary>Port of the master server.</summary>
+	public static int MasterServerPort = 17777;
+
 	/// <summary>Optional join password; empty disables the password request.</summary>
 	public static string Password = string.Empty;
 

@@ -112,6 +112,9 @@ public sealed class NetworkSession : IDisposable
 
 	private static NetworkSession activeSession = null;
 
+	/// <summary>Endpoint a pending Join() is targeting; consumed by <see cref="EndJoin"/>.</summary>
+	private static AvailableNetworkSession pendingJoinSession = null;
+
 	public bool IsDisposed { get; private set; }
 
 	public GamerCollection<NetworkGamer> AllGamers { get; private set; }
@@ -403,6 +406,22 @@ public sealed class NetworkSession : IDisposable
 		if (networkPeer == null)
 		{
 			networkPeer = CreatePeer(null);
+		}
+	}
+
+	/// <summary>
+	/// Client side: opens the transport to the host. Without this the session existed but had
+	/// no connection at all, so joining a game hung on "connecting" forever.
+	/// </summary>
+	internal void StartClientPeer(AvailableNetworkSession availableSession)
+	{
+		if (availableSession == null)
+		{
+			throw new ArgumentNullException("availableSession");
+		}
+		if (networkPeer == null)
+		{
+			networkPeer = CreatePeer(availableSession);
 		}
 	}
 
@@ -827,6 +846,7 @@ public sealed class NetworkSession : IDisposable
 			throw new InvalidOperationException();
 		}
 		activeAction = new NetworkSessionAction(asyncState, callback, 4, null, 0, null, NetworkSessionType.PlayerMatch);
+		pendingJoinSession = availableSession;
 		return activeAction;
 	}
 
@@ -839,7 +859,20 @@ public sealed class NetworkSession : IDisposable
 		int maxLocal = activeAction.MaxLocalGamers;
 		IEnumerable<SignedInGamer> localGamers = activeAction.LocalGamers;
 		activeAction = null;
+		AvailableNetworkSession availableNetworkSession = pendingJoinSession;
+		pendingJoinSession = null;
 		activeSession = new NetworkSession(null, NetworkSessionType.PlayerMatch, 31, 4, maxLocal, localGamers);
+		try
+		{
+			activeSession.StartClientPeer(availableNetworkSession);
+		}
+		catch
+		{
+			// The caller reports the failure (Netplay.ClientLoop shows UI.Error); do not leave
+			// a half-built session registered as active, or the next attempt is rejected.
+			activeSession = null;
+			throw;
+		}
 		return activeSession;
 	}
 

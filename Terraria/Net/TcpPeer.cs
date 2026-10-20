@@ -374,7 +374,19 @@ internal sealed class TcpPeer : IPeerTransport
 		}
 		_client = new TcpClient();
 		_client.NoDelay = true;
-		_client.Connect(_remoteEndPoint);
+		// A dead or firewalled host must fail fast: the game blocks in Join() before it can
+		// show any UI, so the default (tens of seconds) looks like a freeze.
+		if (!ConnectWithTimeout(_client, _remoteEndPoint, NetworkConfig.ConnectTimeoutMs))
+		{
+			try
+			{
+				_client.Close();
+			}
+			catch
+			{
+			}
+			throw new TimeoutException("Could not reach " + _remoteEndPoint + " within " + NetworkConfig.ConnectTimeoutMs + " ms.");
+		}
 		_stream = _client.GetStream();
 		string gamertag = (Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers.Count > 0) ? Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers[0].Gamertag : "Terrarian";
 		SendHandshake(gamertag);
@@ -384,6 +396,25 @@ internal sealed class TcpPeer : IPeerTransport
 			Name = "TerrariaXDK.Client"
 		};
 		thread.Start();
+	}
+
+	/// <summary>Connects with a bounded wait, so an unreachable host cannot hang the game.</summary>
+	private static bool ConnectWithTimeout(TcpClient client, IPEndPoint endPoint, int timeoutMs)
+	{
+		IAsyncResult asyncResult = client.BeginConnect(endPoint.Address, endPoint.Port, null, null);
+		if (!asyncResult.AsyncWaitHandle.WaitOne(timeoutMs))
+		{
+			return false;
+		}
+		try
+		{
+			client.EndConnect(asyncResult);
+			return true;
+		}
+		catch
+		{
+			return false;
+		}
 	}
 
 	private void SendHandshake(string gamertag)

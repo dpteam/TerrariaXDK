@@ -33,6 +33,7 @@ internal static class SelfTest
 		RunCheck("content orphans", CheckContentOrphans);
 		RunCheck("wire framing", CheckWireFormat);
 		RunCheck("tcp loopback", CheckTcpLoopback);
+		RunCheck("connect timeout", CheckConnectTimeout);
 		RunCheck("network config", CheckNetworkConfig);
 		RunCheck("mod loader", CheckModLoader);
 		RunCheck("cheat gating", CheckCheatGating);
@@ -515,6 +516,55 @@ internal static class SelfTest
 		}
 		thread.Join(2000);
 		return ok;
+	}
+
+	/// <summary>
+	/// Joining a dead host must fail quickly. The game blocks inside NetworkSession.Join,
+	/// so an unbounded connect timeout looks like a freeze - the exact symptom reported
+	/// when a server is down or firewalled.
+	/// </summary>
+	private static bool CheckConnectTimeout()
+	{
+		int port = FindFreePort();
+		System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
+		bool ok;
+		try
+		{
+			using System.Net.Sockets.TcpClient tcpClient = new System.Net.Sockets.TcpClient();
+			tcpClient.NoDelay = true;
+			tcpClient.Connect(System.Net.IPAddress.Loopback, port);
+			ok = false;
+		}
+		catch (System.Net.Sockets.SocketException)
+		{
+			// Connection refused is the expected, fast outcome on loopback.
+			ok = true;
+		}
+		stopwatch.Stop();
+		if (!ok)
+		{
+			return Fail("connected to a closed port");
+		}
+		if (stopwatch.ElapsedMilliseconds > NetworkConfig.ConnectTimeoutMs)
+		{
+			return Fail("refusal took " + stopwatch.ElapsedMilliseconds + " ms, longer than the timeout");
+		}
+		// The configured timeout must stay in a range that is usable on a handheld.
+		if (NetworkConfig.ConnectTimeoutMs <= 0 || NetworkConfig.ConnectTimeoutMs > 15000)
+		{
+			return Fail("ConnectTimeoutMs out of sane range: " + NetworkConfig.ConnectTimeoutMs);
+		}
+		return true;
+	}
+
+	/// <summary>Asks the OS for an unused port by binding and immediately releasing one.</summary>
+	private static int FindFreePort()
+	{
+		System.Net.Sockets.TcpListener tcpListener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+		tcpListener.Start();
+		int port = ((System.Net.IPEndPoint)tcpListener.LocalEndpoint).Port;
+		tcpListener.Stop();
+		return port;
 	}
 
 	private static bool CheckNetworkConfig()

@@ -4346,7 +4346,16 @@ public sealed class Player
 		}
 		if (ui.localGamer != null)
 		{
-			LeaderboardInfo.SubmitStatistics(ui.Statistics, ui.localGamer);
+			// Statistic submission talks to the (no longer existing) Live service. It must
+			// never be able to abort a player update, so failures are swallowed and logged.
+			try
+			{
+				LeaderboardInfo.SubmitStatistics(ui.Statistics, ui.localGamer);
+			}
+			catch (Exception ex)
+			{
+				Program.Log("[Player] leaderboard submit failed: " + ex.Message);
+			}
 		}
 		Terraria.Mods.ModLoader.PlayerUpdate(this);
 	}

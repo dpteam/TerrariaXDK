@@ -2224,8 +2224,24 @@ public sealed class Main : Game
 		{
 			NetPlayCounter++;
 		}
-		Netplay.Session.Update();
-		NetMessage.CheckBytesClient();
+		try
+		{
+			Netplay.Session.Update();
+		}
+		catch (Exception ex)
+		{
+			Program.Log("[Net] session update failed: " + ex.Message);
+		}
+		// Inbound packets are attacker-controlled data. A single malformed message must not
+		// terminate the game, so a failed parse is logged and the batch is dropped.
+		try
+		{
+			NetMessage.CheckBytesClient();
+		}
+		catch (Exception ex2)
+		{
+			Program.Log("[Net] client packet handling failed: " + ex2.Message);
+		}
 	}
 
 	private static void UpdateServer()
@@ -2280,7 +2296,16 @@ public sealed class Main : Game
 			Netplay.CheckOfflineSession();
 			return;
 		}
-		NetMessage.CheckBytesServer();
+		// Host-side parse of client packets: same reasoning as UpdateClient, and here a crash
+		// would take down every connected player at once.
+		try
+		{
+			NetMessage.CheckBytesServer();
+		}
+		catch (Exception ex)
+		{
+			Program.Log("[Net] server packet handling failed: " + ex.Message);
+		}
 		foreach (NetworkGamer remoteGamer in Netplay.Session.RemoteGamers)
 		{
 			Player player2 = remoteGamer.Tag as Player;
