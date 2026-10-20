@@ -173,8 +173,10 @@ internal static class ChatInput
 		// Cheat commands stay local and never reach the network.
 		if (Cheats.CheatConsole.IsCommand(text))
 		{
+			Program.LogInfo("Chat", "command: " + text);
 			string error;
-			if (Cheats.CheatConsole.TryExecute(text, out error) && error != null)
+			Cheats.CheatConsole.TryExecute(text, out error);
+			if (!string.IsNullOrEmpty(error))
 			{
 				Main.NewText(error, 255, 200, 120);
 			}

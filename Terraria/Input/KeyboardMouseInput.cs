@@ -47,6 +47,13 @@ internal static class KeyboardMouseInput
 	private static int _hotbarRequest = -1;
 	private static QuickAction _quickAction = QuickAction.None;
 
+	/// <summary>
+	/// Escape fires once per press. Without this, the same held key opened the pause menu and
+	/// then immediately activated "Resume" on the next frame, because the mapping changes from
+	/// Start to Back as soon as the menu opens.
+	/// </summary>
+	private static bool _escapeLatched;
+
 	/// <summary>Master switch (Settings.ini: [Input] KeyboardMouse).</summary>
 	public static bool Enabled = true;
 
@@ -241,14 +248,24 @@ internal static class KeyboardMouseInput
 	/// <summary>Builds the synthetic pad state for the current keyboard/mouse state.</summary>
 	public static GamePadState BuildSyntheticState()
 	{
-		return BuildSyntheticState(_mouse, _prevMouse, _keys, MenuContext && !TextInputActive, TextInputActive || SuppressGameInput);
+		bool flag = _keys.IsKeyDown(Keys.Escape);
+		if (!flag)
+		{
+			_escapeLatched = false;
+		}
+		bool flag2 = !_escapeLatched;
+		if (flag && flag2)
+		{
+			_escapeLatched = true;
+		}
+		return BuildSyntheticState(_mouse, _prevMouse, _keys, MenuContext && !TextInputActive, TextInputActive || SuppressGameInput, flag2);
 	}
 
 	/// <summary>
 	/// Pure mapping function: given a device snapshot, produce the equivalent pad state.
 	/// Kept free of instance state so it can be exercised by the headless self-test.
 	/// </summary>
-	internal static GamePadState BuildSyntheticState(MouseState mouse, MouseState prevMouse, KeyboardState keys, bool menuContext, bool textInputActive)
+	internal static GamePadState BuildSyntheticState(MouseState mouse, MouseState prevMouse, KeyboardState keys, bool menuContext, bool textInputActive, bool escapeAllowed = true)
 	{
 		Vector2 leftStick = Vector2.Zero;
 		float leftTrigger = 0f;
@@ -315,7 +332,8 @@ internal static class KeyboardMouseInput
 		{
 			buttons |= Buttons.LeftStick; // BTN_JUMP2
 		}
-		if (keys.IsKeyDown(Keys.E) || keys.IsKeyDown(Keys.Tab))
+		// Inventory: E or I. Tab is freed up for the map, and Escape stays the pause menu.
+		if (keys.IsKeyDown(Keys.E) || keys.IsKeyDown(Keys.I))
 		{
 			buttons |= Buttons.Y; // inventory (character creation reuses Y for randomize)
 		}
@@ -329,19 +347,24 @@ internal static class KeyboardMouseInput
 		}
 		// Escape is context sensitive: "cancel" inside a menu, "pause" during play. Mapping it
 		// to Start everywhere made it activate the highlighted entry instead of leaving.
-		if (keys.IsKeyDown(Keys.Escape))
+		if (keys.IsKeyDown(Keys.Escape) && escapeAllowed)
 		{
 			buttons |= menuContext ? Buttons.Back : Buttons.Start;
 		}
-		// Map / cancel. Q is taken by "throw item", so the map is M only.
-		if (keys.IsKeyDown(Keys.M) || keys.IsKeyDown(Keys.Back))
+		// Map / cancel. Tab and M open the map; Q is taken by "throw item".
+		if (keys.IsKeyDown(Keys.M) || keys.IsKeyDown(Keys.Back) || keys.IsKeyDown(Keys.Tab))
 		{
 			buttons |= Buttons.Back;
 		}
 		// Mouse buttons.
 		if (menuContext)
 		{
-			if (left && !MouseHandledByScreen)
+			// Edge-triggered only: using the held state meant that the first frame after a
+			// screen change still saw the button down from the previous screen and activated
+			// a menu entry immediately (world select jumped straight into the game, skipping
+			// the host options).
+			bool flag3 = left && prevMouse.LeftButton == ButtonState.Released;
+			if (flag3 && !MouseHandledByScreen)
 			{
 				buttons |= Buttons.A; // confirm menu entry
 			}

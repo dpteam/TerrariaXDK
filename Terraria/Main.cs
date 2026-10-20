@@ -1755,7 +1755,8 @@ public sealed class Main : Game
 			UpdateTutorial();
 		}
 		Terraria.Cheats.CheatState.Update();
-		Terraria.Mods.ModLoader.GameUpdate();		for (int j = 0; j < UIInstance.Length; j++)
+		Terraria.Mods.ModLoader.GameUpdate();
+		for (int j = 0; j < UIInstance.Length; j++)
 		{
 			UIInstance[j].Update();
 		}

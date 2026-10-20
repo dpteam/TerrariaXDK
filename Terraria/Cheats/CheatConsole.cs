@@ -97,8 +97,13 @@ internal static class CheatConsole
 		error = null;
 		if (!CheatState.IsAvailable)
 		{
-			error = "Cheats are disabled outside single player.";
-			return false;
+			// Reported as "handled": this is a local command, so it must never be broadcast
+			// as chat, and the player has to see why nothing happened.
+			error = CheatState.Enabled
+				? "Cheats only work in single player (you are connected as " + (Main.NetMode == 2 ? "host" : "client") + ")."
+				: "Cheats are disabled in Settings.ini ([Cheats] Enabled=False).";
+			Main.NewText(error, 255, 200, 120);
+			return true;
 		}
 		string[] array = SplitArgs(text.Substring(1));
 		if (array.Length == 0)
