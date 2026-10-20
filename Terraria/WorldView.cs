@@ -354,8 +354,14 @@ public class WorldView : IDisposable
 	{
 		for (int i = 3; i < 32; i++)
 		{
-			backgroundTexture[i] = Content.Load<Texture2D>("Images/Background_" + i);
+			LoadBackground(Content, i);
 		}
+	}
+
+	/// <summary>Loads one parallax background, so the loading screen can spread them out.</summary>
+	public static void LoadBackground(ContentManager Content, int index)
+	{
+		backgroundTexture[index] = Content.Load<Texture2D>("Images/Background_" + index);
 	}
 
 	public static void Initialize(GraphicsDevice device)

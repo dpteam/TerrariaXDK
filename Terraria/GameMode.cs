@@ -61,8 +61,9 @@ public static class GameMode
 	}
 
 	/// <summary>
-	/// Hovering a row moves the selection, clicking runs it. Returns true when a click was
-	/// consumed so the caller does not also process the "LMB acts as A" shortcut.
+	/// Hover-only: moving the pointer over a row selects it. Clicking is left to the shared
+	/// "left mouse = A" path so there is exactly one activation per click; handling the click
+	/// here as well used to toggle a checkbox twice (on and immediately back off).
 	/// </summary>
 	private static bool HandleMouse()
 	{
@@ -91,11 +92,6 @@ public static class GameMode
 			return false;
 		}
 		CursorY = (byte)num2;
-		if (Terraria.Input.KeyboardMouseInput.LeftClicked)
-		{
-			Activate(num2);
-			return true;
-		}
 		return false;
 	}
 

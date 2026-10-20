@@ -880,6 +880,18 @@ internal static class SelfTest
 		{
 			return Fail("Escape does not pause during play");
 		}
+		// Enter: confirm in menus, but never "jump" during play (there it opens chat).
+		KeyboardState enter = new KeyboardState(new Keys[1] { Keys.Enter });
+		GamePadState gamePadState11 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], enter, true, false);
+		if (!gamePadState11.IsButtonDown(Buttons.A))
+		{
+			return Fail("Enter does not confirm in menus");
+		}
+		GamePadState gamePadState12 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], enter, false, false);
+		if (gamePadState12.IsButtonDown(Buttons.A))
+		{
+			return Fail("Enter jumps during play instead of opening chat");
+		}
 		// Typing must not feed the player.
 		KeyboardState movement = new KeyboardState(new Keys[2]
 		{

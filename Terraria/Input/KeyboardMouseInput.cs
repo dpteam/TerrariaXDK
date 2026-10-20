@@ -113,6 +113,10 @@ internal static class KeyboardMouseInput
 		MouseY = _mouse.Y;
 		ScrollDelta = _mouse.ScrollWheelValue - _prevMouse.ScrollWheelValue;
 		_wheelAccumulator += ScrollDelta;
+		// Refresh the context flags from the live UI state here rather than in
+		// UI.UpdateGamePad: that runs later in the frame, so the mapping would otherwise use
+		// last frame's answer (one frame of wrong context on every menu transition).
+		RefreshContext();
 
 		bool moved = _mouse.X != _prevMouse.X || _mouse.Y != _prevMouse.Y;
 		bool clicked = LeftPressed || RightPressed ||
@@ -171,6 +175,25 @@ internal static class KeyboardMouseInput
 				_quickAction = QuickAction.Buff;
 			}
 		}
+	}
+
+	/// <summary>
+	/// Derives the input context from the current UI state.
+	///
+	/// Only <see cref="UI.CurMenuType"/> is a reliable indicator: <c>CurMenuMode</c> is never
+	/// reset to <c>NONE</c> when gameplay starts, so testing it made every frame look like a
+	/// menu - which routed the left click to "confirm" and made attacking impossible.
+	/// </summary>
+	private static void RefreshContext()
+	{
+		UI ui = UI.MainUI;
+		if (ui == null)
+		{
+			return;
+		}
+		MenuContext = ui.CurMenuType != MenuType.NONE || ui.InventoryMode > 0 || MessageBox.IsVisible();
+		// Only screens that consume the click themselves opt out of "left click = A".
+		MouseHandledByScreen = ui.CurMenuType != MenuType.NONE && (ui.CurMenuMode == MenuMode.CREATE_CHARACTER || ui.CurMenuMode == MenuMode.WORLD_SELECT);
 	}
 
 	/// <summary>
@@ -274,7 +297,9 @@ internal static class KeyboardMouseInput
 		{
 			buttons |= Buttons.A; // jump / confirm
 		}
-		if (keys.IsKeyDown(Keys.Enter))
+		// Enter confirms inside menus, but must NOT act as "jump" during play: there it opens
+		// the chat instead (see ChatInput). Space stays the universal confirm/jump.
+		if (keys.IsKeyDown(Keys.Enter) && menuContext)
 		{
 			buttons |= Buttons.A;
 		}

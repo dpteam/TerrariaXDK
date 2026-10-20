@@ -1057,36 +1057,102 @@ public sealed class UI
 
 	public static void LoadContent(ContentManager Content)
 	{
-		Terraria.CreateCharacter.Assets.LoadContent(Content);
-		Terraria.SoundUI.Assets.LoadContent(Content);
-		Terraria.HowToPlay.Assets.LoadContent(Content);
-		Terraria.Leaderboards.Assets.LoadContent(Content);
-		logoTexture = Content.Load<Texture2D>("Images/Logo");
-		logo2Texture = Content.Load<Texture2D>("Images/Logo2");
-		Terraria.Achievements.Assets.LoadContent(Content);
-		if (Main.HardmodeAlert)
+		// Sequential version, kept for callers that need everything at once. The loading
+		// screen uses AppendLoadTasks instead, one task per frame.
+		System.Collections.Generic.List<LoadTask> list = new System.Collections.Generic.List<LoadTask>();
+		AppendLoadTasks(list, Content);
+		for (int i = 0; i < list.Count; i++)
 		{
-			Terraria.Hardmode.Assets.LoadContent(Content);
+			list[i].Run();
 		}
-		string text = "UI/XBController";
-		string text2 = "UI/XBDPad";
+	}
+
+	/// <summary>
+	/// Registers the interface assets as individual loading tasks so the progress bar can
+	/// advance per asset. Weights approximate real cost (font atlases dominate).
+	/// </summary>
+	public static void AppendLoadTasks(System.Collections.Generic.List<LoadTask> tasks, ContentManager Content)
+	{
+		tasks.Add(new LoadTask("character creation", 4f, delegate { Terraria.CreateCharacter.Assets.LoadContent(Content); }));
+		tasks.Add(new LoadTask("sound ui", 1f, delegate { Terraria.SoundUI.Assets.LoadContent(Content); }));
+		tasks.Add(new LoadTask("how to play", 2f, delegate { Terraria.HowToPlay.Assets.LoadContent(Content); }));
+		tasks.Add(new LoadTask("leaderboards", 3f, delegate { Terraria.Leaderboards.Assets.LoadContent(Content); }));
+		tasks.Add(new LoadTask("logo", 1f, delegate { logoTexture = Content.Load<Texture2D>("Images/Logo"); }));
+		tasks.Add(new LoadTask("logo 2", 1f, delegate { logo2Texture = Content.Load<Texture2D>("Images/Logo2"); }));
+		tasks.Add(new LoadTask("achievements", 4f, delegate { Terraria.Achievements.Assets.LoadContent(Content); }));
+		tasks.Add(new LoadTask("hardmode upsell", 1f, delegate
+		{
+			if (Main.HardmodeAlert)
+			{
+				Terraria.Hardmode.Assets.LoadContent(Content);
+			}
+		}));
+		tasks.Add(new LoadTask("controller art", 3f, delegate
+		{
+			string text = "UI/XBController";
+			string text2 = "UI/XBDPad";
+			if (Main.PSMode)
+			{
+				text = "UI/PSController";
+				text2 = "UI/PSDPad";
+			}
+			if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+			{
+				text += "HD";
+				text2 += "HD";
+			}
+			controlsTexture = Content.Load<Texture2D>(text);
+			dpadTexture = Content.Load<Texture2D>(text2);
+		}));
+		tasks.Add(new LoadTask("interface chrome", 1f, delegate
+		{
+			progressBarTexture = Content.Load<Texture2D>("UI/ProgressBar");
+			textBackTexture = Content.Load<Texture2D>("Images/Text_Back");
+			chatBackTexture = Content.Load<Texture2D>("Images/Chat_Back");
+			cursorTexture = Content.Load<Texture2D>("Images/Cursor");
+		}));
+		AppendFontTasks(tasks, Content);
+	}
+
+	/// <summary>
+	/// Font atlases are the single most expensive asset group (tens of megabytes), so each
+	/// texture gets its own task and a weight proportional to that cost.
+	/// </summary>
+	private static void AppendFontTasks(System.Collections.Generic.List<LoadTask> tasks, ContentManager Content)
+	{
+		string prefix = "Fonts/";
+		string big = "big";
+		string stack = "stack";
+		string combat = "combat";
+		string combat2 = "combat2";
+		string small = "small";
+		string small2 = "small2";
 		if (Main.PSMode)
 		{
-			text = "UI/PSController";
-			text2 = "UI/PSDPad";
+			big += "_PS3";
+			small += "_PS3";
+			small2 += "_PS3";
 		}
 		if (Main.ScreenHeightPtr == ScreenHeights.FHD)
 		{
-			text += "HD";
-			text2 += "HD";
+			prefix += "HD/";
 		}
-		controlsTexture = Content.Load<Texture2D>(text);
-		dpadTexture = Content.Load<Texture2D>(text2);
-		progressBarTexture = Content.Load<Texture2D>("UI/ProgressBar");
-		textBackTexture = Content.Load<Texture2D>("Images/Text_Back");
-		chatBackTexture = Content.Load<Texture2D>("Images/Chat_Back");
-		cursorTexture = Content.Load<Texture2D>("Images/Cursor");
-		LoadFonts(Content);
+		// Capture locally so each task closure reads its own name.
+		string[] names = new string[6] { big, stack, combat, combat2, small, small2 };
+		float[] weights = new float[6] { 12f, 1f, 1f, 1f, 4f, 6f };
+		Texture2D[] textures = new Texture2D[6];
+		for (int i = 0; i < 6; i++)
+		{
+			int index = i;
+			tasks.Add(new LoadTask("font " + names[i], weights[i], delegate
+			{
+				textures[index] = Content.Load<Texture2D>(prefix + names[index]);
+			}));
+		}
+		tasks.Add(new LoadTask("build fonts", 2f, delegate
+		{
+			BuildFonts(textures[0], textures[1], textures[2], textures[3], textures[4], textures[5]);
+		}));
 	}
 
 	public static void LoadFonts(ContentManager Content)
@@ -1098,6 +1164,31 @@ public sealed class UI
 		string text5 = "combat2";
 		string text6 = "small";
 		string text7 = "small2";
+		if (Main.PSMode)
+		{
+			text2 += "_PS3";
+			text6 += "_PS3";
+			text7 += "_PS3";
+		}
+		if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+		{
+			text += "HD/";
+		}
+		BuildFonts(
+			Content.Load<Texture2D>(text + text2),
+			Content.Load<Texture2D>(text + text3),
+			Content.Load<Texture2D>(text + text4),
+			Content.Load<Texture2D>(text + text5),
+			Content.Load<Texture2D>(text + text6),
+			Content.Load<Texture2D>(text + text7));
+	}
+
+	/// <summary>
+	/// Builds the SpriteFont objects from already-loaded atlas textures. Split out from
+	/// loading so the atlases can be fetched one per frame by the loading screen.
+	/// </summary>
+	private static void BuildFonts(Texture2D texture2D, Texture2D texture2D2, Texture2D texture2D3, Texture2D texture2D4, Texture2D texture2D5, Texture2D texture2D6)
+	{
 		ConstructorInfo constructor = typeof(SpriteFont).GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, null, new Type[8]
 		{
 			typeof(Texture2D),
@@ -1109,22 +1200,6 @@ public sealed class UI
 			typeof(List<Vector3>),
 			typeof(char?)
 		}, null);
-		if (Main.PSMode)
-		{
-			text2 += "_PS3";
-			text6 += "_PS3";
-			text7 += "_PS3";
-		}
-		if (Main.ScreenHeightPtr == ScreenHeights.FHD)
-		{
-			text += "HD/";
-		}
-		Texture2D texture2D = Content.Load<Texture2D>(text + text2);
-		Texture2D texture2D2 = Content.Load<Texture2D>(text + text3);
-		Texture2D texture2D3 = Content.Load<Texture2D>(text + text4);
-		Texture2D texture2D4 = Content.Load<Texture2D>(text + text5);
-		Texture2D texture2D5 = Content.Load<Texture2D>(text + text6);
-		Texture2D texture2D6 = Content.Load<Texture2D>(text + text7);
 		if (Main.ScreenHeightPtr == ScreenHeights.FHD)
 		{
 			FontHD fontHD = new FontHD();
@@ -4842,10 +4917,11 @@ public sealed class UI
 	}
 
 	/// <summary>
-	/// Absolute mouse cursor path: the desktop pointer drives the in-game cursor directly
-	/// instead of the stick-emulated virtual cursor. Used while the mouse is being moved.
+	/// Copies the desktop pointer into the game cursor. Does NOT return early: callers must
+	/// still run the normal per-context logic, because in gameplay the player derives its aim
+	/// (controlDir, tile targets) from MouseX/MouseY further down the chain.
 	/// </summary>
-	private void UpdateMouseAbsolute()
+	private void ApplyPointerPosition()
 	{
 		int num = Terraria.Input.KeyboardMouseInput.MouseX;
 		int num2 = Terraria.Input.KeyboardMouseInput.MouseY;
@@ -4868,15 +4944,19 @@ public sealed class UI
 		MouseX = (short)num;
 		MouseY = (short)num2;
 		oldMouseX = MouseX;
-		mouseWasActive = true;
 		uiDelay = 0;
 		uiDelayValue = 12;
+	}
+
+	/// <summary>Menu only: moves the console selection to the entry nearest the pointer.</summary>
+	private void SelectMenuEntryUnderPointer()
+	{
 		if (uiCoords == null || uiWidth <= 0 || uiHeight <= 0)
 		{
-			// Gameplay / inventory: Player.UpdateMouse resolves the world target from MouseX/Y.
 			return;
 		}
-		// Menu: highlight the entry closest to the pointer, so clicking works intuitively.
+		int num = MouseX;
+		int num2 = MouseY;
 		int num3 = Math.Min(uiWidth * uiHeight, uiCoords.Length);
 		int num4 = -1;
 		long num5 = long.MaxValue;
@@ -4935,11 +5015,15 @@ public sealed class UI
 
 	private void UpdateMouse()
 	{
-		if (!Terraria.Input.KeyboardMouseInput.CursorOverride)
+		bool flag2 = Terraria.Input.KeyboardMouseInput.Enabled
+			&& Terraria.Input.KeyboardMouseInput.CursorOverride
+			&& NumActiveViews <= 1
+			&& uiCoords != null;
+		if (!flag2)
 		{
 			mouseWasActive = false;
 		}
-		if (Terraria.Input.KeyboardMouseInput.Enabled && Terraria.Input.KeyboardMouseInput.CursorOverride && NumActiveViews <= 1)
+		if (flag2)
 		{
 			// Switching to the mouse means "I aim at what I point at". Smart cursor is the
 			// console convenience that picks a target for you and would fight the pointer.
@@ -4947,12 +5031,12 @@ public sealed class UI
 			{
 				UsingSmartCursor = false;
 			}
-			UpdateMouseAbsolute();
+			mouseWasActive = true;
+			ApplyPointerPosition();
 			if (InventoryMode > 0)
 			{
 				UpdateInventoryMouseHover();
 			}
-			return;
 		}
 		if (uiCoords == null)
 		{
@@ -5114,6 +5198,13 @@ public sealed class UI
 			}
 			return;
 		}
+		if (flag2)
+		{
+			// Menu with the pointer in charge: never let the stick path move the cursor,
+			// otherwise it snaps onto menu entries and the mouse appears to stick to them.
+			SelectMenuEntryUnderPointer();
+			return;
+		}
 		if (uiDelay > 0)
 		{
 			if (PadState.ThumbSticks.Left.LengthSquared() <= 1f / 64f && PadState.ThumbSticks.Right.LengthSquared() <= 1f / 64f && PadState.DPad.Up == ButtonState.Released && PadState.DPad.Down == ButtonState.Released && PadState.DPad.Left == ButtonState.Released && PadState.DPad.Right == ButtonState.Released)
@@ -5240,13 +5331,8 @@ public sealed class UI
 			GamePadState gamePadState = GamePad.GetState(controller);
 			if (controller == PlayerIndex.One)
 			{
-				// Only the first player owns the keyboard and the mouse. "In a menu" is true
-				// whenever a menu screen is up - which includes the main menu, where
-				// CurMenuType is MAIN but CurMenuMode is something like WELCOME.
-				Terraria.Input.KeyboardMouseInput.MenuContext = CurMenuType != MenuType.NONE || CurMenuMode != MenuMode.NONE || InventoryMode > 0 || MessageBox.IsVisible();
-				// These screens hit-test the pointer themselves; a click must not also be
-				// interpreted as the "confirm" button.
-				Terraria.Input.KeyboardMouseInput.MouseHandledByScreen = CurMenuType != MenuType.NONE && (CurMenuMode == MenuMode.CREATE_CHARACTER || CurMenuMode == MenuMode.WORLD_SELECT || CurMenuMode == MenuMode.GAME_MODE);
+				// Context flags are derived inside KeyboardMouseInput.Update(), before any UI
+				// runs; merging here only needs the device state.
 				gamePadState = Terraria.Input.KeyboardMouseInput.Merge(gamePadState);
 			}
 			PadState = gamePadState;
@@ -5344,7 +5430,9 @@ public sealed class UI
 		if (this == MainUI && !Terraria.Input.KeyboardMouseInput.MenuContext)
 		{
 			int num = Terraria.Input.KeyboardMouseInput.ConsumeHotbarRequest();
-			if (num >= 0 && num < 10 && ActivePlayer.Inventory[num].Type > 0)
+			// Select the slot even when it is empty, exactly like the PC version: the slot
+			// highlight has to move, otherwise the keys look like they do nothing.
+			if (num >= 0 && num < 10)
 			{
 				ActivePlayer.SelectedItem = (sbyte)num;
 				Main.PlaySound(12);

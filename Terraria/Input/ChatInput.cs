@@ -113,9 +113,12 @@ internal static class ChatInput
 			}
 			else if (Main.NetMode != 0 || Cheats.CheatState.IsAvailable)
 			{
-				// Chat is only useful when it can go somewhere: to the server, or to the
-				// local cheat console in single player.
-				Open();
+				// Chat only opens during play. In menus Enter means "confirm", and it must not
+				// be swallowed here or the menu would stop responding to it.
+				if (!KeyboardMouseInput.MenuContext)
+				{
+					Open();
+				}
 			}
 			return;
 		}
@@ -208,19 +211,52 @@ internal static class ChatInput
 		}
 	}
 
-	/// <summary>Draws the prompt above the hotbar.</summary>
+	/// <summary>
+	/// Draws the chat prompt: a panel with a border, a caption, the typed text and a blinking
+	/// caret. Sized from the font so it scales with the resolution like the rest of the HUD.
+	/// </summary>
 	public static void Draw()
 	{
 		if (!IsActive)
 		{
 			return;
 		}
-		Microsoft.Xna.Framework.Graphics.SpriteBatch spriteBatch = Main.SpriteBatch;
 		UI ui = UI.MainUI;
-		int num = ui.CurrentView != null ? ui.CurrentView.ViewWidth : Main.ResolutionWidth;
-		int y = Main.ResolutionHeight - (int)(120f * Main.ScreenMultiplier);
-		string text = "Say: " + Buffer.ToString() + ((Main.FrameCounter / 30) % 2 == 0 ? "_" : "");
-		Main.DrawSolidRect(new Rectangle(0, y - 6, num, (int)(34f * Main.ScreenMultiplier)), new Color(0, 0, 0, 160));
-		UI.DrawStringLC(UI.BoldSmallFont, text, (int)(16f * Main.ScreenMultiplier), y, Color.White);
+		int num = ((ui != null && ui.CurrentView != null) ? ui.CurrentView.ViewWidth : Main.ResolutionWidth);
+		float num2 = Main.ScreenMultiplier;
+		int num3 = (int)(48f * num2);
+		int num4 = Main.ResolutionHeight - num3 - (int)(90f * num2);
+		int num5 = num - (int)(64f * num2);
+		int num6 = (int)(34f * num2);
+		// Shadowed frame with a slightly lighter interior reads better over the world.
+		Main.DrawSolidRect(new Rectangle(num3 + 2, num4 + 2, num5, num6), new Color(0, 0, 0, 120));
+		Main.DrawSolidRect(new Rectangle(num3, num4, num5, num6), new Color(12, 16, 24, 225));
+		Main.DrawSolidRect(new Rectangle(num3, num4, num5, 1), new Color(70, 110, 170, 255));
+		Main.DrawSolidRect(new Rectangle(num3, num4 + num6 - 1, num5, 1), new Color(70, 110, 170, 255));
+		Main.DrawSolidRect(new Rectangle(num3, num4, 1, num6), new Color(70, 110, 170, 255));
+		Main.DrawSolidRect(new Rectangle(num3 + num5 - 1, num4, 1, num6), new Color(70, 110, 170, 255));
+		bool flag = IsCommand(Buffer.ToString());
+		string text = flag ? "Command" : "Say";
+		int num7 = (int)(12f * num2);
+		int num8 = num4 + (num6 - (int)UI.BoldSmallFont.MeasureString("A").Y) / 2;
+		UI.DrawStringLC(UI.BoldSmallFont, text, num3 + num7, num8, flag ? new Color(120, 230, 140) : new Color(130, 170, 220));
+		int num9 = num3 + num7 + (int)UI.BoldSmallFont.MeasureString(text + "  ").X;
+		string text2 = Buffer.ToString();
+		UI.DrawStringLC(UI.BoldSmallFont, text2, num9, num8, Color.White);
+		// Caret: only while it is "on", and always after the text.
+		if ((Main.FrameCounter / 20) % 2 == 0)
+		{
+			int num10 = num9 + (int)UI.BoldSmallFont.MeasureString(text2).X;
+			Main.DrawSolidRect(new Rectangle(num10 + 1, num8, 2, (int)UI.BoldSmallFont.MeasureString("A").Y), Color.White);
+		}
+		// Hint line under the field.
+		string text3 = flag ? "Enter = run   Esc = cancel   !help" : "Enter = send   Esc = cancel";
+		UI.DrawStringLC(UI.BoldSmallFont, text3, num3 + num7, num4 + num6 + (int)(4f * num2), new Color(140, 140, 150));
+	}
+
+	/// <summary>True when the buffer starts with a command marker.</summary>
+	private static bool IsCommand(string text)
+	{
+		return text.Length > 0 && (text[0] == '!' || text[0] == '/');
 	}
 }

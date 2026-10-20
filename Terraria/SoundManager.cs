@@ -19,6 +19,9 @@ internal class SoundManager
 
 	internal bool IsSilentMode { get; private set; } = false;
 
+	/// <summary>Called as (done, total) for every decoded track; drives the loading bar.</summary>
+	internal static Action<int, int> Progress;
+
 	internal SoundManager(string[] MusicList)
 	{
 		Program.Log($"[SoundManager] Constructor start, {MusicList?.Length ?? 0} tracks requested");
@@ -59,6 +62,11 @@ internal class SoundManager
 		}
 		for (int i = 0; i < array.Length; i++)
 		{
+			// Report progress so the loading bar moves while the audio thread works.
+			if (Progress != null)
+			{
+				Progress(i, array.Length);
+			}
 			Program.Log($"[SoundManager] Processing track {i + 1}/{array.Length}: {MusicList[i]}");
 			MusicEntry musicEntry = new MusicEntry();
 			string fileName = Path.GetFileName(array[i].Name);

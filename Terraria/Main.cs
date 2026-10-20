@@ -953,10 +953,6 @@ public sealed class Main : Game
 	protected override void LoadContent()
 	{
 		Program.LogSection("LOADING CONTENT");
-		// Baseline for the progress bar: total assets on disk vs. assets decoded so far.
-		_expectedAssets = CountExpectedAssets();
-		Microsoft.Xna.Framework.Content.ContentManager.AssetsLoaded = 0;
-		Program.LogInfo("Loading", _expectedAssets + " assets to load");
 		Program.Log("[MAIN.LoadContent()] Setting up GraphicsDevice states...");
 		try
 		{
@@ -1065,93 +1061,86 @@ public sealed class Main : Game
 		Program.Log("[MAIN.LoadContent()] ⬆\ufe0f === LOAD CONTENT COMPLETE ===");
 	}
 
-	/// <summary>
-	/// Number of GPU loading stages. Each is executed on its own frame by
-	/// <see cref="LoadGpuPhase"/>, which keeps both the window responsive and the progress
-	/// bar meaningful (a single blocking call left the bar stuck at its previous value).
-	/// </summary>
-	private const int GpuPhaseCount = 6;
+	/// <summary>Queue of GPU loading steps, executed one per frame.</summary>
+	private bool _loadTasksReady;
 
-	private int _gpuPhase;
+	private readonly System.Collections.Generic.List<LoadTask> _loadTasks = new System.Collections.Generic.List<LoadTask>();
 
-	/// <summary>
-	/// Number of .xnb assets the GPU phases will pull in. Counted once at startup so the
-	/// loading bar can advance proportionally to real work instead of jumping between phases.
-	/// </summary>
-	private static int _expectedAssets = 1;
+	private int _loadTaskIndex;
+
+	private float _loadTotalWeight = 1f;
+
+	private float _loadDoneWeight;
 
 	/// <summary>
-	/// Loads one GPU resource stage. Must run on the main thread: FNA's GL context is current
-	/// only there, so creating textures from the loader thread is undefined behaviour
-	/// (it happens to work on some drivers and fails randomly on others).
+	/// Builds the loading queue. Must be called on the main thread: every task creates GPU
+	/// resources, and FNA's GL context is current only here.
 	/// </summary>
-	private void LoadGpuPhase(int phase)
+	private void BuildLoadTasks()
 	{
-		switch (phase)
+		_loadTasks.Clear();
+		_loadTaskIndex = 0;
+		_loadDoneWeight = 0f;
+		_loadTasks.Add(new LoadTask("tiles", 30f, delegate { _sheetTiles.LoadContent(Content); }));
+		_loadTasks.Add(new LoadTask("sprites", 24f, delegate { _sheetSprites.LoadContent(Content); }));
+		// Backgrounds are separate files: one task each keeps the bar moving.
+		for (int i = 3; i < 32; i++)
 		{
-		case 0:
-			_loadingStatusText = "Loading tiles...";
-			_sheetTiles.LoadContent(Content);
-			break;
-		case 1:
-			_loadingStatusText = "Loading sprites...";
-			_sheetSprites.LoadContent(Content);
-			break;
-		case 2:
-			_loadingStatusText = "Loading backgrounds...";
-			WorldView.LoadContent(Content);
-			break;
-		case 3:
-			_loadingStatusText = "Preparing buffers...";
+			int index = i;
+			_loadTasks.Add(new LoadTask("background " + index, 0.8f, delegate
+			{
+				WorldView.LoadBackground(Content, index);
+			}));
+		}
+		_loadTasks.Add(new LoadTask("buffers", 0.2f, delegate
+		{
 			WhiteTexture = new Texture2D(GraphicsDevice, 1, 1, mipMap: false, SurfaceFormat.Color);
 			WhiteTexture.SetData(new Color[1] { Color.White });
-			break;
-		case 4:
-			_loadingStatusText = "Loading interface...";
-			UI.LoadContent(Content);
-			break;
-		case 5:
-			_loadingStatusText = "Finalizing...";
-			CRC32.Initialize();
-			break;
+		}));
+		UI.AppendLoadTasks(_loadTasks, Content);
+		_loadTasks.Add(new LoadTask("finalizing", 0.5f, delegate { CRC32.Initialize(); }));
+		_loadTotalWeight = 0f;
+		for (int j = 0; j < _loadTasks.Count; j++)
+		{
+			_loadTotalWeight += _loadTasks[j].Weight;
 		}
-		Program.LogDebug("Loading", $"stage {phase + 1}/{GpuPhaseCount} '{_loadingStatusText}' done");
+		Program.LogInfo("Loading", $"{_loadTasks.Count} load step(s), weight {_loadTotalWeight:0.0}");
 	}
 
 	/// <summary>
-	/// Maps "assets decoded" onto the 30%..96% band that the GPU phases occupy. Audio takes
-	/// the first 30%, the remaining 4% is the final hand-off to the game.
+	/// Runs the next loading step. Returns true when the queue is finished, so the caller can
+	/// move on to <see cref="InitializePostSplash"/>.
 	/// </summary>
-	private void UpdateLoadProgressFromAssets()
+	private bool RunNextLoadTask()
 	{
-		float num = (float)Microsoft.Xna.Framework.Content.ContentManager.AssetsLoaded / (float)Math.Max(1, _expectedAssets);
+		if (_loadTaskIndex >= _loadTasks.Count)
+		{
+			return true;
+		}
+		LoadTask loadTask = _loadTasks[_loadTaskIndex];
+		_loadTaskIndex++;
+		_loadingStatusText = loadTask.Label;
+		try
+		{
+			loadTask.Run();
+		}
+		catch (Exception ex)
+		{
+			// One missing asset must not abort the whole loading screen; report and continue.
+			Program.LogError("Loading", "step '" + loadTask.Label + "' failed: " + ex.Message);
+		}
+		_loadDoneWeight += loadTask.Weight;
+		float num = _loadDoneWeight / Math.Max(1f, _loadTotalWeight);
 		if (num > 1f)
 		{
 			num = 1f;
 		}
 		float num2 = 0.3f + 0.66f * num;
-		// Never let the bar move backwards if a stage loads nothing.
 		if (num2 > _loadingProgress)
 		{
 			_loadingProgress = num2;
 		}
-	}
-
-	/// <summary>Counts the .xnb files once, for the progress bar denominator.</summary>
-	private static int CountExpectedAssets()
-	{
-		try
-		{
-			string text = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Content");
-			if (System.IO.Directory.Exists(text))
-			{
-				return System.IO.Directory.GetFiles(text, "*.xnb", System.IO.SearchOption.AllDirectories).Length;
-			}
-		}
-		catch
-		{
-		}
-		return 1;
+		return false;
 	}
 
 	/// <summary>
@@ -1168,8 +1157,14 @@ public sealed class Main : Game
 		try
 		{
 			_loadingStatusText = "Loading music...";
+			// Music is the first 20% of the bar; report per track so it advances smoothly.
+			SoundManager.Progress = delegate(int done, int total)
+			{
+				_loadingProgress = 0.02f + 0.2f * ((float)done / (float)Math.Max(1, total));
+			};
 			UsedManager = new SoundManager(MusicCueNames);
-			_loadingProgress = 0.18f;
+			SoundManager.Progress = null;
+			_loadingProgress = 0.22f;
 			Program.LogInfo("Loading", $"music ready ({stopwatch.ElapsedMilliseconds} ms)");
 			_loadingStatusText = "Loading sounds...";
 			LoadAllSfxPools(stopwatch);
@@ -1709,14 +1704,15 @@ public sealed class Main : Game
 					GC.Collect();
 					GC.WaitForPendingFinalizers();
 				}
-				// Phase B: GPU uploads, one stage per frame so the bar actually animates.
-				// Within the whole phase the bar follows the number of assets actually decoded,
-				// so it moves continuously rather than in six jumps.
-				if (_gpuPhase < GpuPhaseCount)
+				// Phase B: one loading step per frame, so the bar advances continuously.
+				if (!_loadTasksReady)
 				{
-					LoadGpuPhase(_gpuPhase);
-					_gpuPhase++;
-					UpdateLoadProgressFromAssets();
+					BuildLoadTasks();
+					_loadTasksReady = true;
+					return;
+				}
+				if (!RunNextLoadTask())
+				{
 					return;
 				}
 				// Phase C: hold at 100% until the bar visually catches up, then start.
@@ -1744,6 +1740,9 @@ public sealed class Main : Game
 		{
 			Program.Log("[Update] \ud83c\udfae Entered normal game loop for first time!");
 		}
+		// Focus must be current before input is read; it used to be assigned further down,
+		// so the first frame after focusing the window dropped all input.
+		HasFocus = IsActive;
 		Terraria.Input.KeyboardMouseInput.Update();
 		// Chat runs before anything reads input, so typing never moves the player.
 		Terraria.Input.ChatInput.Update();
@@ -1756,8 +1755,7 @@ public sealed class Main : Game
 			UpdateTutorial();
 		}
 		Terraria.Cheats.CheatState.Update();
-		Terraria.Mods.ModLoader.GameUpdate();
-		for (int j = 0; j < UIInstance.Length; j++)
+		Terraria.Mods.ModLoader.GameUpdate();		for (int j = 0; j < UIInstance.Length; j++)
 		{
 			UIInstance[j].Update();
 		}
