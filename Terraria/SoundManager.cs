@@ -92,16 +92,39 @@ internal class SoundManager
 		Program.Log($"[SoundManager] Constructor done. {LoadedMusic.Count}/{MusicCount} tracks loaded");
 	}
 
+	/// <summary>
+	/// Resolves one file per requested cue name. OGG wins over WAV: OGG is streamed by FAudio
+	/// (~0 RAM), WAV is decoded whole into a SoundEffect (~4 MB per track). Shipping both lets
+	/// the game pick the cheap path while keeping WAV as a fallback.
+	/// </summary>
 	private static FileInfo[] GetMatchingFiles(string DirPath, string[] FileList)
 	{
 		DirectoryInfo directoryInfo = new DirectoryInfo(DirPath);
+		FileInfo[] files = directoryInfo.GetFiles();
 		List<FileInfo> list = new List<FileInfo>();
 		foreach (string Name in FileList)
 		{
-			FileInfo fileInfo = directoryInfo.GetFiles().FirstOrDefault((FileInfo f) => string.Equals(Path.GetFileNameWithoutExtension(f.Name), Name, StringComparison.OrdinalIgnoreCase));
-			if (fileInfo != null)
+			FileInfo fileInfo = null;
+			FileInfo fileInfo2 = null;
+			foreach (FileInfo fileInfo3 in files)
 			{
-				list.Add(fileInfo);
+				if (!string.Equals(Path.GetFileNameWithoutExtension(fileInfo3.Name), Name, StringComparison.OrdinalIgnoreCase))
+				{
+					continue;
+				}
+				if (fileInfo3.Extension.Equals(".ogg", StringComparison.OrdinalIgnoreCase))
+				{
+					fileInfo = fileInfo3;
+				}
+				else if (fileInfo3.Extension.Equals(".wav", StringComparison.OrdinalIgnoreCase))
+				{
+					fileInfo2 = fileInfo3;
+				}
+			}
+			FileInfo fileInfo4 = fileInfo ?? fileInfo2;
+			if (fileInfo4 != null)
+			{
+				list.Add(fileInfo4);
 			}
 		}
 		return list.ToArray();

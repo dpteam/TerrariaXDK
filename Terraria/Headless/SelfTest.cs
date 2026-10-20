@@ -309,7 +309,10 @@ internal static class SelfTest
 		};
 		foreach (string text in array)
 		{
-			if (!File.Exists(Path.Combine(contentRoot, "ExtMusic", text + ".wav")))
+			// OGG is the streamed format; WAV is the decoded fallback. Either satisfies a cue.
+			string path2 = Path.Combine(contentRoot, "ExtMusic", text + ".ogg");
+			string path3 = Path.Combine(contentRoot, "ExtMusic", text + ".wav");
+			if (!File.Exists(path2) && !File.Exists(path3))
 			{
 				list2.Add("ExtMusic/" + text);
 			}
@@ -364,7 +367,7 @@ internal static class SelfTest
 				}
 				continue;
 			}
-			if (extension.Equals(".wav", StringComparison.OrdinalIgnoreCase))
+			if (extension.Equals(".wav", StringComparison.OrdinalIgnoreCase) || extension.Equals(".ogg", StringComparison.OrdinalIgnoreCase))
 			{
 				if (!text.StartsWith("ExtMusic\\", StringComparison.OrdinalIgnoreCase))
 				{
@@ -624,7 +627,9 @@ internal static class SelfTest
 			return;
 		}
 		long num = DirSize(contentRoot);
-		long num2 = DirSize(Path.Combine(contentRoot, "ExtMusic"));
+		string musicDir = Path.Combine(contentRoot, "ExtMusic");
+		long num2 = DirSize(musicDir, "*.wav");
+		long num9 = DirSize(musicDir, "*.ogg");
 		long num3 = DirSize(Path.Combine(contentRoot, "Fonts"));
 		long num4 = DirSize(Path.Combine(contentRoot, "Sounds"));
 		// Count only the font set that a given display mode actually loads, so the number
@@ -648,25 +653,30 @@ internal static class SelfTest
 		Console.WriteLine($"    fonts, both sets     {Mb(num3)}   only one set is loaded at a time");
 		Console.WriteLine($"      of which Fonts/HD  {Mb(num8)}   loaded only at 1080p");
 		Console.WriteLine($"    sounds               {Mb(num4)}   decoded to PCM on load");
-		Console.WriteLine($"    music (WAV)          {Mb(num2)}   decoded to PCM -> resident the whole session");
+		Console.WriteLine($"    music WAV (fallback) {Mb(num2)}   only decoded if no OGG for that cue");
+		Console.WriteLine($"    music OGG (streamed) {Mb(num9)}   ~0 resident, decoded on the fly");
 		int num6 = Directory.GetFiles(Path.Combine(contentRoot, "ExtMusic"), "*.wav").Length;
 		int num7 = Directory.GetFiles(Path.Combine(contentRoot, "ExtMusic"), "*.ogg").Length;
-		if (num6 > 0 && num7 == 0)
+		if (num7 > 0)
 		{
-			Console.WriteLine($"  note: {num6} WAV track(s), no OGG. Streaming needs OGG (see docs/PERFORMANCE.md).");
+			Console.WriteLine($"  note: {num7} OGG track(s) -> streamed, ~0 RAM; {num6} WAV kept as fallback (not loaded).");
+		}
+		else if (num6 > 0)
+		{
+			Console.WriteLine($"  note: {num6} WAV track(s), no OGG -> all decoded into RAM. See docs/PERFORMANCE.md.");
 		}
 		Console.WriteLine($"  Storage/               {Mb(DirSize(Terraria.Storage.AppPaths.Root))}");
 		Console.WriteLine();
 	}
 
-	private static long DirSize(string path)
+	private static long DirSize(string path, string pattern = "*")
 	{
 		if (!Directory.Exists(path))
 		{
 			return 0L;
 		}
 		long num = 0L;
-		string[] files = Directory.GetFiles(path, "*", SearchOption.AllDirectories);
+		string[] files = Directory.GetFiles(path, pattern, SearchOption.AllDirectories);
 		foreach (string path2 in files)
 		{
 			try
