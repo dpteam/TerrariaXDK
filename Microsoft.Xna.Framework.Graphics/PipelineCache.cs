@@ -109,7 +109,7 @@ internal class PipelineCache
 	{
 		int num = ((int)alphaBlendFunc << 4) | (int)colorBlendFunc;
 		int num2 = ((int)alphaDestBlend << 28) | ((int)alphaSrcBlend << 24) | ((int)colorDestBlend << 20) | ((int)colorSrcBlend << 16) | ((int)channels << 12) | ((int)channels1 << 8) | ((int)channels2 << 4) | (int)channels3;
-		return new StateHash((ulong)(((long)num << 32) | num2), (ulong)(((long)multisampleMask << 32) | blendFactor.PackedValue));
+		return new StateHash((ulong)(((long)num << 32) | (uint)num2), (ulong)(((long)multisampleMask << 32) | blendFactor.PackedValue));
 	}
 
 	public static StateHash GetBlendHash(BlendState state)
@@ -165,7 +165,7 @@ internal class PipelineCache
 		int num3 = (stencilEnable ? 1 : 0);
 		int num4 = (twoSidedStencil ? 1 : 0);
 		int num5 = (num << 30) | (num2 << 29) | (num3 << 28) | (num4 << 27) | ((int)depthFunc << 24) | ((int)stencilFunc << 21) | ((int)ccwStencilFunc << 18) | ((int)stencilPass << 15) | ((int)stencilFail << 12) | ((int)stencilDepthFail << 9) | ((int)ccwStencilFail << 6) | ((int)ccwStencilPass << 3) | (int)ccwStencilDepthFail;
-		return new StateHash((ulong)(((long)stencilMask << 32) | num5), (ulong)(((long)referenceStencil << 32) | stencilWriteMask));
+		return new StateHash((ulong)(((long)stencilMask << 32) | (uint)num5), (ulong)(((long)referenceStencil << 32) | (uint)stencilWriteMask));
 	}
 
 	public static StateHash GetDepthStencilHash(DepthStencilState state)
@@ -265,7 +265,7 @@ internal class PipelineCache
 	private static StateHash GetSamplerHash(TextureAddressMode addressU, TextureAddressMode addressV, TextureAddressMode addressW, int maxAnisotropy, int maxMipLevel, float mipLODBias, TextureFilter filter)
 	{
 		int num = ((int)filter << 6) | ((int)addressU << 4) | ((int)addressV << 2) | (int)addressW;
-		return new StateHash((ulong)(((long)maxAnisotropy << 32) | num), (FloatToULong(mipLODBias) << 32) | (ulong)maxMipLevel);
+		return new StateHash((ulong)(((long)(uint)maxAnisotropy << 32) | (uint)num), (FloatToULong(mipLODBias) << 32) | (ulong)(uint)maxMipLevel);
 	}
 
 	public static StateHash GetSamplerHash(SamplerState state)

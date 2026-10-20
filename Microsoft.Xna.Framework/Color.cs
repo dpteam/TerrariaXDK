@@ -61,8 +61,6 @@ public struct Color : IEquatable<Color>, IPackedVector, IPackedVector<uint>
 			packedValue = (packedValue & 0xFFFFFF) | (uint)(value << 24);
 		}
 	}
-
-	[CLSCompliant(false)]
 	public uint PackedValue
 	{
 		get

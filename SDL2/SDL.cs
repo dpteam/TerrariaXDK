@@ -2,6 +2,10 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
+// These structures mirror native SDL layouts. The CLR never assigns their fields -
+// the native side fills them in - so "never assigned" is expected, not a bug.
+#pragma warning disable 0649, 0169
+
 namespace SDL2;
 
 public static class SDL

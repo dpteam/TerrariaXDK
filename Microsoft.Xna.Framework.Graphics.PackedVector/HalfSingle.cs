@@ -5,8 +5,6 @@ namespace Microsoft.Xna.Framework.Graphics.PackedVector;
 public struct HalfSingle : IPackedVector<ushort>, IPackedVector, IEquatable<HalfSingle>
 {
 	private ushort packedValue;
-
-	[CLSCompliant(false)]
 	public ushort PackedValue
 	{
 		get

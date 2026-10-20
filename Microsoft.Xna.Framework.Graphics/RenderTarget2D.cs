@@ -20,7 +20,10 @@ public class RenderTarget2D : Texture2D, IRenderTarget
 
 	IntPtr IRenderTarget.ColorBuffer => glColorBuffer;
 
+	// XNA API compatibility: render targets are never lost on the GL backend.
+#pragma warning disable 0067
 	public event EventHandler<EventArgs> ContentLost;
+#pragma warning restore 0067
 
 	public RenderTarget2D(GraphicsDevice graphicsDevice, int width, int height)
 		: this(graphicsDevice, width, height, mipMap: false, SurfaceFormat.Color, DepthFormat.None, 0, RenderTargetUsage.DiscardContents)

@@ -8,7 +8,10 @@ public class DynamicIndexBuffer : IndexBuffer
 {
 	public bool IsContentLost => false;
 
+	// XNA API compatibility: FNA raises this for D3D buffer loss, which GL never reports.
+#pragma warning disable 0067
 	public event EventHandler<EventArgs> ContentLost;
+#pragma warning restore 0067
 
 	public DynamicIndexBuffer(GraphicsDevice graphicsDevice, IndexElementSize indexElementSize, int indexCount, BufferUsage usage)
 		: base(graphicsDevice, indexElementSize, indexCount, usage, dynamic: true)

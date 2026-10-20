@@ -46,12 +46,13 @@ public static class NetUtility
 
 	public static IPAddress NET4MapToIPv6(IPAddress sample)
 	{
-		long address = sample.Address;
+		// IPv4-mapped IPv6 address: ::ffff:a.b.c.d
+		byte[] addressBytes = sample.GetAddressBytes();
 		ushort[] array = new ushort[8];
 		byte[] array2 = new byte[array.Length * 2];
 		array[5] = ushort.MaxValue;
-		array[6] = (ushort)(((address & 0xFF00) >> 8) | ((address & 0xFF) << 8));
-		array[7] = (ushort)(((address & 0xFF000000u) >> 24) | ((address & 0xFF0000) >> 8));
+		array[6] = (ushort)((addressBytes[0] << 8) | addressBytes[1]);
+		array[7] = (ushort)((addressBytes[2] << 8) | addressBytes[3]);
 		Buffer.BlockCopy(array, 0, array2, 0, array.Length * 2);
 		return new IPAddress(array2, 0L);
 	}
@@ -227,8 +228,6 @@ public static class NetUtility
 		uint num3 = BitConverter.ToUInt32(myAddress.GetAddressBytes(), 0);
 		return (num2 & num) == (num3 & num);
 	}
-
-	[CLSCompliant(false)]
 	public static int BitsToHoldUInt(uint value)
 	{
 		int num = 1;
@@ -238,8 +237,6 @@ public static class NetUtility
 		}
 		return num;
 	}
-
-	[CLSCompliant(false)]
 	public static int BitsToHoldUInt64(ulong value)
 	{
 		int num = 1;
@@ -414,8 +411,6 @@ public static class NetUtility
 		}
 		return endPoint;
 	}
-
-	[CLSCompliant(false)]
 	public static ulong GetPlatformSeed(int seedInc)
 	{
 		return (ulong)(Stopwatch.GetTimestamp() ^ (Environment.WorkingSet + seedInc));

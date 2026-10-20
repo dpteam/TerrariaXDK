@@ -29,7 +29,11 @@ public sealed class NetworkSession : IDisposable
 
 		public NetworkSessionState State;
 
+		// Carried so a future reconnect path can report why a session ended; the current
+		// transport reports disconnects through SessionEnded directly.
+#pragma warning disable 0649
 		public NetworkSessionEndReason Reason;
+#pragma warning restore 0649
 	}
 
 	public delegate NetworkSession NetworkSessionAsynchronousCreate(NetworkSessionType sessionType, int maxLocalGamers, int maxGamers, int privateGamerSlots, NetworkSessionProperties sessionProperties, int hostGamer, bool isHost);
@@ -184,6 +188,9 @@ public sealed class NetworkSession : IDisposable
 
 	public event EventHandler<NetworkSessionEndedEventArgs> SessionEnded;
 
+	// Declared for API compatibility with XNA. The Xbox Live leaderboard backend is gone,
+	// so these are never raised; keeping them lets mod code subscribe without breaking.
+#pragma warning disable 0067
 	public event EventHandler<WriteLeaderboardsEventArgs> WriteArbitratedLeaderboard;
 
 	public event EventHandler<WriteLeaderboardsEventArgs> WriteUnarbitratedLeaderboard;
@@ -191,6 +198,7 @@ public sealed class NetworkSession : IDisposable
 	public event EventHandler<WriteLeaderboardsEventArgs> WriteTrueSkill;
 
 	public static event EventHandler<InviteAcceptedEventArgs> InviteAccepted;
+#pragma warning restore 0067
 
 	internal NetworkSession(NetworkSessionProperties properties, NetworkSessionType type, int maxGamers, int privateGamerSlots, int maxLocal, IEnumerable<SignedInGamer> localGamers)
 	{

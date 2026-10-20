@@ -21,14 +21,10 @@ public abstract class NetRandom : Random
 	{
 		Initialize((uint)seed);
 	}
-
-	[CLSCompliant(false)]
 	public virtual void Initialize(uint seed)
 	{
 		throw new NotImplementedException("Implement this in inherited classes");
 	}
-
-	[CLSCompliant(false)]
 	public virtual uint NextUInt32()
 	{
 		throw new NotImplementedException("Implement this in inherited classes");
@@ -78,8 +74,6 @@ public abstract class NetRandom : Random
 	{
 		return minValue + (int)(NextDouble() * (double)(maxValue - minValue));
 	}
-
-	[CLSCompliant(false)]
 	public ulong NextUInt64()
 	{
 		return (ulong)NextUInt32() | (ulong)NextUInt32();

@@ -5,8 +5,6 @@ namespace Microsoft.Xna.Framework.Graphics.PackedVector;
 public struct Bgra4444 : IPackedVector<ushort>, IPackedVector, IEquatable<Bgra4444>
 {
 	private ushort packedValue;
-
-	[CLSCompliant(false)]
 	public ushort PackedValue
 	{
 		get

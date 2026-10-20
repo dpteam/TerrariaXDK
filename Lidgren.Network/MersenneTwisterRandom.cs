@@ -40,14 +40,10 @@ public sealed class MersenneTwisterRandom : NetRandom
 	{
 		Initialize(NetRandomSeed.GetUInt32());
 	}
-
-	[CLSCompliant(false)]
 	public MersenneTwisterRandom(uint seed)
 	{
 		Initialize(seed);
 	}
-
-	[CLSCompliant(false)]
 	public override void Initialize(uint seed)
 	{
 		mt = new uint[624];
@@ -59,8 +55,6 @@ public sealed class MersenneTwisterRandom : NetRandom
 			mt[i] = (uint)(1812433253 * (mt[i - 1] ^ (mt[i - 1] >> 30)) + i);
 		}
 	}
-
-	[CLSCompliant(false)]
 	public override uint NextUInt32()
 	{
 		if (mti >= 624)

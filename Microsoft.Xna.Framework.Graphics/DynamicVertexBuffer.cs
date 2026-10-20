@@ -8,7 +8,10 @@ public class DynamicVertexBuffer : VertexBuffer
 {
 	public bool IsContentLost => false;
 
+	// XNA API compatibility: FNA raises this for D3D buffer loss, which GL never reports.
+#pragma warning disable 0067
 	public event EventHandler<EventArgs> ContentLost;
+#pragma warning restore 0067
 
 	public DynamicVertexBuffer(GraphicsDevice graphicsDevice, VertexDeclaration vertexDeclaration, int vertexCount, BufferUsage bufferUsage)
 		: base(graphicsDevice, vertexDeclaration, vertexCount, bufferUsage, dynamic: true)

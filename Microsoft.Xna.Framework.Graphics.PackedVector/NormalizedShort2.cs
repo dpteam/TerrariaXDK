@@ -5,8 +5,6 @@ namespace Microsoft.Xna.Framework.Graphics.PackedVector;
 public struct NormalizedShort2 : IPackedVector<uint>, IPackedVector, IEquatable<NormalizedShort2>
 {
 	private uint packedValue;
-
-	[CLSCompliant(false)]
 	public uint PackedValue
 	{
 		get

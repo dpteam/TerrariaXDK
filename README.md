@@ -1,0 +1,202 @@
+# TerrariaXDK
+
+Порт **Terraria (Xbox 360, v0.7.8)** на десктоп через [FNA](https://fna-xna.github.io/) /
+SDL2, с добавленными клавиатурой-мышью, встроенным мультиплеером, читами для сингла и
+поддержкой модов.
+
+Проект вырос из **TerrariaOGC v1.03** (переименован в TerrariaXDK) и использует исходники
+консольной версии как основу, а сборки ПК-версии из `refs/` — как источник идей.
+
+---
+
+## Что умеет
+
+| Возможность | Где | Статус |
+|---|---|---|
+| Клавиатура + мышь | `Terraria/Input/KeyboardMouseInput.cs` | работает |
+| Чит-меню (сингл) | `Terraria/Cheats/` | работает |
+| Мультиплеер без серверного EXE | `Terraria/Net/` | работает (LAN + IP) |
+| Моды (сингл и онлайн) | `Terraria/Mods/` | API + загрузчик |
+| Headless self-test | `TerrariaXDK.exe --selftest` | работает |
+| Виртуальная клавиатура для геймпада | — | в планах, см. `IDEAS.md` |
+
+---
+
+## Сборка
+
+Нужен .NET SDK (проверено на 9.0) и Windows для запуска (FNA-нативные DLL — Win64).
+
+```powershell
+dotnet build TerrariaXDK.csproj -c Release
+```
+
+Результат: `bin/Release/net40/TerrariaXDK.exe` (net40, x64).
+
+### Что положить рядом с exe
+
+Игра ищет контент и нативные библиотеки рядом с исполняемым файлом:
+
+```
+TerrariaXDK.exe
+TerrariaXDK.exe.config
+Content/            <- копия Content из корня проекта (рядом с этой папкой)
+Settings.ini        <- создаётся автоматически, если нет
+FAudio.dll
+FNA3D.dll
+libtheorafile.dll
+SDL2.dll
+```
+
+Быстрый способ собрать рабочий каталог:
+
+```powershell
+dotnet build TerrariaXDK.csproj
+$dst = "bin\Debug\net40"
+Copy-Item -Recurse -Force ..\Content $dst
+Copy-Item -Force ..\Settings.ini,..\FAudio.dll,..\FNA3D.dll,..\libtheorafile.dll,..\SDL2.dll $dst
+```
+
+Требуется **OpenGL 2.1+**. На машинах без GPU (или в RDP/VM с `GDI Generic`)
+игра не запустится — для таких случаев есть `--selftest` (см. ниже).
+
+---
+
+## Запуск
+
+```powershell
+.\TerrariaXDK.exe              # игра
+.\TerrariaXDK.exe --selftest   # проверки без графики
+```
+
+### Управление (клавиатура)
+
+| Клавиша | Действие |
+|---|---|
+| `W A S D` | движение |
+| `Space` / `Enter` | прыжок / подтвердить |
+| `Shift` | двойной прыжок |
+| `E` / `Tab` | инвентарь |
+| `R` | бросок предмета |
+| `C` | переключить smart cursor |
+| `Esc` | пауза |
+| `Q` / `M` | карта |
+| `F1` | чит-меню (только сингл) |
+| `F` | полный экран |
+| `+` / `-` | зум |
+| ЛКМ / ПКМ | использовать предмет / граппл |
+| Колесо | смена предмета в хотбаре |
+| Стрелки | навигация по меню |
+
+Мышь и геймпад работают одновременно: пока вы двигаете мышь, курсор абсолютный,
+через ~3 секунды простоя управление возвращается стику.
+
+---
+
+## Настройки
+
+`Settings.ini` создаётся при первом запуске и дополняется новыми ключами:
+
+```ini
+[Game]
+Gamertag=Terrarian
+TrialActive=False
+PSMode=False
+UnlockAllRecipes=False
+
+[Display]
+ScreenHeight=0          ; 0 = 540p, 1 = 720p, 2 = 1080p
+ShowFPS=False
+StartFullscreen=True
+ZoomLevel=0
+AlwaysOnWatch=False
+AlwaysOnDepth=False
+AlwaysOnCompass=False
+
+[Additions]
+HardmodeAlert=False
+
+[Input]
+KeyboardMouse=True      ; выключить, чтобы получить оригинальное поведение
+
+[Cheats]
+Enabled=True            ; чит-меню доступно только в сингле
+
+[Network]
+Port=7777
+JoinAddress=            ; "host:port" для быстрого подключения
+
+[Mods]
+Enabled=True
+RequireMatchingMods=True
+```
+
+---
+
+## Headless self-test
+
+```powershell
+.\TerrariaXDK.exe --selftest
+```
+
+Проверяет без графики:
+
+1. **манифест контента** — что каждый `Content.Load(...)` путь реально существует;
+2. **осиротевшие файлы** — что в `Content/` нет ничего, что игра не грузит;
+3. **framing** — сериализация кадров протокола;
+4. **tcp loopback** — реальное TCP-соединение с handshake и обменом данными;
+5. **конфиг сети** — парсинг `host:port`, `[::1]`, отказ на некорректных портах;
+6. **моды** — загрузка, детерминированность подписи, отказ чужой подписи;
+7. **читы** — что они включены в сингле и недоступны в мультиплеере.
+
+Код возврата 0 — всё хорошо. Это же запускается в CI.
+
+---
+
+## Структура
+
+```
+.                           корень репозитория (эта папка)
+  TerrariaXDK.csproj
+  Terraria/                 игровая логика консольной версии
+    Input/                  клавиатура + мышь
+    Cheats/                 чит-меню (сингл)
+    Net/                    встроенный TCP-транспорт
+    Mods/                   API и загрузчик модов
+    Headless/               self-test
+  Microsoft.Xna.Framework*/ FNA-совместимый слой XNA
+  Lidgren.Network/          сетевой стек (legacy-транспорт)
+  SDL2/, FAudio.cs, ...     нативные обёртки
+  README.md, AGENTS.md      документация проекта
+  IDEAS.md, ROADMAP.md
+  docs/                     подробные гайды
+
+Рядом с корнем репозитория, но вне git:
+  Content/                  ассеты (.xnb + музыка)
+  refs/                     исходники ПК-версии и старых сборок
+  _RemovedContent/          вычищенное из Content (архив)
+```
+
+---
+
+## Документация
+
+Вся документация лежит рядом с кодом, в корне репозитория:
+
+- `AGENTS.md` — правила работы над кодом (для людей и агентов).
+- `IDEAS.md` — идеи, планы, отклонённые решения.
+- `ROADMAP.md` — порядок работ и критерии готовности.
+- `PROMPT.md` — исходное задание по проекту.
+- `docs/MULTIPLAYER.md` — как устроен встроенный сетевой стек.
+- `docs/MODDING.md` — как писать моды.
+- `docs/CONTENT_AUDIT.md` — что и почему вычищено из `Content/`.
+- `docs/REFS_DIFF.md` — сравнение архитектур TerrariaXDK и сборок из `refs/`.
+  Там же — какой функционал стоит перенести из `TShock` (`refs/TShock`).
+
+---
+
+## Лицензия и правовой статус
+
+Код происходит из декомпилированной клиентской сборки Terraria (Xbox 360) и
+переиспользует открытые части FNA. Terraria и связанные ассеты — собственность
+Re-Logic. Репозиторий существует для исследования совместимости и сохранения
+архивных сборок; коммерческое использование ассетов не подразумевается.

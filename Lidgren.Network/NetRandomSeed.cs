@@ -5,8 +5,6 @@ namespace Lidgren.Network;
 public static class NetRandomSeed
 {
 	private static int m_seedIncrement = -1640531527;
-
-	[CLSCompliant(false)]
 	public static uint GetUInt32()
 	{
 		ulong uInt = GetUInt64();
@@ -14,8 +12,6 @@ public static class NetRandomSeed
 		uint num2 = (uint)(uInt >> 32);
 		return num ^ num2;
 	}
-
-	[CLSCompliant(false)]
 	public static ulong GetUInt64()
 	{
 		byte[] array = Guid.NewGuid().ToByteArray();

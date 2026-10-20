@@ -24,7 +24,10 @@ public class RenderTargetCube : TextureCube, IRenderTarget
 
 	IntPtr IRenderTarget.ColorBuffer => glColorBuffer;
 
+	// XNA API compatibility: render targets are never lost on the GL backend.
+#pragma warning disable 0067
 	public event EventHandler<EventArgs> ContentLost;
+#pragma warning restore 0067
 
 	public RenderTargetCube(GraphicsDevice graphicsDevice, int size, bool mipMap, SurfaceFormat preferredFormat, DepthFormat preferredDepthFormat)
 		: this(graphicsDevice, size, mipMap, preferredFormat, preferredDepthFormat, 0, RenderTargetUsage.DiscardContents)

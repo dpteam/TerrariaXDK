@@ -5,8 +5,6 @@ namespace Microsoft.Xna.Framework.Graphics.PackedVector;
 public struct Rgba64 : IPackedVector<ulong>, IPackedVector, IEquatable<Rgba64>
 {
 	private ulong packedValue;
-
-	[CLSCompliant(false)]
 	public ulong PackedValue
 	{
 		get

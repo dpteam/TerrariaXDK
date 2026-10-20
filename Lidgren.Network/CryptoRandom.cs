@@ -8,15 +8,11 @@ public class CryptoRandom : NetRandom
 	public new static readonly CryptoRandom Instance = new CryptoRandom();
 
 	private RandomNumberGenerator m_rnd = new RNGCryptoServiceProvider();
-
-	[CLSCompliant(false)]
 	public override void Initialize(uint seed)
 	{
 		byte[] data = new byte[seed % 16];
 		m_rnd.GetBytes(data);
 	}
-
-	[CLSCompliant(false)]
 	public override uint NextUInt32()
 	{
 		byte[] array = new byte[4];

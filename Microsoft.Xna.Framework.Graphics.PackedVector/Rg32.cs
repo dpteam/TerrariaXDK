@@ -5,8 +5,6 @@ namespace Microsoft.Xna.Framework.Graphics.PackedVector;
 public struct Rg32 : IPackedVector<uint>, IPackedVector, IEquatable<Rg32>
 {
 	private uint packedValue;
-
-	[CLSCompliant(false)]
 	public uint PackedValue
 	{
 		get

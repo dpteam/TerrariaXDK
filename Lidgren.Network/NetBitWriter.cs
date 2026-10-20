@@ -86,8 +86,6 @@ public static class NetBitWriter
 			destination[num] |= (byte)(b >> num3);
 		}
 	}
-
-	[CLSCompliant(false)]
 	public static ushort ReadUInt16(byte[] fromBuffer, int numberOfBits, int readBitOffset)
 	{
 		if (numberOfBits <= 8)
@@ -103,8 +101,6 @@ public static class NetBitWriter
 		}
 		return num;
 	}
-
-	[CLSCompliant(false)]
 	public static uint ReadUInt32(byte[] fromBuffer, int numberOfBits, int readBitOffset)
 	{
 		if (numberOfBits <= 8)
@@ -132,8 +128,6 @@ public static class NetBitWriter
 		readBitOffset += 8;
 		return num | (uint)(ReadByte(fromBuffer, numberOfBits, readBitOffset) << 24);
 	}
-
-	[CLSCompliant(false)]
 	public static void WriteUInt16(ushort source, int numberOfBits, byte[] destination, int destinationBitOffset)
 	{
 		if (numberOfBits == 0)
@@ -152,8 +146,6 @@ public static class NetBitWriter
 			WriteByte((byte)(source >> 8), numberOfBits, destination, destinationBitOffset + 8);
 		}
 	}
-
-	[CLSCompliant(false)]
 	public static int WriteUInt32(uint source, int numberOfBits, byte[] destination, int destinationBitOffset)
 	{
 		int result = destinationBitOffset + numberOfBits;
@@ -184,8 +176,6 @@ public static class NetBitWriter
 		WriteByte((byte)(source >> 24), numberOfBits, destination, destinationBitOffset);
 		return result;
 	}
-
-	[CLSCompliant(false)]
 	public static int WriteUInt64(ulong source, int numberOfBits, byte[] destination, int destinationBitOffset)
 	{
 		int result = destinationBitOffset + numberOfBits;
@@ -255,8 +245,6 @@ public static class NetBitWriter
 		numberOfBits -= 8;
 		return result;
 	}
-
-	[CLSCompliant(false)]
 	public static int WriteVariableUInt32(byte[] intoBuffer, int offset, uint value)
 	{
 		int num = 0;
@@ -270,8 +258,6 @@ public static class NetBitWriter
 		intoBuffer[offset + num] = (byte)num2;
 		return num + 1;
 	}
-
-	[CLSCompliant(false)]
 	public static uint ReadVariableUInt32(byte[] buffer, ref int offset)
 	{
 		int num = 0;

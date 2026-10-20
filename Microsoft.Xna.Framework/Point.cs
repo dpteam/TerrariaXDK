@@ -14,7 +14,7 @@ public struct Point : IEquatable<Point>
 
 	public int Y;
 
-	private static Point zeroPoint;
+	private static Point zeroPoint = default(Point);
 
 	public static Point Zero => zeroPoint;
 

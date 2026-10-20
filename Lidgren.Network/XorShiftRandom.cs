@@ -26,14 +26,10 @@ public sealed class XorShiftRandom : NetRandom
 	{
 		Initialize(NetRandomSeed.GetUInt64());
 	}
-
-	[CLSCompliant(false)]
 	public XorShiftRandom(ulong seed)
 	{
 		Initialize(seed);
 	}
-
-	[CLSCompliant(false)]
 	public override void Initialize(uint seed)
 	{
 		m_x = seed;
@@ -41,8 +37,6 @@ public sealed class XorShiftRandom : NetRandom
 		m_z = 521288629u;
 		m_w = 88675123u;
 	}
-
-	[CLSCompliant(false)]
 	public void Initialize(ulong seed)
 	{
 		m_x = (uint)seed;
@@ -50,8 +44,6 @@ public sealed class XorShiftRandom : NetRandom
 		m_z = (uint)(seed << 32);
 		m_w = 88675123u;
 	}
-
-	[CLSCompliant(false)]
 	public override uint NextUInt32()
 	{
 		uint num = m_x ^ (m_x << 11);

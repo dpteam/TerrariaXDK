@@ -190,7 +190,10 @@ public class GraphicsDevice : IDisposable
 
 	public IndexBuffer Indices { get; set; }
 
+	// XNA API compatibility: D3D device loss does not happen on the GL backend.
+#pragma warning disable 0067
 	public event EventHandler<EventArgs> DeviceLost;
+#pragma warning restore 0067
 
 	public event EventHandler<EventArgs> DeviceReset;
 

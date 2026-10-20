@@ -121,8 +121,6 @@ public class NetBuffer
 	{
 		return NetBitWriter.ReadByte(m_data, 8, m_readPosition);
 	}
-
-	[CLSCompliant(false)]
 	public sbyte PeekSByte()
 	{
 		return (sbyte)NetBitWriter.ReadByte(m_data, 8, m_readPosition);
@@ -149,8 +147,6 @@ public class NetBuffer
 	{
 		return (short)NetBitWriter.ReadUInt16(m_data, 16, m_readPosition);
 	}
-
-	[CLSCompliant(false)]
 	public ushort PeekUInt16()
 	{
 		return NetBitWriter.ReadUInt16(m_data, 16, m_readPosition);
@@ -176,20 +172,14 @@ public class NetBuffer
 		uint num3 = uint.MaxValue >> 33 - numberOfBits;
 		return (int)(0 - ((num & num3) + 1));
 	}
-
-	[CLSCompliant(false)]
 	public uint PeekUInt32()
 	{
 		return NetBitWriter.ReadUInt32(m_data, 32, m_readPosition);
 	}
-
-	[CLSCompliant(false)]
 	public uint PeekUInt32(int numberOfBits)
 	{
 		return NetBitWriter.ReadUInt32(m_data, numberOfBits, m_readPosition);
 	}
-
-	[CLSCompliant(false)]
 	public ulong PeekUInt64()
 	{
 		long num = NetBitWriter.ReadUInt32(m_data, 32, m_readPosition);
@@ -201,8 +191,6 @@ public class NetBuffer
 	{
 		return (long)PeekUInt64();
 	}
-
-	[CLSCompliant(false)]
 	public ulong PeekUInt64(int numberOfBits)
 	{
 		if (numberOfBits <= 32)
@@ -274,8 +262,6 @@ public class NetBuffer
 		m_readPosition += 8;
 		return true;
 	}
-
-	[CLSCompliant(false)]
 	public sbyte ReadSByte()
 	{
 		byte b = NetBitWriter.ReadByte(m_data, 8, m_readPosition);
@@ -335,8 +321,6 @@ public class NetBuffer
 		m_readPosition += 16;
 		return (short)num;
 	}
-
-	[CLSCompliant(false)]
 	public ushort ReadUInt16()
 	{
 		ushort result = NetBitWriter.ReadUInt16(m_data, 16, m_readPosition);
@@ -350,8 +334,6 @@ public class NetBuffer
 		m_readPosition += 32;
 		return (int)result;
 	}
-
-	[CLSCompliant(false)]
 	public bool ReadInt32(out int result)
 	{
 		if (m_bitLength - m_readPosition < 32)
@@ -380,16 +362,12 @@ public class NetBuffer
 		uint num3 = uint.MaxValue >> 33 - numberOfBits;
 		return (int)(0 - ((num & num3) + 1));
 	}
-
-	[CLSCompliant(false)]
 	public uint ReadUInt32()
 	{
 		uint result = NetBitWriter.ReadUInt32(m_data, 32, m_readPosition);
 		m_readPosition += 32;
 		return result;
 	}
-
-	[CLSCompliant(false)]
 	public bool ReadUInt32(out uint result)
 	{
 		if (m_bitLength - m_readPosition < 32)
@@ -401,16 +379,12 @@ public class NetBuffer
 		m_readPosition += 32;
 		return true;
 	}
-
-	[CLSCompliant(false)]
 	public uint ReadUInt32(int numberOfBits)
 	{
 		uint result = NetBitWriter.ReadUInt32(m_data, numberOfBits, m_readPosition);
 		m_readPosition += numberOfBits;
 		return result;
 	}
-
-	[CLSCompliant(false)]
 	public ulong ReadUInt64()
 	{
 		long num = NetBitWriter.ReadUInt32(m_data, 32, m_readPosition);
@@ -425,8 +399,6 @@ public class NetBuffer
 	{
 		return (long)ReadUInt64();
 	}
-
-	[CLSCompliant(false)]
 	public ulong ReadUInt64(int numberOfBits)
 	{
 		ulong result;
@@ -502,8 +474,6 @@ public class NetBuffer
 		s_buffer = array;
 		return result2;
 	}
-
-	[CLSCompliant(false)]
 	public uint ReadVariableUInt32()
 	{
 		int num = 0;
@@ -520,8 +490,6 @@ public class NetBuffer
 		}
 		return (uint)num;
 	}
-
-	[CLSCompliant(false)]
 	public bool ReadVariableUInt32(out uint result)
 	{
 		int num = 0;
@@ -556,8 +524,6 @@ public class NetBuffer
 		ulong num = ReadVariableUInt64();
 		return (long)((num >> 1) ^ (0 - (num & 1)));
 	}
-
-	[CLSCompliant(false)]
 	public ulong ReadVariableUInt64()
 	{
 		ulong num = 0uL;
@@ -811,8 +777,6 @@ public class NetBuffer
 		NetBitWriter.WriteByte(source, 8, m_data, offset);
 		m_bitLength = num;
 	}
-
-	[CLSCompliant(false)]
 	public void Write(sbyte source)
 	{
 		EnsureBufferSize(m_bitLength + 8);
@@ -850,16 +814,12 @@ public class NetBuffer
 		NetBitWriter.WriteBytes(source, offsetInBytes, numberOfBytes, m_data, m_bitLength);
 		m_bitLength += num;
 	}
-
-	[CLSCompliant(false)]
 	public void Write(ushort source)
 	{
 		EnsureBufferSize(m_bitLength + 16);
 		NetBitWriter.WriteUInt16(source, 16, m_data, m_bitLength);
 		m_bitLength += 16;
 	}
-
-	[CLSCompliant(false)]
 	public void WriteAt(int offset, ushort source)
 	{
 		int num = Math.Max(m_bitLength, offset + 16);
@@ -867,8 +827,6 @@ public class NetBuffer
 		NetBitWriter.WriteUInt16(source, 16, m_data, offset);
 		m_bitLength = num;
 	}
-
-	[CLSCompliant(false)]
 	public void Write(ushort source, int numberOfBits)
 	{
 		EnsureBufferSize(m_bitLength + numberOfBits);
@@ -905,16 +863,12 @@ public class NetBuffer
 		NetBitWriter.WriteUInt32((uint)source, 32, m_data, offset);
 		m_bitLength = num;
 	}
-
-	[CLSCompliant(false)]
 	public void Write(uint source)
 	{
 		EnsureBufferSize(m_bitLength + 32);
 		NetBitWriter.WriteUInt32(source, 32, m_data, m_bitLength);
 		m_bitLength += 32;
 	}
-
-	[CLSCompliant(false)]
 	public void WriteAt(int offset, uint source)
 	{
 		int num = Math.Max(m_bitLength, offset + 32);
@@ -922,8 +876,6 @@ public class NetBuffer
 		NetBitWriter.WriteUInt32(source, 32, m_data, offset);
 		m_bitLength = num;
 	}
-
-	[CLSCompliant(false)]
 	public void Write(uint source, int numberOfBits)
 	{
 		EnsureBufferSize(m_bitLength + numberOfBits);
@@ -942,16 +894,12 @@ public class NetBuffer
 		NetBitWriter.WriteUInt32((uint)source, numberOfBits, m_data, m_bitLength);
 		m_bitLength += numberOfBits;
 	}
-
-	[CLSCompliant(false)]
 	public void Write(ulong source)
 	{
 		EnsureBufferSize(m_bitLength + 64);
 		NetBitWriter.WriteUInt64(source, 64, m_data, m_bitLength);
 		m_bitLength += 64;
 	}
-
-	[CLSCompliant(false)]
 	public void WriteAt(int offset, ulong source)
 	{
 		int num = Math.Max(m_bitLength, offset + 64);
@@ -959,8 +907,6 @@ public class NetBuffer
 		NetBitWriter.WriteUInt64(source, 64, m_data, offset);
 		m_bitLength = num;
 	}
-
-	[CLSCompliant(false)]
 	public void Write(ulong source, int numberOfBits)
 	{
 		EnsureBufferSize(m_bitLength + numberOfBits);
@@ -997,8 +943,6 @@ public class NetBuffer
 		byte[] bytes = BitConverter.GetBytes(source);
 		Write(bytes);
 	}
-
-	[CLSCompliant(false)]
 	public int WriteVariableUInt32(uint value)
 	{
 		int num = 1;
@@ -1024,8 +968,6 @@ public class NetBuffer
 		ulong value2 = (ulong)((value << 1) ^ (value >> 63));
 		return WriteVariableUInt64(value2);
 	}
-
-	[CLSCompliant(false)]
 	public int WriteVariableUInt64(ulong value)
 	{
 		int num = 1;

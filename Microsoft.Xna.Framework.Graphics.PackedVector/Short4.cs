@@ -5,8 +5,6 @@ namespace Microsoft.Xna.Framework.Graphics.PackedVector;
 public struct Short4 : IPackedVector<ulong>, IPackedVector, IEquatable<Short4>
 {
 	private ulong packedValue;
-
-	[CLSCompliant(false)]
 	public ulong PackedValue
 	{
 		get

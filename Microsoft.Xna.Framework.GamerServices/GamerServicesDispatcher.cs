@@ -9,7 +9,11 @@ public static class GamerServicesDispatcher
 
 	public static IntPtr WindowHandle { get; set; }
 
+	// XNA API compatibility: raised by the platform when the title updates on the console,
+	// which never happens in this port.
+#pragma warning disable 0067
 	public static event EventHandler<EventArgs> InstallingTitleUpdate;
+#pragma warning restore 0067
 
 	public static void Initialize(IServiceProvider serviceProvider)
 	{

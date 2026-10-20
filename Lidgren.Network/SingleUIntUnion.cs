@@ -10,6 +10,5 @@ public struct SingleUIntUnion
 	public float SingleValue;
 
 	[FieldOffset(0)]
-	[CLSCompliant(false)]
 	public uint UIntValue;
 }

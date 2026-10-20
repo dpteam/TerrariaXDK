@@ -14,22 +14,16 @@ public class MWCRandom : NetRandom
 	{
 		Initialize(NetRandomSeed.GetUInt64());
 	}
-
-	[CLSCompliant(false)]
 	public override void Initialize(uint seed)
 	{
 		m_w = seed;
 		m_z = seed * 16777619;
 	}
-
-	[CLSCompliant(false)]
 	public void Initialize(ulong seed)
 	{
 		m_w = (uint)seed;
 		m_z = (uint)(seed >> 32);
 	}
-
-	[CLSCompliant(false)]
 	public override uint NextUInt32()
 	{
 		m_z = 36969 * (m_z & 0xFFFF) + (m_z >> 16);

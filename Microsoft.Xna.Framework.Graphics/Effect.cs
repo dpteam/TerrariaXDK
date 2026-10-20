@@ -2,6 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
+// Mojoshader interop structs: fields are populated by the native shader compiler,
+// never by managed code, so CS0649 is expected here.
+#pragma warning disable 0649
+
 namespace Microsoft.Xna.Framework.Graphics;
 
 public class Effect : GraphicsResource

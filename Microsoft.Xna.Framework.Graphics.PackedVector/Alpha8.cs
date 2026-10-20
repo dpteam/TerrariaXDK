@@ -5,8 +5,6 @@ namespace Microsoft.Xna.Framework.Graphics.PackedVector;
 public struct Alpha8 : IPackedVector<byte>, IPackedVector, IEquatable<Alpha8>
 {
 	private byte packedValue;
-
-	[CLSCompliant(false)]
 	public byte PackedValue
 	{
 		get

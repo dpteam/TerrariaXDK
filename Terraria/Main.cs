@@ -1606,7 +1606,6 @@ public sealed class Main : Game
 			Program.Log($"[Update] ⚠\ufe0f Loading thread status: IsAlive={ContentThread?.IsAlive}, Complete={_loadingThreadComplete}");
 			try
 			{
-				bool flag = false;
 				if (ContentThread != null && ContentThread.IsAlive)
 				{
 					Program.Log("[Update] ⚠\ufe0f Waiting for ContentThread (max 120 seconds)...");
@@ -1624,7 +1623,6 @@ public sealed class Main : Game
 				else
 				{
 					Program.Log("[Update] ✅ ContentThread already finished or null");
-					flag = true;
 				}
 				ContentThread = null;
 				ShowSplash = 2;
