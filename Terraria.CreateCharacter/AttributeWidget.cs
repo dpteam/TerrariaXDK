@@ -49,6 +49,11 @@ public abstract class AttributeWidget<T> where T : ISelector
 		Widget.SetCursor(CursorPosition);
 	}
 
+	public bool HitTest(Vector2 MousePosition)
+	{
+		return Widget.HitTest(MousePosition);
+	}
+
 	public void Reset()
 	{
 		Widget.Reset();

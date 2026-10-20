@@ -31,6 +31,11 @@ public class ColorSelector : ISelector
 
 	private int FlashTimer;
 
+	// Layout captured during Draw so mouse hit-testing matches what is on screen exactly.
+	private Vector2 LayoutCenter;
+
+	private float LayoutCellSize;
+
 	public Color SelectedColor;
 
 	public ColorSelector(Texture2D Palette, Texture2D Picker, Vector2i ResetValue)
@@ -77,6 +82,8 @@ public class ColorSelector : ISelector
 		Position.Y -= num3 >> 1;
 		Position.X += 8f * Main.ScreenMultiplier;
 		Position.Y += 8f * Main.ScreenMultiplier;
+		LayoutCenter = Position;
+		LayoutCellSize = num;
 		Color color = Color.White * Alpha;
 		Color color2 = Color.Black * Alpha;
 		for (int num4 = paletteBounds.Height - 1; num4 > -1; num4--)
@@ -180,6 +187,33 @@ public class ColorSelector : ISelector
 	{
 		Selected = cursor;
 		UpdateColor();
+	}
+
+	public bool HitTest(Vector2 MousePosition)
+	{
+		if (LayoutCellSize <= 0f)
+		{
+			return false;
+		}
+		float num = (MousePosition.X - LayoutCenter.X) / LayoutCellSize;
+		float num2 = (MousePosition.Y - LayoutCenter.Y) / LayoutCellSize;
+		int num3 = (int)System.Math.Round(num);
+		int num4 = (int)System.Math.Round(num2);
+		if (num3 < 0 || num3 >= PaletteBounds.Width || num4 < 0 || num4 >= PaletteBounds.Height)
+		{
+			return false;
+		}
+		if (System.Math.Abs(num - (float)num3) > 0.5f || System.Math.Abs(num2 - (float)num4) > 0.5f)
+		{
+			return false;
+		}
+		if (Selected.X == num3 && Selected.Y == num4)
+		{
+			return false;
+		}
+		Selected = new Vector2i(num3, num4);
+		UpdateColor();
+		return true;
 	}
 
 	public void Reset()

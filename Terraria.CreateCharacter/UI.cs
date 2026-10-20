@@ -74,8 +74,11 @@ public class UI
 			UIDelay--;
 		}
 		bool flag = UpdateCategoryInput(ActivePlayer);
+		// Mouse clicks act directly on what is under the pointer; the gamepad path above is
+		// untouched, so both input styles keep working and can even be mixed.
+		bool flag3 = UpdateMouseInput(ActivePlayer);
 		bool flag2 = UpdateWidgetInput(ActivePlayer);
-		if (flag | flag2)
+		if (flag | flag2 | flag3)
 		{
 			if ((Widget.SelectedIndex == 0) & flag2)
 			{
@@ -103,6 +106,32 @@ public class UI
 			ParentUI.SetMenu(MenuMode.CONFIRM_LEAVE_CREATE_CHARACTER);
 		}
 		SelPlayer = ActivePlayer;
+	}
+
+	/// <summary>
+	/// Character creation by mouse. Hovering a category switches to it and hovering an option
+	/// selects it, mirroring how the console cursor behaves; the selection applies immediately
+	/// so the preview updates as the pointer moves.
+	/// </summary>
+	private bool UpdateMouseInput(Player ActivePlayer)
+	{
+		if (!Terraria.Input.KeyboardMouseInput.Enabled || !Terraria.Input.KeyboardMouseInput.CursorOverride)
+		{
+			return false;
+		}
+		Vector2 mousePosition = new Vector2(Terraria.Input.KeyboardMouseInput.MouseX, Terraria.Input.KeyboardMouseInput.MouseY);
+		if (Widget.HitTest(mousePosition))
+		{
+			SelectedAttribute.Show();
+			UpdateHeaderAndFooter();
+			return true;
+		}
+		if (UIDelay == 0 && SelectedAttribute.HitTest(mousePosition))
+		{
+			SelectedAttribute.Apply(ActivePlayer);
+			return true;
+		}
+		return false;
 	}
 
 	private bool IsButtonDown(Buttons Button)

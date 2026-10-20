@@ -5177,8 +5177,13 @@ public sealed class UI
 			GamePadState gamePadState = GamePad.GetState(controller);
 			if (controller == PlayerIndex.One)
 			{
-				// Only the first player owns the keyboard and the mouse.
-				Terraria.Input.KeyboardMouseInput.MenuContext = CurMenuType != MenuType.NONE || InventoryMode > 0;
+				// Only the first player owns the keyboard and the mouse. "In a menu" is true
+				// whenever a menu screen is up - which includes the main menu, where
+				// CurMenuType is MAIN but CurMenuMode is something like WELCOME.
+				Terraria.Input.KeyboardMouseInput.MenuContext = CurMenuType != MenuType.NONE || CurMenuMode != MenuMode.NONE || InventoryMode > 0 || MessageBox.IsVisible();
+				// These screens hit-test the pointer themselves; a click must not also be
+				// interpreted as the "confirm" button.
+				Terraria.Input.KeyboardMouseInput.MouseHandledByScreen = CurMenuType != MenuType.NONE && (CurMenuMode == MenuMode.CREATE_CHARACTER || CurMenuMode == MenuMode.WORLD_SELECT || CurMenuMode == MenuMode.GAME_MODE);
 				gamePadState = Terraria.Input.KeyboardMouseInput.Merge(gamePadState);
 			}
 			PadState = gamePadState;
@@ -5272,6 +5277,16 @@ public sealed class UI
 			NetMessage.SendMessage();
 		}
 		UpdateMouse();
+		// Number keys 1..0 pick a hotbar slot directly, as on the PC version.
+		if (this == MainUI && !Terraria.Input.KeyboardMouseInput.MenuContext)
+		{
+			int num = Terraria.Input.KeyboardMouseInput.ConsumeHotbarRequest();
+			if (num >= 0 && num < 10 && ActivePlayer.Inventory[num].Type > 0)
+			{
+				ActivePlayer.SelectedItem = (sbyte)num;
+				Main.PlaySound(12);
+			}
+		}
 		if (SignedInGamer != null && !SignedInGamer.IsGuest && !Main.IsTrial)
 		{
 			UpdateAchievements();

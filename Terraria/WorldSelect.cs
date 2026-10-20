@@ -34,8 +34,73 @@ public static class WorldSelect
 
 	private static JoinableSession session;
 
+	// Geometry captured while drawing, so mouse hit-testing matches the visible list exactly.
+	private static Rectangle MouseWorldArea;
+
+	private static Rectangle MouseSessionArea;
+
+	private static int MouseRowHeight = 1;
+
+	private static int MouseWorldStart;
+
+	private static int MouseWorldEnd;
+
+	private static int MouseSessionStart;
+
+	private static int MouseSessionEnd;
+
+	/// <summary>
+	/// Pointer support for the world list. Hovering a row selects it, clicking a world loads
+	/// it, clicking a session row joins it. Returns true when the click was consumed, so the
+	/// caller can skip the gamepad branch and avoid acting twice on one click.
+	/// </summary>
+	private static bool HandleMouse()
+	{
+		if (!Terraria.Input.KeyboardMouseInput.Enabled || !Terraria.Input.KeyboardMouseInput.CursorOverride)
+		{
+			return false;
+		}
+		int num = Terraria.Input.KeyboardMouseInput.MouseX;
+		int num2 = Terraria.Input.KeyboardMouseInput.MouseY;
+		bool leftClicked = Terraria.Input.KeyboardMouseInput.LeftClicked;
+		if (MouseWorldArea.Width > 0 && MouseWorldArea.Contains(num, num2))
+		{
+			int num3 = MouseWorldStart + (num2 - MouseWorldArea.Y) / MouseRowHeight;
+			if (num3 >= MouseWorldStart && num3 < MouseWorldEnd)
+			{
+				selectedWorld = (byte)num3;
+				cursorX = 0;
+				if (leftClicked)
+				{
+					SelectWorld();
+					return true;
+				}
+			}
+			return false;
+		}
+		if (MouseSessionArea.Width > 0 && MouseSessionArea.Contains(num, num2) && Netplay.availableSessions.Count > 0)
+		{
+			int num4 = MouseSessionStart + (num2 - MouseSessionArea.Y) / MouseRowHeight;
+			if (num4 >= MouseSessionStart && num4 < MouseSessionEnd && num4 < Netplay.availableSessions.Count)
+			{
+				selectedSession = (byte)num4;
+				cursorX = 1;
+				if (leftClicked)
+				{
+					JoinSession();
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
 	public static void Update()
 	{
+		if (HandleMouse())
+		{
+			return;
+		}
 		if (WorldCap != 11 && Main.ScreenHeightPtr == ScreenHeights.HD)
 		{
 			WorldCap = 11;
@@ -198,6 +263,7 @@ public static class WorldSelect
 		int count = Netplay.availableSessions.Count;
 		if (count == 0)
 		{
+			MouseSessionArea = default;
 			string s = ((!Netplay.IsFindingSessions()) ? Lang.MenuText[77] : Lang.MenuText[76]);
 			UI.DrawStringCC(UI.SmallFont, s, destRect.Center.X, destRect.Center.Y, UI.mouseTextColor);
 		}
@@ -208,6 +274,9 @@ public static class WorldSelect
 			destRect.Width = width2;
 			destRect.Height = height2;
 			int num7 = Math.Min(count, sessionListTop + 16);
+			MouseSessionStart = sessionListTop;
+			MouseSessionEnd = num7;
+			MouseSessionArea = new Rectangle(destRect.X, destRect.Y, width2, num * Math.Max(0, num7 - sessionListTop));
 			lock (Netplay.availableSessions)
 			{
 				for (int i = sessionListTop; i < num7; i++)
@@ -240,6 +309,10 @@ public static class WorldSelect
 		destRect.Y = view.SafeAreaOffsetTop + 80;
 		destRect.Width = width2;
 		destRect.Height = height2;
+		MouseWorldStart = num3;
+		MouseWorldEnd = num4;
+		MouseRowHeight = num;
+		MouseWorldArea = new Rectangle(destRect.X, destRect.Y, width2, num * Math.Max(0, num4 - num3));
 		for (int k = num3; k < num4; k++)
 		{
 			int texId2 = 450;

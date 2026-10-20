@@ -19,6 +19,11 @@ public class HorizontalListSelector : ISelector
 
 	private int FlashTimer;
 
+	// Layout captured during Draw so mouse hit-testing matches what is on screen exactly.
+	private Vector2 LayoutStart;
+
+	private float LayoutSpacing;
+
 	public int Selected;
 
 	private int RevertValue;
@@ -54,6 +59,8 @@ public class HorizontalListSelector : ISelector
 		Color color = Color.White * Alpha;
 		int num3 = (Options.Length - 1) * (int)num2 - 4;
 		Position.X -= num3 >> 1;
+		LayoutStart = Position;
+		LayoutSpacing = num2;
 		Vector2 position = Vector2.Zero;
 		Vector2 origin = Vector2.Zero;
 		Texture2D texture2D = null;
@@ -150,5 +157,29 @@ public class HorizontalListSelector : ISelector
 			num = Options.Length - 1;
 		}
 		Selected = num;
+	}
+
+	public bool HitTest(Vector2 MousePosition)
+	{
+		if (LayoutSpacing <= 0f || Options.Length == 0)
+		{
+			return false;
+		}
+		float num = (MousePosition.X - LayoutStart.X) / LayoutSpacing;
+		int num2 = (int)System.Math.Round(num);
+		if (num2 < 0 || num2 >= Options.Length)
+		{
+			return false;
+		}
+		if (System.Math.Abs(num - (float)num2) > 0.5f)
+		{
+			return false;
+		}
+		if (Selected == num2)
+		{
+			return false;
+		}
+		Selected = num2;
+		return true;
 	}
 }

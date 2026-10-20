@@ -34,6 +34,11 @@ internal class CategorySelector
 
 	private int Selected;
 
+	// Layout captured during Draw: the strip is a centred row of icons around Position.
+	private Vector2 LayoutCenter;
+
+	private float LayoutSpacing;
+
 	public int SelectedIndex
 	{
 		get
@@ -72,8 +77,61 @@ internal class CategorySelector
 		}
 	}
 
+	/// <summary>
+	/// Picks the category icon under the cursor. Icons are laid out as a centred row of
+	/// <c>Options.Length</c> slots spaced <see cref="Spacing"/> apart, so a nearest-slot lookup
+	/// is enough. Returns true only when the selection actually changed.
+	/// </summary>
+	public bool HitTest(Vector2 MousePosition)
+	{
+		if (Scrolling || LayoutSpacing <= 0f || Options.Length == 0)
+		{
+			return false;
+		}
+		float num = (MousePosition.X - LayoutCenter.X) / LayoutSpacing;
+		float num2 = MousePosition.Y - LayoutCenter.Y;
+		int num3 = (int)Math.Round(num);
+		if (num3 < -4 || num3 > 4)
+		{
+			return false;
+		}
+		// Vertical band of the icon row: generous, but rejects clicks far above or below.
+		if (Math.Abs(num2) > LayoutSpacing)
+		{
+			return false;
+		}
+		int num4 = Selected + num3;
+		if (num4 < 0)
+		{
+			num4 += Options.Length;
+		}
+		else if (num4 >= Options.Length)
+		{
+			num4 -= Options.Length;
+		}
+		if (num4 == Selected)
+		{
+			return false;
+		}
+		Selected = num4;
+		if (Math.Abs(num3) == 1)
+		{
+			// Adjacent slot: animate the slide so it reads the same as gamepad navigation.
+			StartScrolling((num3 < 0) ? ScrollDirection.PREVIOUS : ScrollDirection.NEXT);
+		}
+		else
+		{
+			// Jumping several slots: the slide animation only covers one step, so skip it.
+			Scrolling = false;
+			ScrollTween = 0f;
+		}
+		return true;
+	}
+
 	public void Draw(Vector2 Position)
 	{
+		LayoutCenter = Position;
+		LayoutSpacing = Spacing.X;
 		Vector2 origin = new Vector2(Background.Width >> 1, Background.Height >> 1);
 		Vector2 origin2 = new Vector2(SelectionBackground.Width >> 1, SelectionBackground.Height >> 1);
 		int num = 4;

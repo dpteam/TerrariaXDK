@@ -24,6 +24,9 @@ public interface IAttributeWidget
 
 	void SetCursor(Vector2i CursorVect);
 
+	/// <summary>Mouse support: selects the option under the cursor. See <see cref="ISelector.HitTest"/>.</summary>
+	bool HitTest(Vector2 MousePosition);
+
 	void Apply(Player Player);
 
 	void Reset();

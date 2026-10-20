@@ -38,6 +38,14 @@ internal static class KeyboardMouseInput
 	/// <summary>True when the current UI is a menu / inventory, where LMB means "confirm".</summary>
 	public static bool MenuContext { get; set; }
 
+	/// <summary>
+	/// Set by screens that perform their own mouse hit-testing (character creation, world
+	/// select). Without it a click would do the job twice: once through the screen's own
+	/// hit-test and again through the "LMB acts as A" shortcut, which in character creation
+	/// advanced the category on every click.
+	/// </summary>
+	public static bool MouseHandledByScreen { get; set; }
+
 	/// <summary>Absolute mouse position in backbuffer pixels.</summary>
 	public static int MouseX { get; private set; }
 
@@ -90,11 +98,44 @@ internal static class KeyboardMouseInput
 			_idleFrames = 0;
 			CursorOverride = true;
 		}
+		else if (MenuContext)
+		{
+			// Menus are pointed at, not steered with a stick: keep the pointer available even
+			// when the mouse sits still, otherwise it vanishes while the player reads an entry.
+			_idleFrames = 0;
+		}
 		else if (CursorOverride && ++_idleFrames > CursorIdleFrames)
 		{
 			// Player went back to the controller (or is idle): restore stick behaviour.
 			CursorOverride = false;
 		}
+		// Hotbar slots 1..9 and 0 map to the ten hotbar entries, like the PC version.
+		_hotbarRequest = -1;
+		for (int i = 0; i < 9; i++)
+		{
+			if (KeyPressed((Keys)((int)Keys.D1 + i)))
+			{
+				_hotbarRequest = i;
+				break;
+			}
+		}
+		if (_hotbarRequest < 0 && KeyPressed(Keys.D0))
+		{
+			_hotbarRequest = 9;
+		}
+	}
+
+	private static int _hotbarRequest = -1;
+
+	/// <summary>
+	/// Hotbar slot requested by a number key this frame, or -1. The caller applies it so this
+	/// class stays independent of the player and UI types.
+	/// </summary>
+	public static int ConsumeHotbarRequest()
+	{
+		int result = _hotbarRequest;
+		_hotbarRequest = -1;
+		return result;
 	}
 
 	public static bool KeyDown(Keys key)
@@ -176,7 +217,7 @@ internal static class KeyboardMouseInput
 		}
 		if (_keys.IsKeyDown(Keys.E) || _keys.IsKeyDown(Keys.Tab))
 		{
-			buttons |= Buttons.Y; // inventory
+			buttons |= Buttons.Y; // inventory (character creation reuses Y for randomize)
 		}
 		if (_keys.IsKeyDown(Keys.R))
 		{
@@ -186,9 +227,12 @@ internal static class KeyboardMouseInput
 		{
 			buttons |= Buttons.RightStick; // toggle smart cursor
 		}
+		// Escape is context sensitive. On the console "Start" means confirm, so mapping Escape
+		// to Start everywhere made it activate the highlighted entry instead of leaving the
+		// menu. In a menu Escape must be Cancel (Back); in game it opens the pause menu.
 		if (_keys.IsKeyDown(Keys.Escape))
 		{
-			buttons |= Buttons.Start; // pause / back out of gameplay
+			buttons |= MenuContext ? Buttons.Back : Buttons.Start;
 		}
 		if (_keys.IsKeyDown(Keys.Q) || _keys.IsKeyDown(Keys.M) || _keys.IsKeyDown(Keys.Back))
 		{
@@ -198,7 +242,7 @@ internal static class KeyboardMouseInput
 		// Mouse buttons.
 		if (MenuContext)
 		{
-			if (LeftPressed)
+			if (LeftPressed && !MouseHandledByScreen)
 			{
 				buttons |= Buttons.A; // confirm menu entry
 			}

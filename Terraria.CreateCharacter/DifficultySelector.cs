@@ -42,6 +42,11 @@ public class DifficultySelector : ISelector
 
 	private Direction TransitionDirection;
 
+	// Layout captured during Draw so mouse hit-testing matches what is on screen exactly.
+	private Vector2 LayoutPosition;
+
+	private float LayoutRadius;
+
 	public DifficultySelector(Texture2D[] Icons, Difficulty ResetDefault)
 	{
 		DifficultyIcons = Icons;
@@ -52,6 +57,8 @@ public class DifficultySelector : ISelector
 
 	public void Draw(Vector2 Position, float Alpha)
 	{
+		LayoutPosition = Position;
+		LayoutRadius = 160f * Main.ScreenMultiplier;
 		SpriteFont boldSmallFont = Terraria.UI.BoldSmallFont;
 		float num = 1f;
 		switch (Main.ScreenHeightPtr)
@@ -138,6 +145,33 @@ public class DifficultySelector : ISelector
 		{
 			FlashTimer--;
 		}
+	}
+
+	/// <summary>
+	/// Clicking the left half cycles backwards, the right half cycles forwards - the same
+	/// affordance the on-screen arrows advertise.
+	/// </summary>
+	public bool HitTest(Vector2 MousePosition)
+	{
+		if (TransitionTween > 0f || LayoutRadius <= 0f)
+		{
+			return false;
+		}
+		float num = MousePosition.X - LayoutPosition.X;
+		float num2 = MousePosition.Y - LayoutPosition.Y;
+		if (System.Math.Abs(num) > LayoutRadius || System.Math.Abs(num2) > LayoutRadius)
+		{
+			return false;
+		}
+		if (num < 0f)
+		{
+			SelectLeft();
+		}
+		else
+		{
+			SelectRight();
+		}
+		return true;
 	}
 
 	public bool SelectLeft()

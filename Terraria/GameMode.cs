@@ -8,29 +8,95 @@ public static class GameMode
 {
 	private static int CursorY = 2;
 
+	// Row geometry captured while drawing, so the pointer maps straight onto the entries.
+	private static Rectangle MouseRowsArea;
+
+	private static int MouseRowTop;
+
+	private static int MouseRowHeight = 1;
+
 	public static void Update()
 	{
+		bool flag = HandleMouse();
 		if (UI.MainUI.IsBackButtonTriggered())
 		{
 			UI.MainUI.PrevMenu();
+			return;
 		}
-		else if (UI.MainUI.IsButtonTriggered(Buttons.A))
+		if (flag || UI.MainUI.IsButtonTriggered(Buttons.A))
 		{
-			switch (CursorY)
-			{
-			case 0:
-				UI.MainUI.IsOnline = !UI.MainUI.IsOnline;
-				UI.MainUI.SettingsDirty = true;
-				break;
-			case 1:
-				UI.MainUI.IsInviteOnly = !UI.MainUI.IsInviteOnly;
-				UI.MainUI.SettingsDirty = true;
-				break;
-			case 2:
-				StartGame();
-				break;
-			}
+			Activate(CursorY);
 		}
+	}
+
+	/// <summary>Runs the action behind a row. Shared by gamepad confirm and mouse click.</summary>
+	private static void Activate(int row)
+	{
+		switch (row)
+		{
+		case 0:
+			if (!UI.MainUI.CanPlayOnline())
+			{
+				Main.PlaySound(11);
+				return;
+			}
+			UI.MainUI.IsOnline = !UI.MainUI.IsOnline;
+			UI.MainUI.SettingsDirty = true;
+			Main.PlaySound(12);
+			break;
+		case 1:
+			if (!UI.MainUI.IsOnline)
+			{
+				Main.PlaySound(11);
+				return;
+			}
+			UI.MainUI.IsInviteOnly = !UI.MainUI.IsInviteOnly;
+			UI.MainUI.SettingsDirty = true;
+			Main.PlaySound(12);
+			break;
+		case 2:
+			StartGame();
+			break;
+		}
+	}
+
+	/// <summary>
+	/// Hovering a row moves the selection, clicking runs it. Returns true when a click was
+	/// consumed so the caller does not also process the "LMB acts as A" shortcut.
+	/// </summary>
+	private static bool HandleMouse()
+	{
+		if (!Terraria.Input.KeyboardMouseInput.Enabled || !Terraria.Input.KeyboardMouseInput.CursorOverride)
+		{
+			return false;
+		}
+		Rectangle mouseRowsArea = MouseRowsArea;
+		if (mouseRowsArea.Width <= 0)
+		{
+			return false;
+		}
+		int num = Terraria.Input.KeyboardMouseInput.MouseY;
+		if (!mouseRowsArea.Contains(Terraria.Input.KeyboardMouseInput.MouseX, num))
+		{
+			return false;
+		}
+		int num2 = (num - MouseRowTop) / MouseRowHeight;
+		if (num2 < 0 || num2 > 2)
+		{
+			return false;
+		}
+		// Row 1 only exists while online mode is on.
+		if (num2 == 1 && !UI.MainUI.IsOnline)
+		{
+			return false;
+		}
+		CursorY = (byte)num2;
+		if (Terraria.Input.KeyboardMouseInput.LeftClicked)
+		{
+			Activate(num2);
+			return true;
+		}
+		return false;
 	}
 
 	public static void UpdateCursor(int dx, int dy)
@@ -77,6 +143,9 @@ public static class GameMode
 		Color c = Color.White;
 		int num = (view.ViewWidth >> 1) - (int)(100f * Main.ScreenMultiplier);
 		int num2 = (int)(230f * Main.ScreenMultiplier);
+		MouseRowTop = num2;
+		MouseRowHeight = (int)(64f * Main.ScreenMultiplier);
+		MouseRowsArea = new Rectangle(num - (int)(8f * Main.ScreenMultiplier), num2 - (int)(8f * Main.ScreenMultiplier), (int)(320f * Main.ScreenMultiplier), MouseRowHeight * 3);
 		bool flag = UI.MainUI.CanPlayOnline();
 		if (CursorY == 0)
 		{

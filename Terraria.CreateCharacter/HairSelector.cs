@@ -21,6 +21,13 @@ public class HairSelector : ISelector
 
 	private int FlashTimer;
 
+	// Layout captured during Draw so mouse hit-testing matches what is on screen exactly.
+	private Vector2 LayoutCenter;
+
+	private float LayoutCellWidth;
+
+	private float LayoutCellHeight;
+
 	private Vector2i SelectedVect;
 
 	private Vector2i RevertValue;
@@ -66,6 +73,9 @@ public class HairSelector : ISelector
 		Position.Y -= num6 >> 1;
 		Position.X += num3;
 		Position.Y += num4;
+		LayoutCenter = Position;
+		LayoutCellWidth = num;
+		LayoutCellHeight = num2;
 		for (int num7 = Rows - 1; num7 > -1; num7--)
 		{
 			int num8 = (int)Position.Y + num7 * num2;
@@ -144,6 +154,33 @@ public class HairSelector : ISelector
 	public void SetCursor(Vector2i CursorVect)
 	{
 		SelectedVect = CursorVect;
+	}
+
+	public bool HitTest(Vector2 MousePosition)
+	{
+		if (LayoutCellWidth <= 0f || LayoutCellHeight <= 0f)
+		{
+			return false;
+		}
+		float num = (MousePosition.X - LayoutCenter.X) / LayoutCellWidth;
+		float num2 = (MousePosition.Y - LayoutCenter.Y) / LayoutCellHeight;
+		int num3 = (int)System.Math.Round(num);
+		int num4 = (int)System.Math.Round(num2);
+		if (num3 < 0 || num3 >= Columns || num4 < 0 || num4 >= Rows)
+		{
+			return false;
+		}
+		// Stay inside the cell the pointer is over, so gaps between slots are not clickable.
+		if (System.Math.Abs(num - (float)num3) > 0.5f || System.Math.Abs(num2 - (float)num4) > 0.5f)
+		{
+			return false;
+		}
+		if (SelectedVect.X == num3 && SelectedVect.Y == num4)
+		{
+			return false;
+		}
+		SelectedVect = new Vector2i(num3, num4);
+		return true;
 	}
 
 	public void Reset()
