@@ -4850,6 +4850,7 @@ public sealed class UI
 		MouseX = (short)num;
 		MouseY = (short)num2;
 		oldMouseX = MouseX;
+		mouseWasActive = true;
 		uiDelay = 0;
 		uiDelayValue = 12;
 		if (uiCoords == null || uiWidth <= 0 || uiHeight <= 0)
@@ -4884,10 +4885,23 @@ public sealed class UI
 		}
 	}
 
+	/// <summary>True while the pointer was the active device on the previous frame.</summary>
+	private bool mouseWasActive;
+
 	private void UpdateMouse()
 	{
+		if (!Terraria.Input.KeyboardMouseInput.CursorOverride)
+		{
+			mouseWasActive = false;
+		}
 		if (Terraria.Input.KeyboardMouseInput.Enabled && Terraria.Input.KeyboardMouseInput.CursorOverride && NumActiveViews <= 1)
 		{
+			// Switching to the mouse means "I aim at what I point at". Smart cursor is the
+			// console convenience that picks a target for you and would fight the pointer.
+			if (!mouseWasActive)
+			{
+				UsingSmartCursor = false;
+			}
 			UpdateMouseAbsolute();
 			return;
 		}
