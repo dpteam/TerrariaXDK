@@ -45,6 +45,7 @@ internal static class SelfTest
 		RunCheck("network stats", CheckNetworkStats);
 		RunCheck("key bindings", CheckKeyBindings);
 		RunCheck("tconfig import", CheckTConfigImport);
+		RunCheck("virtual keyboard", CheckVirtualKeyboard);
 		ReportMemory();
 		Console.WriteLine();
 		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
@@ -901,6 +902,22 @@ internal static class SelfTest
 			return Fail("click double-fires on screens that handle the mouse");
 		}
 		Terraria.Input.KeyboardMouseInput.MouseHandledByScreen = false;
+		// Inventory: right click splits a stack instead of cancelling.
+		GamePadState inventoryRight = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(rightDown, array[0], empty, true, false, true, false, true);
+		if (!inventoryRight.IsButtonDown(Buttons.RightTrigger))
+		{
+			return Fail("right click does not split stacks in the inventory");
+		}
+		if (inventoryRight.IsButtonDown(Buttons.B))
+		{
+			return Fail("right click cancels the inventory instead of splitting");
+		}
+		// ... but in a menu (not the inventory) it still cancels.
+		GamePadState menuRight = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(rightDown, array[0], empty, true, false, true, false, false);
+		if (!menuRight.IsButtonDown(Buttons.B))
+		{
+			return Fail("right click no longer cancels in menus");
+		}
 		// Escape: cancel in menus, pause in game.
 		KeyboardState escape = new KeyboardState(new Keys[1] { Keys.Escape });
 		GamePadState gamePadState7 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], escape, true, false);
@@ -1269,6 +1286,84 @@ internal static class SelfTest
 			catch
 			{
 			}
+		}
+	}
+
+	// --- Virtual keyboard ---------------------------------------------------
+
+	/// <summary>
+	/// The on-screen keyboard is the only way to type on a handheld, so its buffer rules are
+	/// worth pinning down: append, delete, length limit, and that opening it suppresses game
+	/// input (otherwise typing walks the player around).
+	/// </summary>
+	private static bool CheckVirtualKeyboard()
+	{
+		bool flag = Terraria.Input.KeyboardMouseInput.TextInputActive;
+		try
+		{
+			if (Terraria.Input.VirtualKeyboard.IsOpen)
+			{
+				Terraria.Input.VirtualKeyboard.Close();
+			}
+			Terraria.Input.VirtualKeyboard.Open("Test", "abc", null);
+			if (!Terraria.Input.VirtualKeyboard.IsOpen)
+			{
+				return Fail("keyboard did not open");
+			}
+			if (Terraria.Input.VirtualKeyboard.Text != "abc")
+			{
+				return Fail("initial text was not loaded (" + Terraria.Input.VirtualKeyboard.Text + ")");
+			}
+			if (!Terraria.Input.KeyboardMouseInput.TextInputActive)
+			{
+				return Fail("opening the keyboard does not suppress game input");
+			}
+			Terraria.Input.VirtualKeyboard.TypeChar('d');
+			if (Terraria.Input.VirtualKeyboard.Text != "abcd")
+			{
+				return Fail("TypeChar did not append");
+			}
+			Terraria.Input.VirtualKeyboard.DeleteLast();
+			if (Terraria.Input.VirtualKeyboard.Text != "abc")
+			{
+				return Fail("DeleteLast did not remove the last character");
+			}
+			// Deleting past the start is a no-op, not a crash.
+			Terraria.Input.VirtualKeyboard.SetText("x");
+			Terraria.Input.VirtualKeyboard.DeleteLast();
+			Terraria.Input.VirtualKeyboard.DeleteLast();
+			if (Terraria.Input.VirtualKeyboard.Text != "")
+			{
+				return Fail("DeleteLast broke on an empty buffer");
+			}
+			// Length limit.
+			System.Text.StringBuilder stringBuilder = new System.Text.StringBuilder();
+			for (int i = 0; i < 300; i++)
+			{
+				stringBuilder.Append('a');
+			}
+			Terraria.Input.VirtualKeyboard.SetText(stringBuilder.ToString());
+			Terraria.Input.VirtualKeyboard.TypeChar('b');
+			if (Terraria.Input.VirtualKeyboard.Text.Length != 300)
+			{
+				return Fail("length limit was not enforced");
+			}
+			Terraria.Input.VirtualKeyboard.Close();
+			if (Terraria.Input.VirtualKeyboard.IsOpen)
+			{
+				return Fail("keyboard did not close");
+			}
+			if (Terraria.Input.KeyboardMouseInput.TextInputActive)
+			{
+				return Fail("closing the keyboard left game input suppressed");
+			}
+			return true;
+		}
+		finally
+		{
+			Terraria.Input.VirtualKeyboard.Close();
+			Terraria.Input.KeyboardMouseInput.TextInputActive = flag;
+			Terraria.Input.KeyboardMouseInput.SuppressGameInput = false;
 		}
 	}
 

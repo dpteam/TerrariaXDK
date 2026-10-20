@@ -1793,6 +1793,8 @@ public sealed class Main : Game
 		Terraria.Input.KeyboardMouseInput.Update();
 		// Chat runs before anything reads input, so typing never moves the player.
 		Terraria.Input.ChatInput.Update();
+		// On-screen keyboard for gamepad-only setups; swallows input while open.
+		Terraria.Input.VirtualKeyboard.Update();
 		for (int i = 0; i < UIInstance.Length; i++)
 		{
 			UIInstance[i].UpdateGamePad();

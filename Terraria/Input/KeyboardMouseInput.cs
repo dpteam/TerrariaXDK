@@ -47,6 +47,9 @@ internal static class KeyboardMouseInput
 	private static int _hotbarRequest = -1;
 	private static QuickAction _quickAction = QuickAction.None;
 
+	/// <summary>Set while the inventory (not a menu screen) is open.</summary>
+	private static bool _inventoryContext;
+
 	/// <summary>
 	/// True on the character-creation screen. Enter means "confirm" there, and that screen
 	/// listens for <c>Buttons.Start</c> rather than <c>A</c> (A cycles categories), so the
@@ -214,6 +217,7 @@ internal static class KeyboardMouseInput
 			return;
 		}
 		MenuContext = ui.CurMenuType != MenuType.NONE || ui.InventoryMode > 0 || MessageBox.IsVisible();
+		_inventoryContext = ui.InventoryMode > 0;
 		_enterConfirms = ui.CurMenuMode == MenuMode.CREATE_CHARACTER;
 		// Only screens that consume the click themselves opt out of "left click = A".
 		MouseHandledByScreen = ui.CurMenuType != MenuType.NONE && (ui.CurMenuMode == MenuMode.CREATE_CHARACTER || ui.CurMenuMode == MenuMode.WORLD_SELECT);
@@ -272,14 +276,14 @@ internal static class KeyboardMouseInput
 		{
 			_escapeLatched = true;
 		}
-		return BuildSyntheticState(_mouse, _prevMouse, _keys, MenuContext && !TextInputActive, TextInputActive || SuppressGameInput, flag2, _enterConfirms);
+		return BuildSyntheticState(_mouse, _prevMouse, _keys, MenuContext && !TextInputActive, TextInputActive || SuppressGameInput, flag2, _enterConfirms, _inventoryContext);
 	}
 
 	/// <summary>
 	/// Pure mapping function: given a device snapshot, produce the equivalent pad state.
 	/// Kept free of instance state so it can be exercised by the headless self-test.
 	/// </summary>
-	internal static GamePadState BuildSyntheticState(MouseState mouse, MouseState prevMouse, KeyboardState keys, bool menuContext, bool textInputActive, bool escapeAllowed = true, bool enterConfirms = false)
+	internal static GamePadState BuildSyntheticState(MouseState mouse, MouseState prevMouse, KeyboardState keys, bool menuContext, bool textInputActive, bool escapeAllowed = true, bool enterConfirms = false, bool inventoryContext = false)
 	{
 		Vector2 leftStick = Vector2.Zero;
 		float leftTrigger = 0f;
@@ -396,7 +400,14 @@ internal static class KeyboardMouseInput
 			{
 				buttons |= Buttons.A; // confirm menu entry
 			}
-			if (right)
+			// PC parity: with the inventory open the right button splits a stack instead of
+			// cancelling, which is how the console build's RightTrigger behaves.
+			if (inventoryContext && right && prevMouse.RightButton == ButtonState.Released)
+			{
+				rightTrigger = 1f;
+				buttons |= Buttons.RightTrigger;
+			}
+			else if (right)
 			{
 				buttons |= Buttons.B; // cancel
 			}

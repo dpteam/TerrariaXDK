@@ -2200,6 +2200,7 @@ public sealed class UI
 			{
 				DrawMenuCursor();
 			}
+			Terraria.Input.VirtualKeyboard.Draw();
 			Main.SpriteBatch.End();
 		}
 	}
@@ -5211,27 +5212,33 @@ public sealed class UI
 	/// PC parity: the slot under the pointer becomes the active slot, instead of having to
 	/// walk a console cursor there with the D-Pad. Only the main 10x4 item grid is handled;
 	/// the ammo/coin rows and the trash slot keep their keyboard navigation.
+	/// Returns true when the pointer is over a slot, so the caller knows a click belongs here.
 	/// </summary>
-	private void UpdateInventoryMouseHover()
+	private bool UpdateInventoryMouseHover()
 	{
 		if (!invMouseLayoutValid || invMouseCell <= 0f || ActiveInvSection != InventorySection.ITEMS)
 		{
-			return;
+			return false;
 		}
 		int num = MouseX - invMouseGrid.X;
 		int num2 = MouseY - invMouseGrid.Y;
 		if (num < 0 || num2 < 0)
 		{
-			return;
+			return false;
 		}
 		int num3 = (int)((float)num / invMouseCell);
 		int num4 = (int)((float)num2 / invMouseCell);
 		if (num3 < 0 || num3 >= 10 || num4 < 0 || num4 >= 4)
 		{
-			return;
+			return false;
+		}
+		if (num3 >= invMouseGrid.Width / (int)invMouseCell || num4 >= 4)
+		{
+			return false;
 		}
 		inventoryItemX = (sbyte)num3;
 		inventoryItemY = (sbyte)num4;
+		return true;
 	}
 
 	private void UpdateMouse()
@@ -5258,7 +5265,14 @@ public sealed class UI
 			ApplyPointerPosition();
 			if (InventoryMode > 0)
 			{
-				UpdateInventoryMouseHover();
+				// Order matters: the section/stack bookkeeping runs first, then the hover
+				// moves the slot cursor, and only then is the click applied - otherwise a
+				// click would act on whatever slot was selected before the pointer moved.
+				UpdateInventoryMenu();
+				if (UpdateInventoryMouseHover())
+				{
+					UpdateInventory();
+				}
 			}
 		}
 		if (uiCoords == null)

@@ -166,6 +166,17 @@ internal static class ChatInput
 			Close();
 			return;
 		}
+		// Gamepad users have no keyboard: A brings up the on-screen keyboard while the
+		// prompt is open. On desktop this is harmless (A is the pad's confirm button).
+		if (UI.MainUI != null && UI.MainUI.IsButtonTriggered(Buttons.A) && !VirtualKeyboard.IsOpen)
+		{
+			string captured = Text;
+			VirtualKeyboard.Open("Say", captured, delegate(string result)
+			{
+				SetBuffer(result);
+			});
+			return;
+		}
 		if (KeyboardMouseInput.KeyPressed(Keys.Up))
 		{
 			RecallSent(-1);
@@ -183,6 +194,16 @@ internal static class ChatInput
 		}
 		// Backspace is NOT handled here: SDL delivers it through TextInputEXT as '\b', and
 		// handling it in both places deleted two characters per press.
+	}
+
+	/// <summary>Replaces the buffer contents (used by the on-screen keyboard).</summary>
+	internal static void SetBuffer(string text)
+	{
+		Buffer.Length = 0;
+		if (!string.IsNullOrEmpty(text))
+		{
+			Buffer.Append(text);
+		}
 	}
 
 	/// <summary>Steps through previously sent lines. Direction -1 is older, +1 is newer.</summary>
