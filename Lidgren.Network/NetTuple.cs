@@ -1,0 +1,8 @@
+namespace Lidgren.Network;
+
+internal struct NetTuple<A, B>(A item1, B item2)
+{
+	public A Item1 = item1;
+
+	public B Item2 = item2;
+}

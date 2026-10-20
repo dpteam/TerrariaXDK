@@ -1,0 +1,77 @@
+# =============================================================================
+# TerrariaXDK - Source repository
+# =============================================================================
+
+# --- Build output -----------------------------------------------------------
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ll]og/
+Logs/
+*.tlog
+*.log
+*.pdb
+*.mdb
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.exe
+*.exe.config
+*.dll
+*.cache
+*.builds
+*.pidb
+*.svclog
+*.ncb
+*.sdf
+*.opensdf
+*.ipch
+.vs/
+.vscode/
+.idea/
+*.DotSettings.user
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+
+# --- Runtime / local data ---------------------------------------------------
+# Game settings written next to the executable
+Settings.ini
+# Debug + crash output produced by Program.cs
+terraria-debug.log
+client-crashlog.txt
+# Local save data if the game is ever run from the source tree
+Players/
+Worlds/
+*.wld
+*.plr
+*.bak
+*.old
+Mods/
+mods/
+*.tconfig
+banlist.txt
+serverconfig.txt
+motd.txt
+
+# --- Temporary / editor -----------------------------------------------------
+*.tmp
+*.temp
+*.swp
+*~
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# --- Reverse-engineering artefacts -----------------------------------------
+# Analysis snapshots / evidence bundles (see docs/REA.md)
+*.rea.json
+*.rea.bin
+evidence/
+snapshots/

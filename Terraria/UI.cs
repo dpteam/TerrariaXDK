@@ -1,0 +1,10798 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Threading;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Content;
+using Microsoft.Xna.Framework.GamerServices;
+using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
+using Microsoft.Xna.Framework.Net;
+using Microsoft.Xna.Framework.Storage;
+using Terraria.Achievements;
+using Terraria.CreateCharacter;
+using Terraria.Hardmode;
+using Terraria.HowToPlay;
+using Terraria.Leaderboards;
+using Terraria.SoundUI;
+
+namespace Terraria;
+
+public sealed class UI
+{
+	public enum InventorySection : byte
+	{
+		CRAFTING,
+		ITEMS,
+		CHEST,
+		EQUIP,
+		HOUSING,
+		NUM_SECTIONS
+	}
+
+	public enum CraftingSection : byte
+	{
+		RECIPES,
+		INGREDIENTS
+	}
+
+	private enum StackType
+	{
+		NONE,
+		INGREDIENT,
+		INVENTORY,
+		HOTBAR
+	}
+
+	private const ulong MARKETPLACE_OFFER_ID = 6359384554213474305uL;
+
+	public static int FULLSCREEN_SAFE_AREA_OFFSET_X = Main.ResolutionWidth / 20;
+
+	public static int FULLSCREEN_SAFE_AREA_OFFSET_Y = Main.ResolutionHeight / 20;
+
+	public static int UsableWidth = (int)(864f * Main.ScreenMultiplier);
+
+	public static int USABLE_HEIGHT = (int)(454f * Main.ScreenMultiplier);
+
+	public const int CONTROLS_HUD_X = 0;
+
+	public const int UI_DELAY = 12;
+
+	public const int MOUSE_DELAY = 4;
+
+	public const float GpDeadZone = 0.125f;
+
+	public const float SquaredDeadZone = 1f / 64f;
+
+	public const float WORLD_FADE_START = -0.25f;
+
+	private const float WORLD_FADE_SPEED = 1f / 30f;
+
+	private const float UI_FADE_SPEED = 1f / 30f;
+
+	private const int MAX_ITEMS = 14;
+
+	private const int MAX_DEPTH = 16;
+
+	private const int MAX_LOAD_PLAYERS = 5;
+
+	private const int MAX_LOAD_WORLDS = 5;
+
+	public const int mcColorR = 125;
+
+	public const int mcColorG = 125;
+
+	public const int mcColorB = 255;
+
+	public const int hcColorR = 200;
+
+	public const int hcColorG = 125;
+
+	public const int hcColorB = 255;
+
+	public const float FONT_STACK_EXTRA_SCALE = 0.1f;
+
+	public const Buttons BTN_JUMP = Buttons.A;
+
+	public const Buttons BTN_INTERACT = Buttons.B;
+
+	public const Buttons BTN_USE = Buttons.RightTrigger;
+
+	public const Buttons BTN_DROP = Buttons.X;
+
+	public const Buttons BTN_RESPAWN = Buttons.A;
+
+	public const Buttons BTN_CURSOR_MODE = Buttons.RightStick;
+
+	public const Buttons BTN_PREV_ITEM = Buttons.LeftShoulder;
+
+	public const Buttons BTN_NEXT_ITEM = Buttons.RightShoulder;
+
+	public const Buttons BTN_INVENTORY_SELL_OR_TRASH = Buttons.X;
+
+	public const Buttons BTN_INVENTORY_SELECT = Buttons.A;
+
+	public const Buttons BTN_INVENTORY_ACTION = Buttons.RightTrigger;
+
+	public const Buttons BTN_INVENTORY_DROP = Buttons.X;
+
+	public const Buttons BTN_INVENTORY_HOUSING = Buttons.LeftTrigger;
+
+	public const Buttons BTN_INVENTORY_OPEN = Buttons.Y;
+
+	public const Buttons BTN_INVENTORY_CLOSE = Buttons.B;
+
+	public const Buttons BTN_NPC_CHAT_SELECT = Buttons.A;
+
+	public const Buttons BTN_NPC_CHAT_CLOSE = Buttons.B;
+
+	public const float LEFT_STICK_VERTICAL_THRESHOLD = 0.5f;
+
+	public const int HOTBAR_ITEMNAME_DISPLAYTIME = 210;
+
+	public const int QUICK_ACCESS_DISPLAYTIME = 120;
+
+	private const int CRAFTING_INGREDIENT_COLS = 4;
+
+	private const int CRAFTING_INGREDIENT_ROWS = 3;
+
+	private const float CRAFTING_DEFAULT_SCROLL_MUL = 0.8125f;
+
+	private const float CRAFTING_MIN_SCROLL_MUL = 0.25f;
+
+	private const float CRAFTING_SCROLL_MUL_DECREMENT = 0.075f;
+
+	private const int cooldownLen = 180;
+
+	private const int MENU_TITLE_W = 1;
+
+	private const int MENU_TITLE_H = 7;
+
+	private const int MENU_PAUSE_W = 1;
+
+	private const int MENU_PAUSE_H = 7;
+
+	private const int MENU_SELECT_W = 1;
+
+	private const int MENU_SELECT_H = 6;
+
+	private const int MENU_CONFIRM_DELETE_W = 1;
+
+	private const int MENU_CONFIRM_DELETE_H = 2;
+
+	private const int MENU_WORLD_SIZE_W = 1;
+
+	private const int MENU_WORLD_SIZE_H = 3;
+
+	private const int MENU_OPTIONS_W = 1;
+
+	private const int MENU_OPTIONS_H = 4;
+
+	private const int MENU_SETTINGS_W = 1;
+
+	private const int MENU_SETTINGS_H = 3;
+
+	private static readonly int INVENTORY_W = UsableWidth;
+
+	private static int INVENTORY_H = USABLE_HEIGHT - 8;
+
+	private static readonly int INVENTORY_CLIENT_Y_OFFSET = (int)(80f * Main.ScreenMultiplier);
+
+	private static readonly int INVENTORY_CLIENT_H = (int)(366f * Main.ScreenMultiplier);
+
+	private static readonly int TOOLTIP_W = (int)(322f * Main.ScreenMultiplier);
+
+	private const float INVENTORY_FADE = 0.5f;
+
+	public static Color DISABLED_COLOR = new Color(16, 16, 16, 128);
+
+	public static Color WINDOW_OUTLINE = new Color(12, 24, 24, 255);
+
+	public static Color DefaultDialogColor = new Color(42, 43, 101, 192);
+
+	private static int FONT_STACK_X_OFFSET = 0;
+
+	private static int FONT_STACK_Y_OFFSET = 0;
+
+	public static UI MainUI;
+
+	public static UI CurrentUI;
+
+	public static int NumActiveViews;
+
+	public static WorldView[] activeView = new WorldView[4];
+
+	public WorldView CurrentView;
+
+	public LocalNetworkGamer localGamer;
+
+	public SignedInGamer SignedInGamer;
+
+	public PlayerIndex controller;
+
+	public Player ActivePlayer;
+
+	public byte MyPlayer = 8;
+
+	private byte privateSlots;
+
+	public NetPlayer netPlayer = new NetPlayer();
+
+	public bool wasRemovedFromSessionWithoutOurConsent;
+
+	public MenuType CurMenuType;
+
+	public bool isStopping;
+
+	public float worldFade;
+
+	public float worldFadeTarget = 1f;
+
+	public float uiFade = 1f;
+
+	public float uiFadeTarget = 1f;
+
+	public short oldMouseX;
+
+	public short oldMouseY;
+
+	public short MouseX;
+
+	public short MouseY;
+
+	public bool UsingSmartCursor = true;
+
+	public bool alternateGrappleControls;
+
+	public Buttons BTN_JUMP2 = Buttons.LeftStick;
+
+	public Buttons BTN_GRAPPLE = Buttons.LeftTrigger;
+
+	private sbyte quickAccessUp = -1;
+
+	private sbyte quickAccessDown = -1;
+
+	private sbyte quickAccessLeft = -1;
+
+	private sbyte quickAccessRight = -1;
+
+	public GamePadState gpPrevState;
+
+	public GamePadState PadState;
+
+	public StorageDeviceManager playerStorage;
+
+	private List<string> transferredPlayerStorage = new List<string>(3);
+
+	public sbyte numLoadPlayers;
+
+	public string playerPathName;
+
+	public Player[] loadPlayer = new Player[5];
+
+	public string[] loadPlayerPath = new string[5];
+
+	private float logoRotation;
+
+	private float logoRotationDirection = 1f;
+
+	private float logoRotationSpeed = 1f;
+
+	private float logoScale = 1f;
+
+	private float logoScaleDirection = 1f;
+
+	private float logoScaleSpeed = 1f;
+
+	private short LogoA = 255;
+
+	private short LogoB;
+
+	public string statusText;
+
+	private static string errorDescription;
+
+	private static string errorCaption;
+
+	private static CompiledText errorCompiledText;
+
+	private static CompiledText saveIconMessage = null;
+
+	private static int saveIconMessageTime = 0;
+
+	public float MusicVolume = 0.75f;
+
+	public float SoundVolume = 1f;
+
+	public bool autoSave;
+
+	public bool ShowItemText = true;
+
+	public bool IsOnline;
+
+	public bool IsInviteOnly;
+
+	public bool SettingsDirty;
+
+	private Stopwatch saveTime = new Stopwatch();
+
+	private Color selColor = Color.White;
+
+	private bool[] noFocus = new bool[14];
+
+	private bool[] blockFocus = new bool[14];
+
+	private short[] menuY = new short[14];
+
+	private byte[] menuHC = new byte[14];
+
+	private float[] menuScale = new float[14];
+
+	private float[] menuItemScale = new float[14];
+
+	private sbyte focusMenu = -1;
+
+	private sbyte selectedMenu = -1;
+
+	public sbyte selectedPlayer;
+
+	public int menuDepth;
+
+	public MenuMode CurMenuMode = MenuMode.WELCOME;
+
+	public MenuMode[] prevMenuMode = new MenuMode[16];
+
+	public float Progress;
+
+	private float progressTotal;
+
+	private float numProgressStepsInv;
+
+	private short uiX;
+
+	private short uiY;
+
+	private sbyte uiWidth;
+
+	private sbyte uiHeight;
+
+	private sbyte uiDelayValue;
+
+	public sbyte uiDelay;
+
+	public Location[] uiCoords;
+
+	private Location[] uiPos = new Location[40];
+
+	public int cursorHighlight;
+
+	public Terraria.CreateCharacter.UI CreateCharacterGUI;
+
+	private Terraria.SoundUI.UI soundUI;
+
+	private Terraria.HowToPlay.UI howtoUI;
+
+	private Terraria.Hardmode.UI hardmodeUpsell;
+
+	private AchievementsUI Achievements;
+
+	private TextSequenceBlock tips;
+
+	private LeaderboardsUI Leaderboards;
+
+	public int hotbarItemNameTime = 210;
+
+	public int quickAccessDisplayTime;
+
+	public float[] hotbarScale = new float[10] { 1f, 0.75f, 0.75f, 0.75f, 0.75f, 0.75f, 0.75f, 0.75f, 0.75f, 0.75f };
+
+	private static float inventoryScale;
+
+	public float[] inventoryMenuSectionScale = new float[5] { 0.75f, 0.75f, 1f, 0.75f, 0.75f };
+
+	public byte InventoryMode;
+
+	private bool restoreOldInventorySection;
+
+	private InventorySection oldInventorySection;
+
+	public InventorySection ActiveInvSection = InventorySection.ITEMS;
+
+	private sbyte inventoryItemX;
+
+	private sbyte inventoryItemY;
+
+	private sbyte inventoryChestX;
+
+	private sbyte inventoryChestY;
+
+	private sbyte inventoryEquipX;
+
+	private sbyte inventoryEquipY = 1;
+
+	private sbyte inventoryBuffX;
+
+	private sbyte inventoryHousingX;
+
+	private sbyte inventoryHousingY;
+
+	private short inventoryHousingNpc = -1;
+
+	public Recipe.Category craftingCategory;
+
+	private CraftingSection craftingSection;
+
+	public bool craftingShowCraftable;
+
+	public sbyte CraftingRecipeX;
+
+	public sbyte CraftingRecipeY;
+
+	private sbyte craftingIngredientX;
+
+	private sbyte craftingIngredientY;
+
+	private float craftingRecipeScrollX;
+
+	private float craftingRecipeScrollY;
+
+	public Recipe CraftingRecipe;
+
+	private float craftingRecipeScrollMul = 0.8125f;
+
+	public short stackSplit;
+
+	public short stackCounter;
+
+	public short stackDelay = 7;
+
+	private sbyte mouseItemSrcX;
+
+	private sbyte mouseItemSrcY;
+
+	private InventorySection mouseItemSrcSection = InventorySection.NUM_SECTIONS;
+
+	public Item mouseItem;
+
+	public Item trashItem;
+
+	public Item GuideItem;
+
+	private Item toolTip;
+
+	public List<Recipe.SubCategoryList> CurrentRecipeCategory = new List<Recipe.SubCategoryList>();
+
+	public byte npcShop;
+
+	public bool CraftGuide;
+
+	public bool reforge;
+
+	public string chestText;
+
+	public bool editSign;
+
+	public bool signBubble;
+
+	public int signX;
+
+	public int signY;
+
+	public UserString npcChatText;
+
+	public string npcCompiledChatText;
+
+	private CompiledText npcChatCompiledText;
+
+	public short helpText;
+
+	public sbyte npcChatSelectedItem;
+
+	public bool showNPCs;
+
+	public MiniMap miniMap = new MiniMap();
+
+	private int mapScreenCursorX;
+
+	private int mapScreenCursorY;
+
+	public byte teamSelected;
+
+	public bool pvpSelected;
+
+	public short teamCooldown;
+
+	public short pvpCooldown;
+
+	public Statistics Statistics;
+
+	public TriggerSystem AchievementTriggers;
+
+	public uint TotalJumps;
+
+	public uint TotalChopsTaken;
+
+	public uint TotalDeadSlimes;
+
+	public uint TotalWoodAxed;
+
+	public uint TotalCopperObtained;
+
+	public uint TotalDoorsOpened;
+
+	public uint TotalDoorsClosed;
+
+	public uint TotalWoodPlatformsPlaced;
+
+	public uint TotalWallsPlaced;
+
+	public uint TotalTorchesCrafted;
+
+	public uint TotalWoodPlatformsCrafted;
+
+	public uint TotalWallsCrafted;
+
+	public uint totalSteps;
+
+	public uint TotalBarsCrafted;
+
+	public uint TotalOrePicked;
+
+	public uint TotalAnvilCrafting;
+
+	public uint totalWires;
+
+	public uint totalAirTime;
+
+	public uint currentAirTime;
+
+	public uint RunningTimer;
+
+	public float airTravel;
+
+	public byte petSpawnMask;
+
+	private BitArray armorFound = new BitArray(632);
+
+	private readonly List<ulong> blacklist = new List<ulong>();
+
+	private static Main theGame;
+
+	public static byte MouseTextBrightness = 175;
+
+	private static sbyte mouseTextColorChange = 2;
+
+	public static Color mouseTextColor = new Color(175, 175, 175, 175);
+
+	public static Color mouseColor = new Color(255, 95, 180);
+
+	public static Color CursorColour = Color.White;
+
+	public static float cursorAlpha = 0f;
+
+	public static float cursorScale = 0f;
+
+	public static byte invAlpha = 180;
+
+	private static sbyte invDir = 1;
+
+	public static float PulseScale = 1f;
+
+	private static float essDir = -0.01f;
+
+	public static float BlueWave = 1f;
+
+	private static float blueDelta = -0.0005f;
+
+	public static bool HasQuit = false;
+
+	public static Texture2D logoTexture;
+
+	public static Texture2D logo2Texture;
+
+	public static Texture2D controlsTexture;
+
+	public static Texture2D dpadTexture;
+
+	public static Texture2D progressBarTexture;
+
+	public static Texture2D textBackTexture;
+
+	public static Texture2D chatBackTexture;
+
+	public static Texture2D cursorTexture;
+
+	public static SpriteFont BigFont;
+
+	public static SpriteFont SmallFont;
+
+	public static SpriteFont BoldSmallFont;
+
+	public static SpriteFont ItemStackFont;
+
+	public static SpriteFont[] CombatTextFont = new SpriteFont[2];
+
+	public static CompiledText.Style BoldSmallTextStyle;
+
+	private static readonly short ViewportHalfWidth = (short)(Main.ResolutionWidth / 2);
+
+	private static readonly Location[] MENU_TITLE_COORDS = new Location[8]
+	{
+		new Location(Main.ResolutionWidth / 2, 199),
+		new Location(Main.ResolutionWidth / 2, 237),
+		new Location(Main.ResolutionWidth / 2, 275),
+		new Location(Main.ResolutionWidth / 2, 313),
+		new Location(Main.ResolutionWidth / 2, 351),
+		new Location(Main.ResolutionWidth / 2, 399),
+		new Location(Main.ResolutionWidth / 2, 437),
+		new Location(Main.ResolutionWidth / 2, 475)
+	};
+
+	private static readonly Location[] MENU_PAUSE_COORDS = new Location[7]
+	{
+		new Location(Main.ResolutionWidth / 2, 221),
+		new Location(Main.ResolutionWidth / 2, 259),
+		new Location(Main.ResolutionWidth / 2, 297),
+		new Location(Main.ResolutionWidth / 2, 334),
+		new Location(Main.ResolutionWidth / 2, 372),
+		new Location(Main.ResolutionWidth / 2, 421),
+		new Location(Main.ResolutionWidth / 2, 459)
+	};
+
+	private static Location[] MENU_SELECT_COORDS = new Location[6]
+	{
+		new Location(Main.ResolutionWidth / 2, 216),
+		new Location(Main.ResolutionWidth / 2, 253),
+		new Location(Main.ResolutionWidth / 2, 291),
+		new Location(Main.ResolutionWidth / 2, 329),
+		new Location(Main.ResolutionWidth / 2, 367),
+		new Location(Main.ResolutionWidth / 2, 410)
+	};
+
+	private static Location[] MENU_CONFIRM_DELETE_COORDS = new Location[2]
+	{
+		new Location(Main.ResolutionWidth / 2, 356),
+		new Location(Main.ResolutionWidth / 2, 437)
+	};
+
+	private static readonly Location[] MENU_WORLD_SIZE_COORDS = new Location[3]
+	{
+		new Location(Main.ResolutionWidth / 2, 307),
+		new Location(Main.ResolutionWidth / 2, 367),
+		new Location(Main.ResolutionWidth / 2, 415)
+	};
+
+	private static readonly Location[] MENU_OPTIONS_COORDS = new Location[4]
+	{
+		new Location(Main.ResolutionWidth / 2, 253),
+		new Location(Main.ResolutionWidth / 2, 313),
+		new Location(Main.ResolutionWidth / 2, 372),
+		new Location(Main.ResolutionWidth / 2, 432)
+	};
+
+	private static readonly Location[] MENU_SETTINGS_COORDS = new Location[3]
+	{
+		new Location(Main.ResolutionWidth / 2, 270),
+		new Location(Main.ResolutionWidth / 2, 340),
+		new Location(Main.ResolutionWidth / 2, 410)
+	};
+
+	private string[] menuString = new string[14];
+
+	private byte numMenuItems;
+
+	private sbyte oldMenu;
+
+	private sbyte showPlayer = -1;
+
+	private byte menuSpace = 80;
+
+	private short menuTop = 250;
+
+	private short menuLeft = 480;
+
+	public bool inputTextEnter;
+
+	public bool inputTextCanceled;
+
+	private IAsyncResult kbResult;
+
+	private string focusText;
+
+	private string focusText3;
+
+	private Color focusColor;
+
+	private static CompiledText compiledToolTipText;
+
+	private static string toolTipText;
+
+	private static Item cpItem = default;
+
+	private static readonly float TextScale = 1f;
+
+	public static void Error(string caption, string desc, bool rememberPreviousMenu = false)
+	{
+		errorCompiledText = null;
+		errorCaption = caption;
+		errorDescription = desc;
+		MainUI.SetMenu(MenuMode.ERROR, rememberPreviousMenu);
+	}
+
+	public void InitGame()
+	{
+		wasRemovedFromSessionWithoutOurConsent = false;
+		restoreOldInventorySection = false;
+		InventoryMode = 0;
+		ActiveInvSection = InventorySection.ITEMS;
+		inventoryItemX = 0;
+		inventoryItemY = 0;
+		inventoryChestX = 0;
+		inventoryChestY = 0;
+		inventoryEquipX = 0;
+		inventoryEquipY = 1;
+		inventoryBuffX = 0;
+		inventoryHousingX = 0;
+		inventoryHousingY = 0;
+		inventoryHousingNpc = -1;
+		craftingCategory = Recipe.Category.STRUCTURES;
+		craftingSection = CraftingSection.RECIPES;
+		craftingShowCraftable = false;
+		CraftingRecipeX = 0;
+		CraftingRecipeY = 0;
+		craftingIngredientX = 0;
+		craftingIngredientY = 0;
+		craftingRecipeScrollX = 0f;
+		craftingRecipeScrollY = 0f;
+		mouseItem.Init();
+		trashItem.Init();
+		GuideItem.Init();
+		toolTip.Init();
+		helpText = 0;
+		showNPCs = false;
+		mapScreenCursorX = 0;
+		mapScreenCursorY = 0;
+		teamSelected = 0;
+		pvpSelected = false;
+		teamCooldown = 0;
+		pvpCooldown = 0;
+		npcShop = 0;
+		CraftGuide = false;
+		reforge = false;
+		editSign = false;
+		signBubble = false;
+		npcChatText = null;
+		npcChatSelectedItem = 0;
+		ActivePlayer.hostile = false;
+		ActivePlayer.NetClone(netPlayer);
+		if (!Main.IsTrial)
+		{
+			InitializeAchievementTriggers();
+		}
+	}
+
+	private void InitializeAchievementTriggers()
+	{
+		AchievementTriggers.ReadProfile(SignedInGamer);
+	}
+
+	public bool TriggerCheckEnabled(Trigger trigger)
+	{
+		return AchievementTriggers.CheckEnabled(trigger);
+	}
+
+	public void SetTriggerState(Trigger trigger)
+	{
+		AchievementTriggers.SetState(trigger, State: true);
+	}
+
+	public static void SetTriggerStateForAll(Trigger trigger)
+	{
+		for (int i = 0; i < 8; i++)
+		{
+			Player player = Main.PlayerSet[i];
+			if (player.Active != 0)
+			{
+				player.AchievementTrigger(trigger);
+			}
+		}
+	}
+
+	public static void IncreaseStatisticForAll(StatisticEntry entry)
+	{
+		if (entry == StatisticEntry.Unknown)
+		{
+			return;
+		}
+		for (int i = 0; i < 8; i++)
+		{
+			Player player = Main.PlayerSet[i];
+			if (player.Active != 0)
+			{
+				player.IncreaseStatistic(entry);
+			}
+		}
+	}
+
+	private void UpdateAchievements()
+	{
+		if (Statistics.AllSlimeTypesKilled)
+		{
+			SetTriggerState(Trigger.AllSlimesKilled);
+		}
+		if (Statistics.AllBossesKilled)
+		{
+			SetTriggerState(Trigger.AllBossesKilled);
+		}
+		if (Statistics.MechBossesKilledTwice)
+		{
+			SetTriggerState(Trigger.BackForSeconds);
+		}
+		AchievementTriggers.UpdateAchievements(SignedInGamer);
+	}
+
+	public static void Initialize(Main game)
+	{
+		theGame = game;
+		Terraria.HowToPlay.UI.GenerateCache(game.GraphicsDevice);
+		TextSequenceBlock.GenerateCache(game.GraphicsDevice);
+		if (Main.HardmodeAlert)
+		{
+			Terraria.Hardmode.UI.GenerateCache(theGame.GraphicsDevice);
+		}
+	}
+
+	public void Initialize(PlayerIndex controller)
+	{
+		this.controller = controller;
+		CurrentUI = this;
+		if (MainUI == null)
+		{
+			MainUI = this;
+		}
+		for (int num = 13; num >= 0; num--)
+		{
+			menuItemScale[num] = 0.8f;
+		}
+		for (int num2 = 4; num2 >= 0; num2--)
+		{
+			loadPlayer[num2] = new Player();
+		}
+		CreateCharacterGUI = Terraria.CreateCharacter.UI.Create(this);
+		soundUI = Terraria.SoundUI.UI.Create(this);
+		howtoUI = Terraria.HowToPlay.UI.Create(this);
+		tips = TextSequenceBlock.CreateTips();
+		Statistics = Statistics.Create();
+		AchievementTriggers = new TriggerSystem();
+		Leaderboards = new LeaderboardsUI(this);
+		Achievements = new AchievementsUI(this);
+		if (Main.HardmodeAlert)
+		{
+			hardmodeUpsell = Terraria.Hardmode.UI.Create(this);
+		}
+	}
+
+	private void SetDefaultSettings()
+	{
+		SoundVolume = 1f;
+		MusicVolume = 0.75f;
+		if (this == MainUI)
+		{
+			Main.MusicVolume = MusicVolume;
+			Main.SoundVolume = SoundVolume;
+		}
+		autoSave = true;
+		ShowItemText = true;
+		alternateGrappleControls = false;
+		UpdateAlternateGrappleControls();
+		Statistics.Init();
+		totalSteps = 0u;
+		TotalOrePicked = 0u;
+		TotalBarsCrafted = 0u;
+		TotalAnvilCrafting = 0u;
+		totalWires = 0u;
+		totalAirTime = 0u;
+		petSpawnMask = 0;
+		armorFound.SetAll(value: false);
+		IsOnline = false;
+		IsInviteOnly = false;
+		blacklist.Clear();
+		SettingsDirty = false;
+	}
+
+	private void InitPlayerStorage()
+	{
+		SetDefaultSettings();
+		numLoadPlayers = 0;
+		if (SignedInGamer.IsGuest || Main.IsTrial)
+		{
+			playerStorage = null;
+			return;
+		}
+		if (playerStorage == null)
+		{
+			playerStorage = new StorageDeviceManager(theGame, controller, 196608);
+			playerStorage.DeviceSelectorCanceled += DeviceSelectorCanceled;
+			playerStorage.DeviceDisconnected += DeviceDisconnected;
+			playerStorage.DeviceSelected += DeviceSelected;
+			theGame.Components.Add(playerStorage);
+		}
+		if (playerStorage.Device == null)
+		{
+			playerStorage.PromptForDevice();
+		}
+	}
+
+	public bool HasPlayerStorage()
+	{
+		if (playerStorage != null)
+		{
+			return playerStorage.Device != null;
+		}
+		return false;
+	}
+
+	public bool CanViewGamerCard()
+	{
+		if (SignedInGamer.IsSignedInToLive)
+		{
+			_ = SignedInGamer.Privileges.AllowProfileViewing;
+			return false;
+		}
+		return false;
+	}
+
+	public bool HasOnline()
+	{
+		if (!Main.IsTrial)
+		{
+			_ = SignedInGamer.IsSignedInToLive;
+			return false;
+		}
+		return false;
+	}
+
+	public bool HasOnlineWithPrivileges()
+	{
+		if (!Main.IsTrial && SignedInGamer.IsSignedInToLive)
+		{
+			_ = SignedInGamer.Privileges.AllowOnlineSessions;
+			return false;
+		}
+		return false;
+	}
+
+	public static bool IsUserGeneratedContentAllowed()
+	{
+		GamerCollection<NetworkGamer> gamerCollection = ((Netplay.Session != null) ? Netplay.Session.RemoteGamers : null);
+		SignedInGamerCollection signedInGamers = Gamer.SignedInGamers;
+		for (int num = signedInGamers.Count - 1; num >= 0; num--)
+		{
+			SignedInGamer signedInGamer = signedInGamers[num];
+			if (!signedInGamer.IsGuest && signedInGamer.IsSignedInToLive)
+			{
+				if (signedInGamer.Privileges.AllowUserCreatedContent == GamerPrivilegeSetting.Blocked)
+				{
+					return false;
+				}
+				if (gamerCollection != null && signedInGamer.Privileges.AllowUserCreatedContent == GamerPrivilegeSetting.FriendsOnly)
+				{
+					for (int num2 = gamerCollection.Count - 1; num2 >= 0; num2--)
+					{
+						NetworkGamer gamer = gamerCollection[num2];
+						if (!signedInGamer.IsFriend(gamer))
+						{
+							return false;
+						}
+					}
+				}
+			}
+		}
+		return true;
+	}
+
+	public bool CanPlayOnline()
+	{
+		if (HasOnlineWithPrivileges())
+		{
+			return IsUserGeneratedContentAllowed();
+		}
+		return false;
+	}
+
+	public bool CanCommunicate()
+	{
+		return SignedInGamer.Privileges.AllowCommunication != GamerPrivilegeSetting.Blocked;
+	}
+
+	public static bool AllPlayersCanPlayOnline()
+	{
+		if (IsUserGeneratedContentAllowed())
+		{
+			for (int i = 0; i < 4; i++)
+			{
+				UI uI = Main.UIInstance[i];
+				if (uI.SignedInGamer != null && !uI.HasOnlineWithPrivileges())
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+		return false;
+	}
+
+	public static void LoadContent(ContentManager Content)
+	{
+		Terraria.CreateCharacter.Assets.LoadContent(Content);
+		Terraria.SoundUI.Assets.LoadContent(Content);
+		Terraria.HowToPlay.Assets.LoadContent(Content);
+		Terraria.Leaderboards.Assets.LoadContent(Content);
+		logoTexture = Content.Load<Texture2D>("Images/Logo");
+		logo2Texture = Content.Load<Texture2D>("Images/Logo2");
+		Terraria.Achievements.Assets.LoadContent(Content);
+		if (Main.HardmodeAlert)
+		{
+			Terraria.Hardmode.Assets.LoadContent(Content);
+		}
+		string text = "UI/XBController";
+		string text2 = "UI/XBDPad";
+		if (Main.PSMode)
+		{
+			text = "UI/PSController";
+			text2 = "UI/PSDPad";
+		}
+		if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+		{
+			text += "HD";
+			text2 += "HD";
+		}
+		controlsTexture = Content.Load<Texture2D>(text);
+		dpadTexture = Content.Load<Texture2D>(text2);
+		progressBarTexture = Content.Load<Texture2D>("UI/ProgressBar");
+		textBackTexture = Content.Load<Texture2D>("Images/Text_Back");
+		chatBackTexture = Content.Load<Texture2D>("Images/Chat_Back");
+		cursorTexture = Content.Load<Texture2D>("Images/Cursor");
+		LoadFonts(Content);
+	}
+
+	public static void LoadFonts(ContentManager Content)
+	{
+		string text = "Fonts/";
+		string text2 = "big";
+		string text3 = "stack";
+		string text4 = "combat";
+		string text5 = "combat2";
+		string text6 = "small";
+		string text7 = "small2";
+		ConstructorInfo constructor = typeof(SpriteFont).GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, null, new Type[8]
+		{
+			typeof(Texture2D),
+			typeof(List<Rectangle>),
+			typeof(List<Rectangle>),
+			typeof(List<char>),
+			typeof(int),
+			typeof(float),
+			typeof(List<Vector3>),
+			typeof(char?)
+		}, null);
+		if (Main.PSMode)
+		{
+			text2 += "_PS3";
+			text6 += "_PS3";
+			text7 += "_PS3";
+		}
+		if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+		{
+			text += "HD/";
+		}
+		Texture2D texture2D = Content.Load<Texture2D>(text + text2);
+		Texture2D texture2D2 = Content.Load<Texture2D>(text + text3);
+		Texture2D texture2D3 = Content.Load<Texture2D>(text + text4);
+		Texture2D texture2D4 = Content.Load<Texture2D>(text + text5);
+		Texture2D texture2D5 = Content.Load<Texture2D>(text + text6);
+		Texture2D texture2D6 = Content.Load<Texture2D>(text + text7);
+		if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+		{
+			FontHD fontHD = new FontHD();
+			FontHDBig fontHDBig = new FontHDBig();
+			FontHDSmall fontHDSmall = new FontHDSmall();
+			if (!Main.PSMode)
+			{
+				fontHDBig.BigBounds.RemoveRange(99, 14);
+				fontHDBig.BigBounds.InsertRange(99, fontHD.XBBigBoundPart);
+				fontHDBig.BigCrops.RemoveRange(99, 14);
+				fontHDBig.BigCrops.InsertRange(99, fontHD.XBBigCropPart);
+				fontHDBig.BigKerning.RemoveRange(99, 14);
+				fontHDBig.BigKerning.InsertRange(99, fontHD.XBBigKerningPart);
+				fontHDSmall.SmlBounds.RemoveRange(98, 80);
+				fontHDSmall.SmlBounds.InsertRange(98, fontHD.XBSmlBoundPart);
+				fontHDSmall.SmlCrops.RemoveRange(98, 17);
+				fontHDSmall.SmlCrops.InsertRange(98, fontHD.XBSmlCropPart);
+				fontHDSmall.SmlKerning.RemoveRange(98, 17);
+				fontHDSmall.SmlKerning.InsertRange(98, fontHD.XBSmlKerningPart);
+				fontHDSmall.Sml2Bounds.RemoveAt(0);
+				fontHDSmall.Sml2Bounds.Insert(0, new Rectangle(954, 200, 16, 49));
+				fontHDSmall.Sml2Bounds.AddRange(fontHD.XBSml2Bounds);
+				fontHDSmall.Sml2Crops.RemoveRange(97, 16);
+				fontHDSmall.Sml2Crops.InsertRange(97, fontHD.XBSml2CropPart);
+				fontHDSmall.Sml2Kerning.RemoveRange(97, 16);
+				fontHDSmall.Sml2Kerning.InsertRange(97, fontHD.XBSml2KerningPart);
+			}
+			else
+			{
+				fontHDSmall.Sml2Bounds.AddRange(fontHD.PSSml2Bounds);
+			}
+			object[] parameters = new object[8]
+			{
+				texture2D,
+				fontHDBig.BigBounds,
+				fontHDBig.BigCrops,
+				fontHD.BigSmlChars,
+				152,
+				-22f,
+				fontHDBig.BigKerning,
+				Convert.ToChar(" ")
+			};
+			BigFont = (SpriteFont)constructor.Invoke(parameters);
+			parameters = new object[8]
+			{
+				texture2D2,
+				fontHD.StackBounds,
+				fontHD.StackCrops,
+				fontHD.StackChars,
+				28,
+				-2f,
+				fontHD.StackKerning,
+				Convert.ToChar("/")
+			};
+			ItemStackFont = (SpriteFont)constructor.Invoke(parameters);
+			FONT_STACK_Y_OFFSET = 7;
+			parameters = new object[8]
+			{
+				texture2D3,
+				fontHD.CombatBounds,
+				fontHD.CombatCrops,
+				fontHD.CombatChars,
+				21,
+				-3f,
+				fontHD.CombatKerning,
+				Convert.ToChar("0")
+			};
+			CombatTextFont[0] = (SpriteFont)constructor.Invoke(parameters);
+			parameters = new object[8]
+			{
+				texture2D4,
+				fontHD.Combat2Bounds,
+				fontHD.Combat2Crops,
+				fontHD.CombatChars,
+				22,
+				-4f,
+				fontHD.Combat2Kerning,
+				Convert.ToChar("0")
+			};
+			CombatTextFont[1] = (SpriteFont)constructor.Invoke(parameters);
+			parameters = new object[8]
+			{
+				texture2D5,
+				fontHDSmall.SmlBounds,
+				fontHDSmall.SmlCrops,
+				fontHD.BigSmlChars,
+				30,
+				-1f,
+				fontHDSmall.SmlKerning,
+				Convert.ToChar(" ")
+			};
+			SmallFont = (SpriteFont)constructor.Invoke(parameters);
+			parameters = new object[8]
+			{
+				texture2D6,
+				fontHDSmall.Sml2Bounds,
+				fontHDSmall.Sml2Crops,
+				fontHD.BigSmlChars,
+				33,
+				-4f,
+				fontHDSmall.Sml2Kerning,
+				Convert.ToChar(" ")
+			};
+			BoldSmallFont = (SpriteFont)constructor.Invoke(parameters);
+		}
+		else
+		{
+			Font font = new Font();
+			FontBig fontBig = new FontBig();
+			FontSmall fontSmall = new FontSmall();
+			if (!Main.PSMode)
+			{
+				fontSmall.SmlBounds.RemoveRange(96, 16);
+				fontSmall.SmlBounds.InsertRange(96, font.XBSmlBoundPart);
+				fontSmall.SmlCrops.RemoveRange(96, 16);
+				fontSmall.SmlCrops.InsertRange(96, font.XBSmlCroPart);
+				fontSmall.SmlKerning.RemoveRange(96, 16);
+				fontSmall.SmlKerning.InsertRange(96, font.XBSmlKerningPart);
+				fontSmall.Sml2Bounds.RemoveRange(96, 16);
+				fontSmall.Sml2Bounds.InsertRange(96, font.XBSml2BoundPart);
+				fontSmall.Sml2Crops.RemoveRange(96, 16);
+				fontSmall.Sml2Crops.InsertRange(96, font.XBSml2CropPart);
+				fontSmall.Sml2Kerning.RemoveRange(96, 16);
+				fontSmall.Sml2Kerning.InsertRange(96, font.XBSml2KerningPart);
+			}
+			object[] parameters2 = new object[8]
+			{
+				texture2D,
+				fontBig.BigBounds,
+				fontBig.BigCrops,
+				font.BigSmlChars,
+				109,
+				-24f,
+				fontBig.BigKerning,
+				Convert.ToChar(" ")
+			};
+			BigFont = (SpriteFont)constructor.Invoke(parameters2);
+			parameters2 = new object[8]
+			{
+				texture2D2,
+				font.StackBounds,
+				font.StackCrops,
+				font.StackChars,
+				20,
+				-4f,
+				font.StackKerning,
+				Convert.ToChar("/")
+			};
+			ItemStackFont = (SpriteFont)constructor.Invoke(parameters2);
+			parameters2 = new object[8]
+			{
+				texture2D3,
+				font.CombatBounds,
+				font.CombatCrops,
+				font.CombatChars,
+				21,
+				-3f,
+				font.CombatKerning,
+				Convert.ToChar("0")
+			};
+			CombatTextFont[0] = (SpriteFont)constructor.Invoke(parameters2);
+			parameters2 = new object[8]
+			{
+				texture2D4,
+				font.Combat2Bounds,
+				font.Combat2Crops,
+				font.CombatChars,
+				22,
+				-4f,
+				font.Combat2Kerning,
+				Convert.ToChar("0")
+			};
+			CombatTextFont[1] = (SpriteFont)constructor.Invoke(parameters2);
+			parameters2 = new object[8]
+			{
+				texture2D5,
+				fontSmall.SmlBounds,
+				fontSmall.SmlCrops,
+				font.BigSmlChars,
+				20,
+				-2f,
+				fontSmall.SmlKerning,
+				Convert.ToChar(" ")
+			};
+			SmallFont = (SpriteFont)constructor.Invoke(parameters2);
+			parameters2 = new object[8]
+			{
+				texture2D6,
+				fontSmall.Sml2Bounds,
+				fontSmall.Sml2Crops,
+				font.BigSmlChars,
+				22,
+				-5f,
+				fontSmall.Sml2Kerning,
+				Convert.ToChar(" ")
+			};
+			BoldSmallFont = (SpriteFont)constructor.Invoke(parameters2);
+		}
+		FONT_STACK_X_OFFSET = -5;
+		BoldSmallTextStyle = new CompiledText.Style(BoldSmallFont);
+	}
+
+	public static void LoadSplitscreenFonts(ContentManager Content)
+	{
+		string text = "Fonts/";
+		string text2 = "big_sc";
+		string text3 = "stack_sc";
+		string text4 = "combat_sc";
+		string text5 = "combat2_sc";
+		string text6 = "small_sc";
+		string text7 = "small2_sc";
+		ConstructorInfo constructor = typeof(SpriteFont).GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, null, new Type[8]
+		{
+			typeof(Texture2D),
+			typeof(List<Rectangle>),
+			typeof(List<Rectangle>),
+			typeof(List<char>),
+			typeof(int),
+			typeof(float),
+			typeof(List<Vector3>),
+			typeof(char?)
+		}, null);
+		if (Main.PSMode)
+		{
+			text2 += "_PS3";
+			text7 += "_PS3";
+		}
+		if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+		{
+			text += "HD/";
+		}
+		Texture2D texture2D = Content.Load<Texture2D>(text + text2);
+		Texture2D texture2D2 = Content.Load<Texture2D>(text + text3);
+		Texture2D texture2D3 = Content.Load<Texture2D>(text + text4);
+		Texture2D texture2D4 = Content.Load<Texture2D>(text + text5);
+		Texture2D texture2D5 = Content.Load<Texture2D>(text + text6);
+		Texture2D texture2D6 = Content.Load<Texture2D>(text + text7);
+		if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+		{
+			FontHD fontHD = new FontHD();
+			FontHDBig fontHDBig = new FontHDBig();
+			FontHDSmall fontHDSmall = new FontHDSmall();
+			if (!Main.PSMode)
+			{
+				fontHDBig.BigSCBounds.RemoveRange(98, 15);
+				fontHDBig.BigSCBounds.InsertRange(98, fontHD.XBBigSCBoundPart);
+				fontHDBig.BigSCCrops.RemoveRange(98, 15);
+				fontHDBig.BigSCCrops.InsertRange(100, fontHD.XBBigSCCropPart);
+				fontHDBig.BigSCKerning.RemoveRange(98, 15);
+				fontHDBig.BigSCKerning.InsertRange(100, fontHD.XBBigSCKerningPart);
+				fontHDSmall.SmlSCBounds.RemoveRange(96, 65);
+				fontHDSmall.SmlSCBounds.InsertRange(96, fontHD.XBSmlSCBoundPart);
+				fontHDSmall.SmlSCCrops.RemoveRange(96, 17);
+				fontHDSmall.SmlSCCrops.InsertRange(96, fontHD.XBSmlSCCropPart);
+				fontHDSmall.SmlSCKerning.RemoveRange(96, 17);
+				fontHDSmall.SmlSCKerning.InsertRange(96, fontHD.XBSmlSCKerningPart);
+				fontHDSmall.Sml2SCBounds.RemoveRange(96, 18);
+				fontHDSmall.Sml2SCBounds.InsertRange(96, fontHD.XBSml2SCBoundPart);
+				fontHDSmall.Sml2SCCrops.RemoveRange(96, 18);
+				fontHDSmall.Sml2SCCrops.InsertRange(96, fontHD.XBSml2SCCropPart);
+				fontHDSmall.Sml2SCKerning.RemoveRange(96, 18);
+				fontHDSmall.Sml2SCKerning.InsertRange(96, fontHD.XBSml2SCKerningPart);
+			}
+			object[] parameters = new object[8]
+			{
+				texture2D,
+				fontHDBig.BigSCBounds,
+				fontHDBig.BigSCCrops,
+				fontHD.BigSmlChars,
+				28,
+				-11f,
+				fontHDBig.BigSCKerning,
+				Convert.ToChar(" ")
+			};
+			BigFont = (SpriteFont)constructor.Invoke(parameters);
+			parameters = new object[8]
+			{
+				texture2D2,
+				fontHD.StackSCBounds,
+				fontHD.StackSCCrops,
+				fontHD.StackChars,
+				21,
+				-2f,
+				fontHD.StackSCKerning,
+				Convert.ToChar("/")
+			};
+			ItemStackFont = (SpriteFont)constructor.Invoke(parameters);
+			parameters = new object[8]
+			{
+				texture2D3,
+				fontHD.CombatBothSCBounds,
+				fontHD.CombatBothSCCrops,
+				fontHD.CombatChars,
+				17,
+				-2f,
+				fontHD.CombatBothSCKerning,
+				Convert.ToChar("0")
+			};
+			CombatTextFont[0] = (SpriteFont)constructor.Invoke(parameters);
+			parameters = new object[8]
+			{
+				texture2D4,
+				fontHD.CombatBothSCBounds,
+				fontHD.CombatBothSCCrops,
+				fontHD.CombatChars,
+				17,
+				-3f,
+				fontHD.CombatBothSCKerning,
+				Convert.ToChar("0")
+			};
+			CombatTextFont[1] = (SpriteFont)constructor.Invoke(parameters);
+			parameters = new object[8]
+			{
+				texture2D5,
+				fontHDSmall.SmlSCBounds,
+				fontHDSmall.SmlSCCrops,
+				fontHD.BigSmlChars,
+				15,
+				-1f,
+				fontHDSmall.SmlSCKerning,
+				Convert.ToChar(" ")
+			};
+			SmallFont = (SpriteFont)constructor.Invoke(parameters);
+			parameters = new object[8]
+			{
+				texture2D6,
+				fontHDSmall.Sml2SCBounds,
+				fontHDSmall.Sml2SCCrops,
+				fontHD.BigSmlChars,
+				22,
+				-4f,
+				fontHDSmall.Sml2SCKerning,
+				Convert.ToChar(" ")
+			};
+			BoldSmallFont = (SpriteFont)constructor.Invoke(parameters);
+		}
+		else
+		{
+			Font font = new Font();
+			FontBig fontBig = new FontBig();
+			FontSmall fontSmall = new FontSmall();
+			if (!Main.PSMode)
+			{
+				fontSmall.Sml2SCBounds.RemoveRange(95, 16);
+				fontSmall.Sml2SCBounds.InsertRange(95, font.XBSml2SCBoundPart);
+				fontSmall.Sml2SCCrops.RemoveRange(95, 16);
+				fontSmall.Sml2SCCrops.InsertRange(95, font.XBSml2SCCropPart);
+				fontSmall.Sml2SCKerning.RemoveRange(95, 16);
+				fontSmall.Sml2SCKerning.InsertRange(95, font.XBSml2SCKerningPart);
+			}
+			object[] parameters2 = new object[8]
+			{
+				texture2D,
+				fontBig.BigSCBounds,
+				fontBig.BigSCCrops,
+				font.BigSmlChars,
+				19,
+				-13f,
+				fontBig.BigSCKerning,
+				Convert.ToChar(" ")
+			};
+			BigFont = (SpriteFont)constructor.Invoke(parameters2);
+			parameters2 = new object[8]
+			{
+				texture2D2,
+				font.StackSCBounds,
+				font.StackSCCrops,
+				font.StackChars,
+				15,
+				-4f,
+				font.StackSCKerning,
+				Convert.ToChar("/")
+			};
+			ItemStackFont = (SpriteFont)constructor.Invoke(parameters2);
+			parameters2 = new object[8]
+			{
+				texture2D3,
+				font.CombatBothSCBounds,
+				font.CombatBothSCCrops,
+				font.CombatChars,
+				17,
+				-2f,
+				font.CombatBothSCKerning,
+				Convert.ToChar("0")
+			};
+			CombatTextFont[0] = (SpriteFont)constructor.Invoke(parameters2);
+			parameters2 = new object[8]
+			{
+				texture2D4,
+				font.CombatBothSCBounds,
+				font.CombatBothSCCrops,
+				font.CombatChars,
+				17,
+				-3f,
+				font.CombatBothSCKerning,
+				Convert.ToChar("0")
+			};
+			CombatTextFont[1] = (SpriteFont)constructor.Invoke(parameters2);
+			parameters2 = new object[8]
+			{
+				texture2D5,
+				fontSmall.SmlSCBounds,
+				fontSmall.SmlSCCrops,
+				font.BigSmlChars,
+				10,
+				-2f,
+				fontSmall.SmlSCKerning,
+				Convert.ToChar(" ")
+			};
+			SmallFont = (SpriteFont)constructor.Invoke(parameters2);
+			parameters2 = new object[8]
+			{
+				texture2D6,
+				fontSmall.Sml2SCBounds,
+				fontSmall.Sml2SCCrops,
+				font.BigSmlChars,
+				13,
+				-2f,
+				fontSmall.Sml2SCKerning,
+				Convert.ToChar(" ")
+			};
+			BoldSmallFont = (SpriteFont)constructor.Invoke(parameters2);
+		}
+		FONT_STACK_X_OFFSET = -8;
+		BoldSmallTextStyle = new CompiledText.Style(BoldSmallFont);
+	}
+
+	private void InvalidateCachedText()
+	{
+		toolTipText = null;
+		npcCompiledChatText = null;
+		errorCompiledText = null;
+		Terraria.HowToPlay.UI.GenerateCache(theGame.GraphicsDevice);
+		TextSequenceBlock.GenerateCache(theGame.GraphicsDevice);
+		if (Main.HardmodeAlert)
+		{
+			Terraria.Hardmode.UI.GenerateCache(theGame.GraphicsDevice);
+		}
+	}
+
+	public static float Spacing(SpriteFont font)
+	{
+		float num = font.Spacing;
+		if (NumActiveViews > 1)
+		{
+			num *= 2f;
+		}
+		return num;
+	}
+
+	public static int LineSpacing(SpriteFont font)
+	{
+		int num = font.LineSpacing;
+		if (NumActiveViews > 1)
+		{
+			num <<= 1;
+		}
+		return num;
+	}
+
+	public static Vector2 MeasureString(SpriteFont font)
+	{
+		Vector2 result = font.MeasureString(Main.StrBuilder);
+		if (NumActiveViews > 1)
+		{
+			result.X *= 2f;
+			result.Y *= 2f;
+		}
+		return result;
+	}
+
+	public static float MeasureStringX(SpriteFont font)
+	{
+		float num = font.MeasureString(Main.StrBuilder).X;
+		if (NumActiveViews > 1)
+		{
+			num *= 2f;
+		}
+		return num;
+	}
+
+	public static Vector2 MeasureString(SpriteFont font, string text)
+	{
+		Vector2 result = font.MeasureString(text);
+		if (NumActiveViews > 1)
+		{
+			result.X *= 2f;
+			result.Y *= 2f;
+		}
+		return result;
+	}
+
+	public static void DrawStringLB(SpriteFont font, int x, int y)
+	{
+		float scale = ((NumActiveViews <= 1) ? TextScale : (TextScale * 2f));
+		Vector2 vector = font.MeasureString(Main.StrBuilder);
+		Main.SpriteBatch.DrawString(font, Main.StrBuilder, new Vector2(x, Main.ResolutionHeight - y), Color.White, 0f, new Vector2(0f, vector.Y), scale, SpriteEffects.None, 0f);
+	}
+
+	public static void DrawStringLT(SpriteFont font, int x, int y, Color c)
+	{
+		float scale = ((NumActiveViews <= 1) ? TextScale : (TextScale * 2f));
+		Main.SpriteBatch.DrawString(font, Main.StrBuilder, new Vector2(x, y), c, 0f, default, scale, SpriteEffects.None, 0f);
+	}
+
+	public static void DrawStringLT(SpriteFont font, string s, int x, int y, Color c)
+	{
+		float scale = ((NumActiveViews <= 1) ? TextScale : (TextScale * 2f));
+		Main.SpriteBatch.DrawString(font, s, new Vector2(x, y), c, 0f, default, scale, SpriteEffects.None, 0f);
+	}
+
+	public static void DrawStringScaled(SpriteFont font, string s, Vector2 pos, Color c, Vector2 pivot, float scale)
+	{
+		scale *= TextScale;
+		if (NumActiveViews > 1)
+		{
+			scale *= 2f;
+			pivot.X *= 0.5f;
+			pivot.Y *= 0.5f;
+		}
+		Main.SpriteBatch.DrawString(font, s, pos, c, 0f, pivot, scale, SpriteEffects.None, 0f);
+	}
+
+	public static void DrawString(SpriteFont font, string s, Vector2 pos, Color c, float rot, Vector2 pivot, float scale)
+	{
+		scale *= TextScale;
+		if (NumActiveViews > 1)
+		{
+			scale *= 2f;
+			pivot.X *= 0.5f;
+			pivot.Y *= 0.5f;
+		}
+		Main.SpriteBatch.DrawString(font, s, pos, c, rot, pivot, scale, SpriteEffects.None, 0f);
+	}
+
+	public static void DrawStringScaled(SpriteFont font, Vector2 pos, Color c, Vector2 pivot, float scale)
+	{
+		scale *= TextScale;
+		if (NumActiveViews > 1)
+		{
+			scale *= 2f;
+			pivot.X *= 0.5f;
+			pivot.Y *= 0.5f;
+		}
+		Main.SpriteBatch.DrawString(font, Main.StrBuilder, pos, c, 0f, pivot, scale, SpriteEffects.None, 0f);
+	}
+
+	public static void DrawStringCC(SpriteFont font, string s, int x, int y, Color c)
+	{
+		float scale = ((NumActiveViews <= 1) ? TextScale : (TextScale * 2f));
+		Vector2 origin = font.MeasureString(s);
+		origin.X = (float)Math.Round((double)origin.X * 0.5);
+		origin.Y = (float)Math.Round((double)origin.Y * 0.5);
+		Main.SpriteBatch.DrawString(font, s, new Vector2(x, y), c, 0f, origin, scale, SpriteEffects.None, 0f);
+	}
+
+	public static void DrawStringLC(SpriteFont font, string s, int x, int y, Color c)
+	{
+		float scale = ((NumActiveViews <= 1) ? TextScale : (TextScale * 2f));
+		Vector2 origin = font.MeasureString(s);
+		origin.X = 0f;
+		origin.Y = (float)Math.Round((double)origin.Y * 0.5);
+		Main.SpriteBatch.DrawString(font, s, new Vector2(x, y), c, 0f, origin, scale, SpriteEffects.None, 0f);
+	}
+
+	public static void DrawStringRC(SpriteFont font, string s, int x, int y, Color c)
+	{
+		float scale = ((NumActiveViews <= 1) ? TextScale : (TextScale * 2f));
+		Vector2 origin = font.MeasureString(s);
+		origin.Y = (float)Math.Round((double)origin.Y * 0.5);
+		Main.SpriteBatch.DrawString(font, s, new Vector2(x, y), c, 0f, origin, scale, SpriteEffects.None, 0f);
+	}
+
+	public static float DrawStringCT(SpriteFont font, string s, int x, int y, Color c)
+	{
+		float num = ((NumActiveViews <= 1) ? TextScale : (TextScale * 2f));
+		Vector2 origin = font.MeasureString(s);
+		origin.X = (float)Math.Round((double)origin.X * 0.5);
+		float result = origin.Y * num;
+		origin.Y = 0f;
+		Main.SpriteBatch.DrawString(font, s, new Vector2(x, y), c, 0f, origin, num, SpriteEffects.None, 0f);
+		return result;
+	}
+
+	public static float DrawStringCT(SpriteFont font, int x, int y, Color c)
+	{
+		float num = ((NumActiveViews <= 1) ? TextScale : (TextScale * 2f));
+		Vector2 origin = font.MeasureString(Main.StrBuilder);
+		origin.X *= 0.5f;
+		float result = origin.Y * num;
+		origin.Y = 0f;
+		Main.SpriteBatch.DrawString(font, Main.StrBuilder, new Vector2(x, y), c, 0f, origin, num, SpriteEffects.None, 0f);
+		return result;
+	}
+
+	public void PrevMenu(int depth = -1)
+	{
+		Main.PlaySound(11);
+		if (depth < 0)
+		{
+			menuDepth += depth;
+			if (menuDepth >= 0)
+			{
+				SetMenu(prevMenuMode[menuDepth], rememberPrevious: false);
+			}
+			else
+			{
+				SetMenu(MenuMode.TITLE, rememberPrevious: false, reset: true);
+			}
+		}
+		else if (depth < menuDepth)
+		{
+			menuDepth = depth;
+			SetMenu(prevMenuMode[depth], rememberPrevious: false);
+		}
+		else
+		{
+			SetMenu(MenuMode.TITLE, rememberPrevious: false, reset: true);
+		}
+	}
+
+	private void ResetPlayerMenuSelection()
+	{
+		uiX = 0;
+		uiY = (short)((numLoadPlayers <= 0) ? 5 : 0);
+	}
+
+	public void SetMenu(MenuMode mode, bool rememberPrevious = true, bool reset = false)
+	{
+		if (SettingsDirty)
+		{
+			SaveSettings();
+		}
+		numMenuItems = 0;
+		if (reset)
+		{
+			menuDepth = 0;
+		}
+		if (mode == MenuMode.TITLE)
+		{
+			Main.SetTutorial(Tutorial.NUM_TUTORIALS);
+			if (!Main.IsTrial && saveIconMessage == null)
+			{
+				int wrapWidth = 470;
+				switch (Main.ScreenHeightPtr)
+				{
+				case ScreenHeights.HD:
+					wrapWidth = 548;
+					break;
+				case ScreenHeights.FHD:
+					wrapWidth = 705;
+					break;
+				}
+				saveIconMessage = new CompiledText(Lang.MenuText[4], wrapWidth, BoldSmallTextStyle);
+				saveIconMessageTime = 480;
+			}
+			if (SignedInGamer != null)
+			{
+				SignedInGamer.Presence.SetPresenceModeStringEXT("Menu");
+			}
+			if (Netplay.isJoiningRemoteInvite)
+			{
+				if (!Netplay.gamersWaitingToJoinInvite.Contains(SignedInGamer))
+				{
+					Exit();
+					return;
+				}
+				mode = MenuMode.CHARACTER_SELECT;
+				if (this == MainUI)
+				{
+					for (int num = Netplay.gamersWaitingToJoinInvite.Count - 1; num >= 0; num--)
+					{
+						SignedInGamer signedInGamer = Netplay.gamersWaitingToJoinInvite[num];
+						if (signedInGamer != SignedInGamer)
+						{
+							UI uI = Main.UIInstance[(int)signedInGamer.PlayerIndex];
+							uI.SetMenu(MenuMode.CHARACTER_SELECT, rememberPrevious: false, reset: true);
+							uI.OpenView();
+						}
+					}
+				}
+			}
+		}
+		if (CurMenuMode != MenuMode.NONE)
+		{
+			for (int num2 = menuHC.Length - 1; num2 >= 0; num2--)
+			{
+				menuHC[num2] = 0;
+			}
+			if (rememberPrevious)
+			{
+				prevMenuMode[menuDepth++] = CurMenuMode;
+			}
+			uiPos[(uint)CurMenuMode].X = uiX;
+			uiPos[(uint)CurMenuMode].Y = uiY;
+		}
+		CurMenuMode = mode;
+		uiX = uiPos[(uint)mode].X;
+		uiY = uiPos[(uint)mode].Y;
+		uiDelay = 0;
+		uiDelayValue = 12;
+		switch (mode)
+		{
+		case MenuMode.PAUSE:
+			worldFadeTarget = 0.375f;
+			uiWidth = 1;
+			uiHeight = 7;
+			uiCoords = MENU_PAUSE_COORDS;
+			return;
+		case MenuMode.TITLE:
+			uiWidth = 1;
+			uiHeight = 7;
+			uiCoords = MENU_TITLE_COORDS;
+			return;
+		case MenuMode.CHARACTER_SELECT:
+			uiWidth = 1;
+			uiHeight = 6;
+			uiCoords = MENU_SELECT_COORDS;
+			initCharacterSelectCoordinates();
+			return;
+		case MenuMode.CONFIRM_LEAVE_CREATE_CHARACTER:
+		case MenuMode.CONFIRM_DELETE_CHARACTER:
+		case MenuMode.CONFIRM_DELETE_WORLD:
+			uiWidth = 1;
+			uiHeight = 2;
+			uiCoords = MENU_CONFIRM_DELETE_COORDS;
+			return;
+		case MenuMode.VOLUME:
+			soundUI.UpdateVolumes();
+			break;
+		case MenuMode.WORLD_SIZE:
+			uiWidth = 1;
+			uiHeight = 3;
+			uiCoords = MENU_WORLD_SIZE_COORDS;
+			return;
+		case MenuMode.OPTIONS:
+			uiWidth = 1;
+			uiHeight = 4;
+			uiCoords = MENU_OPTIONS_COORDS;
+			return;
+		case MenuMode.SETTINGS:
+			uiWidth = 1;
+			uiHeight = 3;
+			uiCoords = MENU_SETTINGS_COORDS;
+			return;
+		case MenuMode.STATUS_SCREEN:
+		case MenuMode.NETPLAY:
+			Progress = 0f;
+			progressTotal = 0f;
+			uiWidth = 0;
+			uiHeight = 1;
+			uiCoords = null;
+			statusText = null;
+			return;
+		case MenuMode.WORLD_SELECT:
+			if (Netplay.availableSessions.Count == 0 && !Netplay.IsFindingSessions())
+			{
+				Netplay.FindSessions();
+			}
+			break;
+		case MenuMode.ERROR:
+			if (Main.WorldGenThread != null)
+			{
+				Main.WorldGenThread.Abort();
+				Main.WorldGenThread = null;
+				WorldGen.Gen = false;
+			}
+			break;
+		case MenuMode.MAP:
+			worldFadeTarget = 0.375f;
+			uiFade = 0f;
+			uiFadeTarget = 1f;
+			break;
+		case MenuMode.CREDITS:
+			Credits.Init();
+			break;
+		case MenuMode.UPSELL:
+			theGame.LoadUpsell();
+			break;
+		}
+		uiWidth = 0;
+		uiHeight = 0;
+		uiCoords = null;
+	}
+
+	private void Exit()
+	{
+		if (NumActiveViews == 1)
+		{
+			if (Main.IsTrial)
+			{
+				SetMenu(MenuMode.UPSELL, rememberPrevious: false, reset: true);
+			}
+			else
+			{
+				HasQuit = true;
+			}
+			return;
+		}
+		SetPlayer(null);
+		SignedInGamer = null;
+		CurMenuType = MenuType.MAIN;
+		CurMenuMode = MenuMode.WELCOME;
+		selectedMenu = -1;
+		focusMenu = -1;
+		uiX = 0;
+		uiY = 0;
+		uiPos = new Location[40];
+		worldFade = 0f;
+		worldFadeTarget = 1f;
+		isStopping = false;
+		if (playerStorage != null && !Netplay.isJoiningRemoteInvite)
+		{
+			theGame.Components.Remove(playerStorage);
+			playerStorage.Dispose();
+			playerStorage = null;
+		}
+	}
+
+	public void ExitGame()
+	{
+		Main.IsGameStarted = false;
+		for (int i = 0; i < 4; i++)
+		{
+			UI uI = Main.UIInstance[i];
+			if (uI.CurrentView != null && uI.CurMenuType != MenuType.MAIN)
+			{
+				uI.CurrentView.onStopGame();
+			}
+		}
+		for (int j = 0; j < 4; j++)
+		{
+			UI uI2 = Main.UIInstance[j];
+			if (uI2.CurrentView != null && uI2 != MainUI)
+			{
+				if (uI2.CurMenuType == MenuType.MAIN)
+				{
+					uI2.Exit();
+				}
+				else
+				{
+					uI2.StopGame();
+				}
+			}
+		}
+		MainUI.StopGame();
+	}
+
+	public void StopGame()
+	{
+		CloseInventory();
+		ActiveInvSection = InventorySection.ITEMS;
+		hotbarItemNameTime = 210;
+		quickAccessDisplayTime = 0;
+		quickAccessUp = -1;
+		quickAccessDown = -1;
+		quickAccessLeft = -1;
+		quickAccessRight = -1;
+		isStopping = true;
+		worldFadeTarget = 1f;
+		if (Main.SaveOnExit)
+		{
+			statusText = Lang.MenuText[54];
+		}
+		else
+		{
+			statusText = "";
+		}
+		if (CurMenuMode != MenuMode.ERROR)
+		{
+			SetMenu(MenuMode.STATUS_SCREEN, rememberPrevious: false);
+		}
+		CurMenuType = MenuType.MAIN;
+		if (this == MainUI)
+		{
+			if (Main.SaveOnExit)
+			{
+				Main.SaveOnExit = false;
+				WorldGen.SaveAndQuit();
+				return;
+			}
+			Netplay.PlayDisconnect = true;
+			LoadPlayers();
+			if (CurMenuMode != MenuMode.ERROR)
+			{
+				SetMenu(MenuMode.TITLE, rememberPrevious: false, reset: true);
+			}
+		}
+		else if (!Main.SaveOnExit)
+		{
+			Exit();
+		}
+	}
+
+	public void PrepareDraw(int pass)
+	{
+		if (CurrentView != null && CurMenuType != MenuType.MAIN)
+		{
+			CurrentUI = this;
+			CurrentView.PrepareDraw(pass);
+		}
+	}
+
+	public void Draw()
+	{
+		if (CurrentView != null)
+		{
+			CurrentUI = this;
+			CurrentView.DrawBg(this);
+			if (CurMenuType != MenuType.MAIN)
+			{
+				CurrentView.DrawWorld();
+				DrawCursor();
+				CurrentView.SetScreenView();
+			}
+			DrawTopLayer();
+			if (CurMenuType != MenuType.NONE)
+			{
+				DrawMenu();
+			}
+			else if (Main.TutorialState < Tutorial.THE_END)
+			{
+				DrawTutorial();
+			}
+			Main.SpriteBatch.End();
+		}
+	}
+
+	private void DrawTopLayer()
+	{
+		if (worldFade < 1f)
+		{
+			Main.DrawSolidRect(new Rectangle(0, 0, CurrentView.ViewWidth, Main.ResolutionHeight), new Color(0f, 0f, 0f, 1f - worldFade));
+		}
+		if (worldFade != worldFadeTarget)
+		{
+			if (worldFadeTarget < worldFade)
+			{
+				worldFade -= 1f / 30f;
+				if (worldFadeTarget > worldFade)
+				{
+					worldFade = worldFadeTarget;
+				}
+			}
+			else
+			{
+				worldFade += 1f / 30f;
+				if (worldFadeTarget < worldFade)
+				{
+					worldFade = worldFadeTarget;
+				}
+			}
+		}
+		if (CurMenuType == MenuType.NONE)
+		{
+			DrawInterface();
+			if (InventoryMode == 0 && !ActivePlayer.ghost)
+			{
+				DrawHud();
+			}
+		}
+	}
+
+	private void DrawTutorial()
+	{
+		int num = 500;
+		switch (Main.ScreenHeightPtr)
+		{
+		case ScreenHeights.HD:
+			num = (int)((float)num * 1.15f);
+			break;
+		case ScreenHeights.FHD:
+			num = (int)((float)num * 1.534f);
+			break;
+		}
+		DrawDialog(new Vector2(CurrentView.ViewWidth - num >> 1, Main.ResolutionHeight - CurrentView.SafeAreaOffsetBottom - (int)(36f * Main.ScreenMultiplier)), new Color(128, 128, 128, 64), new Color(255, 255, 255, 255), Main.TutorialText, null, anchorBottom: true);
+	}
+
+	private void UpdateMenu()
+	{
+		MenuMode curMenuMode = CurMenuMode;
+		numMenuItems = 0;
+		menuTop = 250;
+		menuLeft = (short)((CurrentView != null) ? (CurrentView.ViewWidth >> 1) : (Main.ResolutionWidth / 2));
+		menuSpace = 80;
+		showPlayer = -1;
+		for (int i = 0; i < 14; i++)
+		{
+			noFocus[i] = false;
+			blockFocus[i] = false;
+			menuY[i] = 0;
+			menuScale[i] = 1f;
+		}
+		if (CurMenuMode == MenuMode.ERROR)
+		{
+			numMenuItems = 0;
+			if (IsBackButtonTriggered())
+			{
+				SetMenu(MenuMode.TITLE, rememberPrevious: false, reset: true);
+			}
+		}
+		else if (CurMenuMode == MenuMode.LOAD_FAILED_NO_BACKUP)
+		{
+			numMenuItems = 1;
+			menuString[0] = Lang.MenuText[9];
+			noFocus[0] = true;
+			menuTop = 300;
+			if (IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+		}
+		else if (CurMenuMode == MenuMode.STATUS_SCREEN)
+		{
+			numMenuItems = 1;
+			menuString[0] = statusText;
+			noFocus[0] = true;
+			menuTop = 175;
+			tips.Update();
+		}
+		else if (CurMenuMode == MenuMode.NETPLAY)
+		{
+			numMenuItems = 1;
+			menuString[0] = statusText;
+			noFocus[0] = true;
+			menuTop = 175;
+			tips.Update();
+			if (IsBackButtonTriggered())
+			{
+				if (Netplay.sessionThread != null)
+				{
+					Netplay.PlayDisconnect = true;
+				}
+				PrevMenu();
+			}
+			else if (Netplay.sessionThread == null)
+			{
+				bool flag = true;
+				for (int j = 0; j < 4; j++)
+				{
+					UI uI = Main.UIInstance[j];
+					if (uI.CurrentView != null && uI.CurMenuMode != MenuMode.NETPLAY)
+					{
+						flag = false;
+						break;
+					}
+				}
+				if (flag)
+				{
+					Netplay.StartClient();
+				}
+			}
+		}
+		else if (CurMenuMode == MenuMode.WAITING_SCREEN)
+		{
+			numMenuItems = 1;
+			menuString[0] = Lang.MenuText[51];
+			noFocus[0] = true;
+			menuTop = 300;
+			if (IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+			else if (Main.IsGameStarted && !Main.IsGamePaused)
+			{
+				if (Netplay.Session == null)
+				{
+					Exit();
+					return;
+				}
+				if (Netplay.Session.AllGamers.Count < 8)
+				{
+					int privateGamerSlots = Netplay.Session.PrivateGamerSlots;
+					if (privateGamerSlots > 0)
+					{
+						if (Main.NetMode == 1)
+						{
+							NetMessage.CreateMessage0(66);
+							NetMessage.SendMessage();
+							privateSlots = (byte)privateGamerSlots;
+							SetMenu(MenuMode.WAITING_FOR_PUBLIC_SLOT, rememberPrevious: false);
+							return;
+						}
+						Netplay.Session.PrivateGamerSlots--;
+					}
+					try
+					{
+						Netplay.Session.AddLocalGamer(SignedInGamer);
+						SetMenu(MenuMode.WAITING_FOR_PLAYER_ID, rememberPrevious: false);
+					}
+					catch
+					{
+						Exit();
+						return;
+					}
+				}
+				else
+				{
+					menuString[0] = Lang.WorldGenText[57];
+				}
+			}
+		}
+		else if (CurMenuMode == MenuMode.WAITING_FOR_PUBLIC_SLOT)
+		{
+			numMenuItems = 1;
+			menuString[0] = Lang.MenuText[51];
+			noFocus[0] = true;
+			menuTop = 300;
+			if (Netplay.Session.PrivateGamerSlots < privateSlots)
+			{
+				try
+				{
+					Netplay.Session.AddLocalGamer(SignedInGamer);
+					SetMenu(MenuMode.WAITING_FOR_PLAYER_ID, rememberPrevious: false);
+				}
+				catch
+				{
+					Exit();
+					return;
+				}
+			}
+			else if (IsBackButtonTriggered())
+			{
+				NetMessage.CreateMessage0(67);
+				NetMessage.SendMessage();
+				PrevMenu();
+			}
+		}
+		else if (CurMenuMode == MenuMode.WAITING_FOR_PLAYER_ID)
+		{
+			numMenuItems = 1;
+			menuString[0] = Lang.MenuText[51];
+			noFocus[0] = true;
+			menuTop = 300;
+			if (IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+		}
+		else if (CurMenuMode == MenuMode.LEADERBOARDS)
+		{
+			if (IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+			else
+			{
+				Leaderboards.Update();
+			}
+		}
+		else if (CurMenuMode == MenuMode.ACHIEVEMENTS)
+		{
+			if (IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+			else
+			{
+				Achievements.Update();
+			}
+		}
+		else if (CurMenuMode == MenuMode.TITLE)
+		{
+			if (MainUI != this)
+			{
+				Exit();
+				return;
+			}
+			menuTop = 172;
+			menuSpace = 42;
+			menuString[0] = Lang.MenuText[13];
+			menuString[1] = Lang.MenuText[89];
+			menuString[2] = Lang.MenuText[106];
+			menuString[3] = Lang.MenuText[107];
+			menuString[4] = Lang.MenuText[108];
+			bool flag2 = false;
+			if (!Main.IsTrial)
+			{
+				MENU_TITLE_COORDS[0].X = ViewportHalfWidth;
+				menuHC[0] = 0;
+			}
+			else
+			{
+				MENU_TITLE_COORDS[0].X = 0;
+				menuHC[0] = 3;
+				if (uiY == 0)
+				{
+					uiY = 1;
+				}
+			}
+			if (HasOnline())
+			{
+				MENU_TITLE_COORDS[2].X = ViewportHalfWidth;
+				menuHC[2] = 0;
+			}
+			else
+			{
+				MENU_TITLE_COORDS[2].X = 0;
+				menuHC[2] = 3;
+				if (uiY == 2)
+				{
+					uiY = 3;
+				}
+			}
+			if (!SignedInGamer.IsGuest && !Main.IsTrial)
+			{
+				MENU_TITLE_COORDS[3].X = ViewportHalfWidth;
+				menuHC[3] = 0;
+			}
+			else
+			{
+				MENU_TITLE_COORDS[3].X = 0;
+				menuHC[3] = 3;
+				if (uiY == 3)
+				{
+					uiY = 4;
+				}
+			}
+			if (Main.IsTrial)
+			{
+				menuString[5] = Lang.MenuText[109];
+				if (SignedInGamer.Privileges.AllowPurchaseContent)
+				{
+					MENU_TITLE_COORDS[5].X = ViewportHalfWidth;
+					menuHC[5] = 0;
+				}
+				else
+				{
+					MENU_TITLE_COORDS[5].X = 0;
+					menuHC[5] = 3;
+					if (uiY == 5)
+					{
+						uiY = 6;
+					}
+				}
+				menuString[6] = Lang.MenuText[15];
+				numMenuItems = 7;
+				MENU_TITLE_COORDS[6].X = ViewportHalfWidth;
+			}
+			else
+			{
+				menuString[5] = Lang.MenuText[15];
+				numMenuItems = 6;
+				MENU_TITLE_COORDS[6].X = 0;
+			}
+			for (int num = numMenuItems - 1; num >= 0; num--)
+			{
+				menuScale[num] = 0.75f;
+			}
+			if (selectedMenu == 0)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.CHARACTER_SELECT);
+				ResetPlayerMenuSelection();
+			}
+			else if (selectedMenu == 1)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.STATUS_SCREEN);
+				Main.StartTutorial();
+			}
+			else if (selectedMenu == 2)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.LEADERBOARDS);
+				Leaderboards.InitializeData();
+			}
+			else if (selectedMenu == 3)
+			{
+				ShowAchievements();
+			}
+			else if (selectedMenu == 4)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.OPTIONS);
+			}
+			else if (selectedMenu == 5)
+			{
+				if (Main.IsTrial)
+				{
+					if (!Guide.IsVisible)
+					{
+						if (!flag2)
+						{
+							flag2 = true;
+							Main.PlaySound(12);
+							Process.Start("http://www.terraria.org");
+						}
+						else
+						{
+							Main.PlaySound(11);
+						}
+					}
+				}
+				else
+				{
+					SetMenu(MenuMode.QUIT);
+				}
+			}
+			else if (selectedMenu == 6)
+			{
+				SetMenu(MenuMode.QUIT);
+			}
+			else if (IsButtonTriggered(Buttons.X))
+			{
+				if (playerStorage != null)
+				{
+					playerStorage.PromptForDevice();
+				}
+			}
+			else if (IsButtonTriggered(Buttons.Y))
+			{
+				ShowParty();
+			}
+		}
+		else if (CurMenuMode == MenuMode.PAUSE)
+		{
+			menuString[0] = Lang.MenuText[112];
+			int num2 = 1;
+			bool flag3 = false;
+			if (Main.IsTrial)
+			{
+				menuString[num2] = Lang.MenuText[109];
+				if (SignedInGamer.Privileges.AllowPurchaseContent)
+				{
+					MENU_PAUSE_COORDS[num2].X = ViewportHalfWidth;
+					menuHC[num2] = 0;
+				}
+				else
+				{
+					MENU_PAUSE_COORDS[num2].X = 0;
+					menuHC[num2] = 3;
+					if (uiY == num2)
+					{
+						uiY = 0;
+					}
+				}
+				num2++;
+				numMenuItems = 7;
+				MENU_PAUSE_COORDS[6].X = ViewportHalfWidth;
+			}
+			else
+			{
+				numMenuItems = 6;
+				MENU_PAUSE_COORDS[6].X = 0;
+			}
+			if (!HasOnline())
+			{
+				MENU_PAUSE_COORDS[num2 + 1].X = 0;
+				menuHC[num2 + 1] = 3;
+				if (uiY == num2 + 1)
+				{
+					uiY = 0;
+				}
+			}
+			else
+			{
+				MENU_PAUSE_COORDS[num2 + 1].X = ViewportHalfWidth;
+				menuHC[num2 + 1] = 0;
+			}
+			if (SignedInGamer.IsGuest || Main.IsTrial)
+			{
+				MENU_PAUSE_COORDS[num2 + 2].X = 0;
+				menuHC[num2 + 2] = 3;
+				if (uiY == num2 + 2)
+				{
+					uiY = 0;
+				}
+			}
+			else
+			{
+				MENU_PAUSE_COORDS[num2 + 2].X = ViewportHalfWidth;
+				menuHC[num2 + 2] = 0;
+			}
+			if (WorldGen.saveLock || Main.IsTutorial() || !HasPlayerStorage())
+			{
+				MENU_PAUSE_COORDS[num2 + 3].X = 0;
+				menuHC[num2 + 3] = 3;
+				if (uiY == num2 + 3)
+				{
+					uiY = 0;
+				}
+			}
+			else
+			{
+				MENU_PAUSE_COORDS[num2 + 3].X = ViewportHalfWidth;
+				menuHC[num2 + 3] = 0;
+			}
+			if (WorldGen.saveLock)
+			{
+				MENU_PAUSE_COORDS[num2 + 4].X = 0;
+				menuHC[num2 + 4] = 3;
+				if (uiY == num2 + 4)
+				{
+					uiY = 0;
+				}
+			}
+			else
+			{
+				MENU_PAUSE_COORDS[num2 + 4].X = ViewportHalfWidth;
+				menuHC[num2 + 4] = 0;
+			}
+			menuString[num2] = Lang.MenuText[108];
+			menuString[num2 + 1] = Lang.MenuText[106];
+			menuString[num2 + 2] = Lang.MenuText[107];
+			menuString[num2 + 3] = Lang.MenuText[99];
+			menuString[num2 + 4] = Lang.MenuText[101];
+			for (int k = 0; k < numMenuItems; k++)
+			{
+				menuScale[k] = 0.75f;
+			}
+			menuTop = 200;
+			menuSpace = 40;
+			if (selectedMenu == 0 || IsButtonUntriggered(Buttons.Start) || IsBackButtonTriggered())
+			{
+				ResumeGame();
+			}
+			else if (Main.NetMode == 1 && IsButtonTriggered(Buttons.RightShoulder))
+			{
+				MessageBox.Show(controller, Lang.InterfaceText[72], Lang.InterfaceText[73], new string[2]
+				{
+					Lang.MenuText[105],
+					Lang.MenuText[104]
+				}, ShouldAutoUpdate: false);
+				SetMenu(MenuMode.BLACKLIST);
+			}
+			else if (num2 > 1 && selectedMenu == 1)
+			{
+				if (!Guide.IsVisible)
+				{
+					if (!flag3)
+					{
+						flag3 = true;
+						Main.PlaySound(12);
+						Process.Start("http://www.terraria.org");
+					}
+					else
+					{
+						Main.PlaySound(11);
+					}
+				}
+			}
+			else if (selectedMenu == num2)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.OPTIONS);
+			}
+			else if (selectedMenu == num2 + 1)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.LEADERBOARDS);
+				Leaderboards.InitializeData();
+			}
+			else if (selectedMenu == num2 + 2)
+			{
+				ShowAchievements();
+			}
+			else if (selectedMenu == num2 + 3)
+			{
+				Main.PlaySound(10);
+				WorldGen.saveAllWhilePlaying();
+			}
+			else if (selectedMenu == num2 + 4)
+			{
+				Main.PlaySound(10);
+				Main.SaveOnExit = !Main.IsTutorial() && autoSave && IsStorageEnabledForAnyPlayer();
+				if (!Main.SaveOnExit && !Main.IsTutorial())
+				{
+					string[] boxOptions = ((!IsStorageEnabledForAnyPlayer()) ? new string[2]
+					{
+						Lang.InterfaceText[0],
+						Lang.InterfaceText[1]
+					} : new string[3]
+					{
+						Lang.InterfaceText[0],
+						Lang.InterfaceText[1],
+						Lang.InterfaceText[2]
+					});
+					MessageBox.Show(controller, Lang.MenuText[100], Lang.InterfaceText[5], boxOptions, ShouldAutoUpdate: false);
+				}
+				SetMenu(MenuMode.EXIT);
+			}
+		}
+		else if (CurMenuMode == MenuMode.EXIT)
+		{
+			if (MessageBox.IsVisible())
+			{
+				if (!MessageBox.IsAutoUpdate() && MessageBox.Update())
+				{
+					int result = MessageBox.GetResult();
+					if (result <= 0)
+					{
+						PrevMenu();
+					}
+					else
+					{
+						Main.SaveOnExit = result == 2;
+					}
+				}
+			}
+			else
+			{
+				ExitGame();
+			}
+		}
+		else if (CurMenuMode == MenuMode.EXIT_UGC_BLOCKED)
+		{
+			if (MessageBox.IsVisible())
+			{
+				if (!MessageBox.IsAutoUpdate() && MessageBox.Update())
+				{
+					Main.SaveOnExit = MessageBox.GetResult() != 1;
+				}
+			}
+			else
+			{
+				ExitGame();
+			}
+		}
+		else if (CurMenuMode == MenuMode.BLACKLIST)
+		{
+			if (MessageBox.IsVisible() && !MessageBox.IsAutoUpdate() && MessageBox.Update())
+			{
+				if (MessageBox.GetResult() <= 0)
+				{
+					PrevMenu();
+				}
+				else
+				{
+					blacklist.Add(Main.GetWorldId());
+					SaveSettings();
+					ExitGame();
+				}
+			}
+		}
+		else if (CurMenuMode == MenuMode.BLACKLIST_REMOVE)
+		{
+			if (MessageBox.IsVisible() && !MessageBox.IsAutoUpdate() && MessageBox.Update())
+			{
+				if (MessageBox.GetResult() <= 0)
+				{
+					if (CurMenuType == MenuType.MAIN)
+					{
+						Exit();
+						return;
+					}
+					ExitGame();
+				}
+				else
+				{
+					blacklist.Remove(Main.GetWorldId());
+					SettingsDirty = true;
+					PrevMenu();
+					if (CurMenuType != MenuType.MAIN)
+					{
+						CurMenuType = MenuType.NONE;
+					}
+					Main.CheckWorldId = true;
+				}
+			}
+		}
+		else if (CurMenuMode == MenuMode.MAP)
+		{
+			if (miniMap.IsThreadDone)
+			{
+				if (IsBackButtonTriggered())
+				{
+					miniMap.DestroyMap();
+					ResumeGame();
+				}
+				else
+				{
+					miniMap.UpdateMap(this);
+				}
+			}
+		}
+		else if (CurMenuMode == MenuMode.CHARACTER_SELECT)
+		{
+			menuLeft += 80;
+			menuTop = 200;
+			menuSpace = 40;
+			for (int l = 0; l < 5; l++)
+			{
+				if (l < numLoadPlayers)
+				{
+					menuString[l] = loadPlayer[l].CharacterName;
+					menuHC[l] = loadPlayer[l].difficulty;
+					MENU_SELECT_COORDS[l].X = ViewportHalfWidth;
+					if (loadPlayer[l].difficulty == 67)
+					{
+						menuString[l] = "Unsupported";
+						menuHC[l] = 3;
+					}
+				}
+				else
+				{
+					menuString[l] = null;
+					MENU_SELECT_COORDS[l].X = 0;
+				}
+			}
+			if (numLoadPlayers == 5)
+			{
+				blockFocus[5] = true;
+				menuString[5] = null;
+				MENU_SELECT_COORDS[5].X = 0;
+			}
+			else
+			{
+				menuString[5] = Lang.MenuText[16];
+				MENU_SELECT_COORDS[5].X = ViewportHalfWidth;
+			}
+			numMenuItems = 6;
+			for (int m = 0; m < 6; m++)
+			{
+				menuScale[m] = 0.8f;
+			}
+			if (IsBackButtonTriggered() && (Netplay.gamersWhoReceivedInvite.Count < 2 || !Netplay.gamersWhoReceivedInvite.Contains(SignedInGamer)))
+			{
+				CancelInvite(SignedInGamer);
+				SetMenu(MenuMode.TITLE, rememberPrevious: false, reset: true);
+			}
+			else if (selectedMenu == 5)
+			{
+				Main.PlaySound(10);
+				loadPlayer[numLoadPlayers] = new Player();
+				loadPlayer[numLoadPlayers].CharacterName = SignedInGamer.Gamertag;
+				loadPlayer[numLoadPlayers].Inventory[0].SetDefaults("Copper Shortsword");
+				loadPlayer[numLoadPlayers].Inventory[0].SetPrefix(-1);
+				loadPlayer[numLoadPlayers].Inventory[1].SetDefaults("Copper Pickaxe");
+				loadPlayer[numLoadPlayers].Inventory[1].SetPrefix(-1);
+				loadPlayer[numLoadPlayers].Inventory[2].SetDefaults("Copper Axe");
+				loadPlayer[numLoadPlayers].Inventory[2].SetPrefix(-1);
+				CreateCharacterGUI.ApplyDefaultAttributes(loadPlayer[numLoadPlayers]);
+				SetMenu(MenuMode.CREATE_CHARACTER);
+			}
+			else if (selectedMenu >= 0)
+			{
+				if (loadPlayer[focusMenu].difficulty != 67)
+				{
+					selectedPlayer = selectedMenu;
+					Main.PlaySound(10);
+					SetPlayer(loadPlayer[selectedPlayer].DeepCopy());
+					playerPathName = loadPlayerPath[selectedPlayer];
+					if (Netplay.isJoiningRemoteInvite)
+					{
+						SetMenu(MenuMode.NETPLAY);
+						statusText = Lang.MenuText[75];
+					}
+					else if (this != MainUI)
+					{
+						SetMenu(MenuMode.WAITING_SCREEN);
+					}
+					else
+					{
+						SetMenu(MenuMode.WORLD_SELECT);
+					}
+				}
+			}
+			else if (focusMenu >= 0 && focusMenu < numLoadPlayers)
+			{
+				if (IsButtonTriggered(Buttons.X))
+				{
+					selectedPlayer = focusMenu;
+					Main.PlaySound(10);
+					SetMenu(MenuMode.CONFIRM_DELETE_CHARACTER);
+				}
+				else
+				{
+					showPlayer = focusMenu;
+					if (loadPlayer[focusMenu].difficulty == 67)
+					{
+						showPlayer = -1;
+					}
+				}
+			}
+		}
+		else if (CurMenuMode == MenuMode.CREATE_CHARACTER)
+		{
+			CreateCharacterGUI.Update(loadPlayer[numLoadPlayers]);
+		}
+		else if (CurMenuMode == MenuMode.CONFIRM_LEAVE_CREATE_CHARACTER)
+		{
+			menuString[0] = Lang.MenuText[49];
+			noFocus[0] = true;
+			menuString[1] = Lang.MenuText[104];
+			menuString[2] = Lang.MenuText[105];
+			numMenuItems = 3;
+			if (selectedMenu == 1)
+			{
+				PrevMenu(-2);
+			}
+			else if (selectedMenu == 2 || IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+		}
+		else if (CurMenuMode == MenuMode.NAME_CHARACTER)
+		{
+			byte[] array = new byte[4];
+			using (RandomNumberGenerator randomNumberGenerator = RandomNumberGenerator.Create())
+			{
+				randomNumberGenerator.GetBytes(array);
+			}
+			int value = BitConverter.ToInt32(array, 0);
+			string text = CRC32Helper.CalculateCRC32(BitConverter.GetBytes(value)).ToString("X8");
+			string text2 = DateTime.Now.ToString("yyMMdd");
+			string text3 = text.ToUpper() + text2;
+			if (text3.Length > 16)
+			{
+				text3 = text3.Substring(0, 16);
+			}
+			Main.PlaySound(10);
+			Player player = loadPlayer[numLoadPlayers];
+			player.CharacterName = text3;
+			player.ui = this;
+			loadPlayerPath[numLoadPlayers] = nextLoadPlayer();
+			player.Save(loadPlayerPath[numLoadPlayers]);
+			PrevMenu(-2);
+			selectedPlayer = numLoadPlayers;
+			showPlayer = numLoadPlayers;
+			uiY = numLoadPlayers;
+			MENU_SELECT_COORDS[uiY].X = ViewportHalfWidth;
+			numLoadPlayers++;
+		}
+		else if (CurMenuMode == MenuMode.CONFIRM_DELETE_CHARACTER)
+		{
+			menuString[0] = Lang.MenuText[46] + loadPlayer[selectedPlayer].Name + "?";
+			noFocus[0] = true;
+			menuString[1] = Lang.MenuText[104];
+			menuString[2] = Lang.MenuText[105];
+			numMenuItems = 3;
+			if (selectedMenu == 2 || IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+			else if (selectedMenu == 1)
+			{
+				ErasePlayer(selectedPlayer);
+				Main.PlaySound(10);
+				PrevMenu();
+				ResetPlayerMenuSelection();
+			}
+		}
+		else if (CurMenuMode == MenuMode.WORLD_SELECT)
+		{
+			WorldSelect.Update();
+		}
+		else if (CurMenuMode == MenuMode.GAME_MODE)
+		{
+			GameMode.Update();
+		}
+		else if (CurMenuMode == MenuMode.NAME_WORLD)
+		{
+			byte[] data = new byte[8];
+			using (RandomNumberGenerator randomNumberGenerator2 = RandomNumberGenerator.Create())
+			{
+				randomNumberGenerator2.GetBytes(data);
+			}
+			string text4 = CRC32Helper.CalculateCRC32(data).ToString("X8");
+			string text5 = DateTime.Now.ToString("HHmmss");
+			string text6 = "WORLD_" + text4 + "_" + text5;
+			if (text6.Length > 20)
+			{
+				text6 = text6.Substring(0, 20);
+			}
+			numMenuItems = 0;
+			Main.PlaySound(10);
+			SetMenu(MenuMode.STATUS_SCREEN, rememberPrevious: false);
+			WorldSelect.CreateWorld(text6);
+		}
+		else if (CurMenuMode == MenuMode.CONFIRM_DELETE_WORLD)
+		{
+			menuString[0] = Lang.MenuText[46] + WorldSelect.WorldName() + "?";
+			noFocus[0] = true;
+			menuString[1] = Lang.MenuText[104];
+			menuString[2] = Lang.MenuText[105];
+			numMenuItems = 3;
+			if (selectedMenu == 2 || IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+			else if (selectedMenu == 1)
+			{
+				WorldSelect.EraseWorld();
+				Main.PlaySound(10);
+				PrevMenu();
+			}
+		}
+		else if (CurMenuMode == MenuMode.OPTIONS)
+		{
+			menuTop = 220;
+			menuSpace = 57;
+			menuString[0] = Lang.MenuText[110];
+			menuString[1] = Lang.MenuText[111];
+			menuString[2] = Lang.MenuText[14];
+			if (CurMenuType == MenuType.MAIN)
+			{
+				menuString[3] = Lang.MenuText[47];
+				MENU_OPTIONS_COORDS[3].X = ViewportHalfWidth;
+				numMenuItems = 4;
+			}
+			else
+			{
+				MENU_OPTIONS_COORDS[3].X = 0;
+				if (uiY == 3)
+				{
+					uiY = 0;
+				}
+				numMenuItems = 3;
+			}
+			if (selectedMenu == 0)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.HOW_TO_PLAY);
+			}
+			else if (selectedMenu == 1)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.CONTROLS);
+			}
+			else if (selectedMenu == 2)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.SETTINGS);
+			}
+			else if (selectedMenu == 3)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.CREDITS);
+			}
+			else if (IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+		}
+		else if (CurMenuMode == MenuMode.HOW_TO_PLAY)
+		{
+			howtoUI.Update();
+			if (IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+		}
+		else if (CurMenuMode == MenuMode.SHOW_SIGN_IN)
+		{
+			if (!Guide.IsVisible)
+			{
+				try
+				{
+					Guide.ShowSignIn(1, this != MainUI && Main.NetMode != 0);
+					CurMenuMode = MenuMode.SIGN_IN;
+				}
+				catch (GuideAlreadyVisibleException)
+				{
+				}
+			}
+		}
+		else if (CurMenuMode == MenuMode.SIGN_IN)
+		{
+			if (!Guide.IsVisible)
+			{
+				if (SignedInGamer == null)
+				{
+					foreach (SignedInGamer signedInGamer in Gamer.SignedInGamers)
+					{
+						if (signedInGamer.PlayerIndex == controller)
+						{
+							SignedInGamer = signedInGamer;
+							SignedInGamer.Presence.SetPresenceModeStringEXT("Menu");
+							InitPlayerStorage();
+							break;
+						}
+					}
+				}
+				if (SignedInGamer != null)
+				{
+					if (!IsGamerValid())
+					{
+						MessageBox.Show(controller, Lang.MenuText[5], Lang.InterfaceText[43], new string[1] { Lang.MenuText[90] });
+						CurMenuMode = MenuMode.SIGN_IN_FAILED;
+					}
+					else if (playerStorage == null || playerStorage.IsDone)
+					{
+						PrevMenu();
+					}
+				}
+				else
+				{
+					CurMenuMode = MenuMode.SIGN_IN_FAILED;
+				}
+			}
+		}
+		else if (CurMenuMode == MenuMode.CONTROLS)
+		{
+			numMenuItems = 0;
+			if (IsButtonTriggered(Buttons.A))
+			{
+				alternateGrappleControls = !alternateGrappleControls;
+				UpdateAlternateGrappleControls();
+				SettingsDirty = true;
+			}
+			else if (IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+		}
+		else if (CurMenuMode == MenuMode.SETTINGS)
+		{
+			menuSpace = 60;
+			numMenuItems = 3;
+			if (this == MainUI)
+			{
+				menuString[0] = Lang.MenuText[65];
+				MENU_SETTINGS_COORDS[0].X = ViewportHalfWidth;
+			}
+			else
+			{
+				menuString[0] = "";
+				MENU_SETTINGS_COORDS[0].X = 0;
+				if (uiY == 0)
+				{
+					uiY = 1;
+				}
+			}
+			if (autoSave)
+			{
+				menuString[1] = Lang.MenuText[67];
+			}
+			else
+			{
+				menuString[1] = Lang.MenuText[68];
+			}
+			if (HasPlayerStorage())
+			{
+				MENU_SETTINGS_COORDS[1].X = ViewportHalfWidth;
+				menuHC[1] = 0;
+			}
+			else
+			{
+				MENU_SETTINGS_COORDS[1].X = 0;
+				menuHC[1] = 3;
+				if (uiY == 1)
+				{
+					uiY = 2;
+				}
+			}
+			if (ShowItemText)
+			{
+				menuString[2] = Lang.MenuText[71];
+			}
+			else
+			{
+				menuString[2] = Lang.MenuText[72];
+			}
+			if (selectedMenu == 2)
+			{
+				Main.PlaySound(12);
+				ShowItemText = !ShowItemText;
+				SettingsDirty = true;
+			}
+			else if (selectedMenu == 1)
+			{
+				Main.PlaySound(12);
+				autoSave = !autoSave;
+				SettingsDirty = true;
+			}
+			else if (selectedMenu == 0)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.VOLUME);
+			}
+			else if (IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+		}
+		else if (CurMenuMode == MenuMode.VOLUME)
+		{
+			soundUI.Update();
+			menuTop = 200;
+			if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+			{
+				menuTop -= 10;
+			}
+			menuSpace = 60;
+			numMenuItems = 1;
+			menuString[0] = Lang.MenuText[65];
+			noFocus[0] = true;
+			if (IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+		}
+		else if (CurMenuMode == MenuMode.WORLD_SIZE)
+		{
+			menuTop = 190;
+			menuSpace = 60;
+			menuY[1] = 30;
+			menuY[2] = 30;
+			menuY[3] = 30;
+			menuY[4] = 40;
+			menuString[0] = Lang.MenuText[91];
+			noFocus[0] = true;
+			menuString[1] = Lang.MenuText[92];
+			menuString[2] = Lang.MenuText[93];
+			menuString[3] = Lang.MenuText[94];
+			numMenuItems = 4;
+			if (IsBackButtonTriggered())
+			{
+				PrevMenu();
+			}
+			else if (selectedMenu > 0)
+			{
+				Main.PlaySound(10);
+				if (selectedMenu == 1)
+				{
+					Main.MaxTilesX = 4200;
+					Main.MaxTilesY = 1200;
+				}
+				else if (selectedMenu == 2)
+				{
+					Main.MaxTilesX = 4620;
+					Main.MaxTilesY = 1320;
+				}
+				else
+				{
+					Main.MaxTilesX = 5040;
+					Main.MaxTilesY = 1440;
+				}
+				WorldGen.setWorldSize();
+				ClearInput();
+				SetMenu(MenuMode.NAME_WORLD);
+			}
+		}
+		else
+		{
+			if (CurMenuMode == MenuMode.QUIT)
+			{
+				Exit();
+				return;
+			}
+			if (CurMenuMode == MenuMode.SIGN_IN_FAILED)
+			{
+				if (!MessageBox.IsVisible())
+				{
+					if (this == MainUI)
+					{
+						SetMenu(MenuMode.WELCOME, rememberPrevious: false, reset: true);
+					}
+					else
+					{
+						Exit();
+					}
+				}
+			}
+			else if (CurMenuMode == MenuMode.CREDITS)
+			{
+				numMenuItems = 0;
+				Credits.Update();
+			}
+			else if (CurMenuMode == MenuMode.UPSELL)
+			{
+				numMenuItems = 0;
+				if (IsBackButtonTriggered())
+				{
+					SetMenu(MenuMode.TITLE, rememberPrevious: false, reset: true);
+				}
+				else if (IsButtonTriggered(Buttons.A))
+				{
+					HasQuit = true;
+				}
+				else if (IsButtonTriggered(Buttons.X) && SignedInGamer.Privileges.AllowPurchaseContent)
+				{
+					_ = Guide.IsVisible;
+				}
+			}
+		}
+		if (Main.HardmodeAlert && CurMenuMode == MenuMode.HARDMODE_UPSELL)
+		{
+			hardmodeUpsell.Update();
+			if (IsBackButtonTriggered())
+			{
+				ResumeGame();
+			}
+		}
+		if (CurMenuMode != curMenuMode)
+		{
+			numMenuItems = 0;
+			for (int n = 0; n < 14; n++)
+			{
+				menuItemScale[n] = 0.8f;
+			}
+		}
+		focusMenu = -1;
+		selectedMenu = -1;
+		for (int num3 = 0; num3 < numMenuItems; num3++)
+		{
+			if (menuString[num3] != null && MouseY > menuTop + menuSpace * num3 + menuY[num3] && (float)MouseY < (float)(menuTop + menuSpace * num3 + menuY[num3]) + 50f * menuScale[num3] && Main.HasFocus && !noFocus[num3] && !blockFocus[num3])
+			{
+				focusMenu = (sbyte)num3;
+				if (oldMenu != focusMenu)
+				{
+					Main.PlaySound(12);
+				}
+				if ((CurMenuMode != MenuMode.PAUSE) ? IsSelectButtonTriggered() : IsButtonTriggered(Buttons.A))
+				{
+					selectedMenu = (sbyte)num3;
+				}
+			}
+		}
+		oldMenu = focusMenu;
+	}
+
+	private void DrawSaveIconMessage()
+	{
+		int num = 500;
+		int y = 304;
+		switch (Main.ScreenHeightPtr)
+		{
+		case ScreenHeights.HD:
+			num = (int)((float)num * 1.15f);
+			y = 371;
+			break;
+		case ScreenHeights.FHD:
+			num = (int)((float)num * 1.5f);
+			y = 572;
+			break;
+		}
+		DrawDialog(new Vector2(Main.ResolutionWidth - num >> 1, 220f * Main.ScreenMultiplier), new Color(128, 128, 128, 64), new Color(255, 255, 255, 255), saveIconMessage, Lang.MenuText[3]);
+		float num2 = 60f;
+		SpriteSheet<_sheetSprites>.Draw(642, Main.ResolutionWidth / 2, y, Color.White, (float)((double)Main.FrameCounter * (-Math.PI / (double)num2)), 1f);
+	}
+
+	private void DrawMenu()
+	{
+		if (CurMenuMode != MenuMode.CONTROLS && CurMenuMode != MenuMode.HARDMODE_UPSELL && CurMenuMode != MenuMode.MAP && CurMenuMode != MenuMode.HOW_TO_PLAY && CurMenuMode != MenuMode.LEADERBOARDS && CurMenuMode != MenuMode.ACHIEVEMENTS && CurMenuMode != MenuMode.WORLD_SELECT && CurMenuMode != MenuMode.CREATE_CHARACTER && CurMenuMode != MenuMode.CREDITS && CurMenuMode != MenuMode.UPSELL)
+		{
+			DrawLogo();
+		}
+		if (saveIconMessageTime > 0)
+		{
+			if (!Guide.IsVisible)
+			{
+				saveIconMessageTime--;
+				if (IsButtonTriggered(Buttons.B))
+				{
+					saveIconMessageTime = 0;
+				}
+				DrawSaveIconMessage();
+				DrawControls();
+			}
+			return;
+		}
+		int num = 500;
+		float y = 460f;
+		int wrapWidth = 470;
+		switch (Main.ScreenHeightPtr)
+		{
+		case ScreenHeights.HD:
+			num = (int)((float)num * 1.15f);
+			y = 600f;
+			wrapWidth = 548;
+			break;
+		case ScreenHeights.FHD:
+			num = (int)((float)num * 1.534f);
+			y = 920f;
+			wrapWidth = 705;
+			break;
+		}
+		if (CurMenuMode == MenuMode.STATUS_SCREEN || CurMenuMode == MenuMode.NETPLAY)
+		{
+			int num2 = menuTop + 100;
+			float num3 = Progress * numProgressStepsInv + progressTotal;
+			Rectangle value = default;
+			value.Height = progressBarTexture.Height >> 1;
+			value.Width = (int)(float)progressBarTexture.Width;
+			value.Y = value.Height;
+			Vector2 position = new Vector2
+			{
+				X = CurrentView.ViewWidth - (int)((float)progressBarTexture.Width * Main.ScreenMultiplier) >> 1,
+				Y = (float)num2 * Main.ScreenMultiplier
+			};
+			Main.SpriteBatch.Draw(progressBarTexture, position, value, Color.White, 0f, default, Main.ScreenMultiplier, SpriteEffects.None, 0f);
+			if (num3 > 0f)
+			{
+				value.Y = 0;
+				value.Width = (int)((float)progressBarTexture.Width * num3);
+				Main.SpriteBatch.Draw(progressBarTexture, position, value, Color.White, 0f, default, Main.ScreenMultiplier, SpriteEffects.None, 0f);
+			}
+			CurrentView.SetScreenViewWideCentered();
+			tips.Draw();
+			CurrentView.SetScreenView();
+		}
+		else if (CurMenuMode == MenuMode.CONTROLS)
+		{
+			int num4 = CurrentView.ViewWidth >> 1;
+			Vector2 position2 = new Vector2
+			{
+				X = num4 - (controlsTexture.Width >> 1),
+				Y = Main.ResolutionHeight - controlsTexture.Height >> 1
+			};
+			Main.SpriteBatch.Draw(controlsTexture, position2, Color.White);
+			int num5 = (int)MeasureString(SmallFont, Lang.InterfaceText[24]).X + 60;
+			num4 = CurrentView.ViewWidth - CurrentView.SafeAreaOffsetRight - num5;
+			int num6 = Main.ResolutionHeight - 76 - CurrentView.SafeAreaOffsetBottom;
+			CurrentView.Ui.DrawInventoryCursor(num4, num6, 1.0);
+			if (alternateGrappleControls)
+			{
+				SpriteSheet<_sheetSprites>.Draw(202, num4 + 10, num6 + 10, Color.White);
+			}
+			DrawStringLC(SmallFont, Lang.InterfaceText[24], num4 + 60, num6 + 26, Color.White);
+			ControlDesc[] array = Lang.Controls();
+			for (int num7 = array.Length - 1; num7 >= 0; num7--)
+			{
+				int alignment = array[num7].Alignment;
+				int num8 = array[num7].X;
+				if (CurrentView.ViewWidth > Main.ResolutionWidth)
+				{
+					num8 += Main.ResolutionWidth / 2;
+				}
+				int num9 = array[num7].Y;
+				string text = array[num7].Label;
+				switch (num7)
+				{
+				case 0:
+					if (alternateGrappleControls)
+					{
+						text = array[9].Label;
+					}
+					break;
+				case 4:
+					if (Main.PSMode)
+					{
+						text = array[5].Label;
+						text = ((!alternateGrappleControls) ? (text + array[9].Label) : (text + array[0].Label));
+					}
+					break;
+				case 5:
+					if (Main.PSMode)
+					{
+						text = array[4].Label;
+					}
+					else
+					{
+						text = ((!alternateGrappleControls) ? (text + array[9].Label) : (text + array[0].Label));
+					}
+					break;
+				}
+				Vector2 vector = MeasureString(BoldSmallFont, text);
+				if (alignment < 2)
+				{
+					num8 -= (int)vector.X >> 1;
+					if (alignment == 0)
+					{
+						num9 -= (int)vector.Y;
+					}
+				}
+				else
+				{
+					if (alignment == 3)
+					{
+						num8 -= (int)vector.X;
+					}
+					num9 -= (int)vector.Y >> 1;
+				}
+				DrawStringLT(BoldSmallFont, text, num8, num9, Color.White);
+			}
+		}
+		else if (CurMenuMode == MenuMode.MAP)
+		{
+			if (Netplay.Session != null)
+			{
+				DrawMiniMap();
+			}
+		}
+		else if (CurMenuMode == MenuMode.HOW_TO_PLAY)
+		{
+			CurrentView.SetScreenViewWideCentered();
+			howtoUI.Draw();
+			CurrentView.SetScreenView();
+		}
+		else if (CurMenuMode == MenuMode.WORLD_SELECT)
+		{
+			WorldSelect.Draw(CurrentView);
+		}
+		else if (CurMenuMode == MenuMode.GAME_MODE)
+		{
+			GameMode.Draw(CurrentView);
+		}
+		else if (CurMenuMode == MenuMode.CREATE_CHARACTER)
+		{
+			CurrentView.SetScreenViewWideCentered();
+			CreateCharacterGUI.Draw(CurrentView);
+			CurrentView.SetScreenView();
+			showPlayer = -1;
+		}
+		else if (CurMenuMode == MenuMode.VOLUME)
+		{
+			soundUI.Draw(Main.SpriteBatch);
+		}
+		else if (CurMenuMode == MenuMode.WELCOME)
+		{
+			string text2 = Lang.MenuText[52];
+			if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+			{
+				text2 = $"Press {'\u0088'}";
+			}
+			SpriteFont bigFont = BigFont;
+			Vector2 origin = bigFont.MeasureString(text2) * 0.5f;
+			Vector2 position3 = new Vector2(Main.ResolutionWidth / 2, y);
+			float num10 = 0.75f;
+			num10 *= 1f + cursorAlpha * 0.1f;
+			Color color = new Color(CursorColour.A, CursorColour.A, 100, 255);
+			if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+			{
+				text2 = "Press ";
+				Main.SpriteBatch.DrawString(bigFont, text2, position3, color, 0f, origin, num10, SpriteEffects.None, 0f);
+				text2 = $"  {'\u0088'}";
+				origin.X -= (float)(Main.PSMode ? 339 : 318) * 0.5f;
+				color = Color.White;
+				Main.SpriteBatch.DrawString(bigFont, text2, position3, color, 0f, origin, num10, SpriteEffects.None, 0f);
+			}
+			else
+			{
+				Main.SpriteBatch.DrawString(bigFont, text2, position3, color, 0f, origin, num10, SpriteEffects.None, 0f);
+			}
+		}
+		else if (CurMenuMode == MenuMode.LEADERBOARDS)
+		{
+			CurrentView.SetScreenViewWideCentered();
+			Leaderboards.Draw(CurrentView);
+			CurrentView.SetScreenView();
+		}
+		else if (CurMenuMode == MenuMode.ACHIEVEMENTS)
+		{
+			CurrentView.SetScreenViewWideCentered();
+			Achievements.Draw(CurrentView);
+			CurrentView.SetScreenView();
+		}
+		else if (CurMenuMode == MenuMode.ERROR)
+		{
+			float y2 = 260f * Main.ScreenMultiplier;
+			if (errorCompiledText == null)
+			{
+				errorCompiledText = new CompiledText(errorDescription, wrapWidth, BoldSmallTextStyle);
+			}
+			DrawDialog(new Vector2(CurrentView.ViewWidth - num >> 1, y2), new Color(128, 128, 128, 64), new Color(255, 255, 255, 255), errorCompiledText, errorCaption);
+		}
+		else if (CurMenuMode == MenuMode.CREDITS)
+		{
+			Credits.Draw();
+		}
+		else if (CurMenuMode == MenuMode.UPSELL)
+		{
+			theGame.DrawUpsell();
+		}
+		if (Main.HardmodeAlert && CurMenuMode == MenuMode.HARDMODE_UPSELL)
+		{
+			CurrentView.SetScreenViewWideCentered();
+			hardmodeUpsell.Draw();
+			CurrentView.SetScreenView();
+		}
+		for (int i = 0; i < numMenuItems; i++)
+		{
+			if (menuString[i] != null)
+			{
+				float num11 = menuItemScale[i];
+				Color c;
+				if (menuHC[i] == 3)
+				{
+					c = new Color(120, 120, 120);
+				}
+				else if (menuHC[i] == 2)
+				{
+					c = new Color(200, 125, 255);
+				}
+				else if (menuHC[i] == 1)
+				{
+					c = new Color(125, 125, 255);
+				}
+				else if (noFocus[i])
+				{
+					c = new Color(255, 200, 62, 255);
+				}
+				else if (i != focusMenu)
+				{
+					c = new Color(240, 240, 240, 240);
+				}
+				else
+				{
+					num11 *= 1f + cursorAlpha * 0.1f;
+					c = new Color(CursorColour.A, CursorColour.A, 100, 255);
+				}
+				Vector2 pivot = MeasureString(BigFont, menuString[i]);
+				pivot.X *= 0.5f;
+				pivot.Y *= 0.5f;
+				num11 *= menuScale[i];
+				DrawStringScaled(pos: new Vector2(menuLeft, (float)menuTop * Main.ScreenMultiplier + (float)(int)menuSpace * Main.ScreenMultiplier * (float)i + pivot.Y * menuScale[i] + (float)menuY[i]), font: BigFont, s: menuString[i], c: c, pivot: pivot, scale: num11);
+			}
+		}
+		for (int j = 0; j < 14; j++)
+		{
+			if (j == focusMenu)
+			{
+				if (menuItemScale[j] < 1f)
+				{
+					menuItemScale[j] += 0.05f;
+				}
+				if (menuItemScale[j] > 1f)
+				{
+					menuItemScale[j] = 1f;
+				}
+			}
+			else if ((double)menuItemScale[j] > 0.8)
+			{
+				menuItemScale[j] -= 0.05f;
+			}
+		}
+		if (showPlayer >= 0)
+		{
+			Player player = loadPlayer[showPlayer];
+			player.velocity.X = 1f;
+			player.PlayerFrame();
+			float x = 148f * Main.ScreenMultiplier;
+			float y3 = 244f * Main.ScreenMultiplier;
+			float scale = 4f * Main.ScreenMultiplier;
+			DrawPlayer(player, new Vector2(x, y3), scale);
+		}
+		DrawControls();
+	}
+
+	private void ResumeGame()
+	{
+		Main.PlaySound(10);
+		PrevMenu();
+		ClearButtonTriggers();
+		CurMenuType = MenuType.NONE;
+		worldFadeTarget = 1f;
+	}
+
+	public void DrawPlayer(Player player, Vector2 position, float scale)
+	{
+		Main.SpriteBatch.End();
+		Vector2 position2 = player.Position;
+		player.Position.X = CurrentView.ScreenPosition.X;
+		player.Position.Y = CurrentView.ScreenPosition.Y;
+		Matrix world = Matrix.CreateScale(scale, scale, 1f);
+		world.M41 = position.X;
+		world.M42 = position.Y;
+		CurrentView.ScreenProjection.World = world;
+		Main.SpriteBatch.Begin(SpriteSortMode.Deferred, null, SamplerState.PointClamp, null, null, CurrentView.ScreenProjection);
+		player.Draw(CurrentView, IsMenuScr: true);
+		Main.SpriteBatch.End();
+		CurrentView.ScreenProjection.World = Matrix.Identity;
+		Main.SpriteBatch.Begin(SpriteSortMode.Deferred, null, null, null, null, CurrentView.ScreenProjection);
+		player.Position = position2;
+		player.XYWH.X = (int)position2.X;
+		player.XYWH.Y = (int)position2.Y;
+	}
+
+	public void DrawPlayerIcon(Player player, Vector2 position, float scale)
+	{
+		Vector2 position2 = player.Position;
+		player.Position.X = CurrentView.ScreenPosition.X;
+		player.Position.Y = CurrentView.ScreenPosition.Y;
+		Vector2 velocity = player.velocity;
+		player.velocity.X = 0f;
+		player.velocity.Y = 0f;
+		Matrix world = Matrix.CreateScale(scale, scale, 1f);
+		world.M41 = position.X;
+		world.M42 = position.Y;
+		CurrentView.ScreenProjection.World = world;
+		Main.SpriteBatch.Begin(SpriteSortMode.Deferred, null, SamplerState.PointClamp, null, null, CurrentView.ScreenProjection);
+		player.Draw(CurrentView, IsMenuScr: true, IsIcon: true);
+		Main.SpriteBatch.End();
+		CurrentView.ScreenProjection.World = Matrix.Identity;
+		player.velocity = velocity;
+		player.Position = position2;
+		player.XYWH.X = (int)position2.X;
+		player.XYWH.Y = (int)position2.Y;
+	}
+
+	private bool IsGamerValid()
+	{
+		if (this == MainUI && SignedInGamer.IsGuest)
+		{
+			return false;
+		}
+		if (Main.NetMode > 0 && !CanPlayOnline())
+		{
+			return false;
+		}
+		return true;
+	}
+
+	private void ShowSignInPortal()
+	{
+		foreach (SignedInGamer signedInGamer in Gamer.SignedInGamers)
+		{
+			if (signedInGamer.PlayerIndex == controller)
+			{
+				SignedInGamer = signedInGamer;
+				if (IsGamerValid())
+				{
+					signedInGamer.Presence.SetPresenceModeStringEXT("Menu");
+					InitPlayerStorage();
+					return;
+				}
+				SignedInGamer = null;
+			}
+		}
+		SetMenu(MenuMode.SHOW_SIGN_IN);
+	}
+
+	private void ShowAchievements()
+	{
+		if (!Guide.IsVisible)
+		{
+			Main.PlaySound(10);
+			SetMenu(MenuMode.ACHIEVEMENTS);
+			AchievementSystem.LoadAchievements();
+			AchievementData.SetAchievements();
+			Achievements.InitializeData();
+		}
+	}
+
+	public void ShowParty()
+	{
+		if (!CanPlayOnline() || Guide.IsVisible)
+		{
+			return;
+		}
+		Main.PlaySound(10);
+		bool flag;
+		do
+		{
+			flag = false;
+			try
+			{
+				Guide.ShowPartySessions(controller);
+			}
+			catch (GuideAlreadyVisibleException)
+			{
+				Thread.Sleep(32);
+				flag = true;
+			}
+		}
+		while (flag);
+	}
+
+	private void DrawLogo()
+	{
+		logoRotation += logoRotationSpeed * 3E-05f;
+		if ((double)logoRotation > 0.1)
+		{
+			logoRotationDirection = -1f;
+		}
+		else if ((double)logoRotation < -0.1)
+		{
+			logoRotationDirection = 1f;
+		}
+		if ((logoRotationSpeed < 20f) & (logoRotationDirection == 1f))
+		{
+			logoRotationSpeed++;
+		}
+		else if ((logoRotationSpeed > -20f) & (logoRotationDirection == -1f))
+		{
+			logoRotationSpeed--;
+		}
+		logoScale += logoScaleSpeed * 1E-05f;
+		if ((double)logoScale > 1.1)
+		{
+			logoScaleDirection = -1f;
+		}
+		else if ((double)logoScale < 0.9)
+		{
+			logoScaleDirection = 1f;
+		}
+		if ((logoScaleSpeed < 50f) & (logoScaleDirection == 1f))
+		{
+			logoScaleSpeed++;
+		}
+		else if ((logoScaleSpeed > -50f) & (logoScaleDirection == -1f))
+		{
+			logoScaleSpeed--;
+		}
+		Color color = new Color(LogoA, LogoA, LogoA, LogoA);
+		Color color2 = new Color(LogoB, LogoB, LogoB, LogoB);
+		float x = ((CurrentView != null) ? (CurrentView.ViewWidth >> 1) : (Main.ResolutionWidth / 2));
+		float num = 1f;
+		switch (Main.ScreenHeightPtr)
+		{
+		case ScreenHeights.HD:
+			num = 1.15f;
+			break;
+		case ScreenHeights.FHD:
+			num = 1.5f;
+			break;
+		}
+		Main.SpriteBatch.Draw(logoTexture, new Vector2(x, 100f * Main.ScreenMultiplier), new Rectangle(0, 0, logoTexture.Width, logoTexture.Height), color, logoRotation, new Vector2(logoTexture.Width >> 1, logoTexture.Height >> 1), logoScale * num, SpriteEffects.None, 0f);
+		Main.SpriteBatch.Draw(logo2Texture, new Vector2(x, 100f * Main.ScreenMultiplier), new Rectangle(0, 0, logoTexture.Width, logoTexture.Height), color2, logoRotation, new Vector2(logoTexture.Width >> 1, logoTexture.Height >> 1), logoScale * num, SpriteEffects.None, 0f);
+		if (CurrentView.WorldTime.DayTime)
+		{
+			LogoA += 2;
+			if (LogoA > 255)
+			{
+				LogoA = 255;
+			}
+			LogoB--;
+			if (LogoB < 0)
+			{
+				LogoB = 0;
+			}
+		}
+		else
+		{
+			LogoB += 2;
+			if (LogoB > 255)
+			{
+				LogoB = 255;
+			}
+			LogoA--;
+			if (LogoA < 0)
+			{
+				LogoA = 0;
+			}
+		}
+	}
+
+	private void initCharacterSelectCoordinates()
+	{
+		if (numLoadPlayers == 0)
+		{
+			return;
+		}
+		for (int i = 0; i < 5; i++)
+		{
+			if (i < numLoadPlayers)
+			{
+				MENU_SELECT_COORDS[i].X = ViewportHalfWidth;
+			}
+			else
+			{
+				MENU_SELECT_COORDS[i].X = 0;
+			}
+		}
+	}
+
+	private void DrawControls()
+	{
+		if (CurMenuType == MenuType.NONE)
+		{
+			return;
+		}
+		Main.StrBuilder.Length = 0;
+		if (saveIconMessageTime > 0)
+		{
+			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CLOSE));
+		}
+		else
+		{
+			switch (CurMenuMode)
+			{
+			case MenuMode.WAITING_SCREEN:
+			case MenuMode.NETPLAY:
+			case MenuMode.ERROR:
+			case MenuMode.LOAD_FAILED_NO_BACKUP:
+			case MenuMode.CREDITS:
+			case MenuMode.ACHIEVEMENTS:
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.BACK));
+				break;
+			case MenuMode.MAP:
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.MOVE_MAP));
+				Main.StrBuilder.Append(' ');
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.ZOOM));
+				Main.StrBuilder.Append(' ');
+				if (mapScreenCursorY >= 2)
+				{
+					if (CanViewGamerCard() && Netplay.Session != null)
+					{
+						GamerCollection<NetworkGamer> allGamers = Netplay.Session.AllGamers;
+						if (mapScreenCursorY - 2 < allGamers.Count)
+						{
+							Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.SHOW_GAMERCARD));
+							Main.StrBuilder.Append(' ');
+						}
+					}
+				}
+				else if (mapScreenCursorX == 0)
+				{
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.TOGGLE_PVP));
+					Main.StrBuilder.Append(' ');
+				}
+				else
+				{
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.SELECT_TEAM));
+					Main.StrBuilder.Append(' ');
+				}
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.BACK));
+				if (Netplay.gamer != null && Main.NetMode > 0)
+				{
+					if (CanCommunicate())
+					{
+						Main.StrBuilder.Append(' ');
+						Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.INVITE_PLAYER));
+					}
+					if (SignedInGamer.PartySize > 1)
+					{
+						Main.StrBuilder.Append(' ');
+						Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.INVITE_PARTY));
+					}
+				}
+				break;
+			case MenuMode.TITLE:
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.SELECT));
+				if (playerStorage != null)
+				{
+					Main.StrBuilder.Append(' ');
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CHANGE_STORAGE));
+				}
+				if (CanPlayOnline())
+				{
+					Main.StrBuilder.Append(' ');
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.SHOW_PARTY));
+				}
+				break;
+			case MenuMode.CREATE_CHARACTER:
+				CreateCharacterGUI.ControlDescription(Main.StrBuilder);
+				break;
+			case MenuMode.VOLUME:
+				soundUI.ControlDescription(Main.StrBuilder);
+				break;
+			case MenuMode.HOW_TO_PLAY:
+				howtoUI.ControlDescription(Main.StrBuilder);
+				break;
+			case MenuMode.LEADERBOARDS:
+				Leaderboards.ControlDescription(Main.StrBuilder);
+				break;
+			case MenuMode.CHARACTER_SELECT:
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.SELECT));
+				if (Netplay.gamersWhoReceivedInvite.Count < 2 || !Netplay.gamersWhoReceivedInvite.Contains(SignedInGamer))
+				{
+					Main.StrBuilder.Append(' ');
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.BACK));
+				}
+				if (uiY != 5 && loadPlayer[uiY].difficulty == 67)
+				{
+					Main.StrBuilder.Remove(0, 8);
+				}
+				if (uiY != 5 && focusMenu < numLoadPlayers)
+				{
+					Main.StrBuilder.Append(' ');
+					Main.StrBuilder.Append(Lang.MenuText[17]);
+				}
+				break;
+			case MenuMode.WORLD_SELECT:
+				WorldSelect.ControlDescription(Main.StrBuilder);
+				break;
+			case MenuMode.UPSELL:
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.EXIT));
+				Main.StrBuilder.Append(' ');
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.BACK_TO_GAME));
+				if (SignedInGamer.Privileges.AllowPurchaseContent)
+				{
+					Main.StrBuilder.Append(' ');
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.UNLOCK_FULL_GAME));
+				}
+				break;
+			case MenuMode.CONTROLS:
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.TOGGLE_GRAPPLE_MODE));
+				Main.StrBuilder.Append(' ');
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.BACK));
+				break;
+			case MenuMode.PAUSE:
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.SELECT));
+				Main.StrBuilder.Append(' ');
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.BACK));
+				if (Main.NetMode == 1)
+				{
+					Main.StrBuilder.Append(' ');
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.BLACKLIST));
+				}
+				Main.StrBuilder.Append(' ');
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.ZOOM));
+				break;
+			default:
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.SELECT));
+				Main.StrBuilder.Append(' ');
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.BACK));
+				break;
+			case MenuMode.WELCOME:
+			case MenuMode.STATUS_SCREEN:
+				break;
+			}
+			if (Main.HardmodeAlert && CurMenuMode == MenuMode.HARDMODE_UPSELL)
+			{
+				Main.StrBuilder.Length = 0;
+				hardmodeUpsell.ControlDescription(Main.StrBuilder);
+			}
+		}
+		if (CurMenuMode == MenuMode.WELCOME)
+		{
+			string text = "Port by DartPower Team";
+			Vector2 vector = BoldSmallFont.MeasureString(Main.OGCVersion);
+			int num = Main.ResolutionHeight - CurrentView.SafeAreaOffsetBottom;
+			float scale = ((NumActiveViews <= 1) ? TextScale : (TextScale * 2f));
+			Main.SpriteBatch.DrawString(BoldSmallFont, text, new Vector2(CurrentView.SafeAreaOffsetLeft, num), Color.White, 0f, new Vector2(0f, BoldSmallFont.MeasureString(text).Y), scale, SpriteEffects.None, 0f);
+			Main.SpriteBatch.DrawString(BoldSmallFont, Main.OGCVersion, new Vector2((float)(Main.ResolutionWidth - CurrentView.SafeAreaOffsetRight) - vector.X, num), Color.White, 0f, new Vector2(0f, vector.Y), scale, SpriteEffects.None, 0f);
+		}
+		if (Main.StrBuilder.Length > 0)
+		{
+			DrawStringLB(BoldSmallFont, CurrentView.SafeAreaOffsetLeft, CurrentView.SafeAreaOffsetBottom);
+		}
+	}
+
+	private void DrawHud()
+	{
+		Vector2 pos = default;
+		Color c = new Color(128, 128, 128, 128);
+		for (int i = 1; i < ActivePlayer.StatLifeMax / 20 + 1; i++)
+		{
+			int num = CurrentView.ViewWidth - CurrentView.SafeAreaOffsetRight - 460 + 26 * (i - 1) + 160 + 11;
+			int num2 = CurrentView.SafeAreaOffsetTop;
+			if (i > 10)
+			{
+				num -= 260;
+				num2 += 26;
+			}
+			SpriteSheet<_sheetSprites>.Draw(436, num, num2, c);
+			int id = 435;
+			if (ActivePlayer.statLife < i * 20)
+			{
+				float num3 = (float)(ActivePlayer.statLife - (i - 1) * 20) / 20f;
+				if (num3 <= 0f)
+				{
+					continue;
+				}
+				if ((double)num3 < 0.25)
+				{
+					id = 434;
+				}
+				else
+				{
+					id = ((!((double)num3 < 0.5)) ? 432 : 433);
+				}
+			}
+			SpriteSheet<_sheetSprites>.Draw(id, num, num2);
+		}
+		if (ActivePlayer.breath < 200)
+		{
+			for (int j = 1; j < 11; j++)
+			{
+				int num4 = CurrentView.ViewWidth - CurrentView.SafeAreaOffsetRight - 460 + 26 * (j - 1) + 160 + 11;
+				int num5 = CurrentView.SafeAreaOffsetTop + 52;
+				SpriteSheet<_sheetSprites>.Draw(141, num4, num5, c);
+				if (ActivePlayer.breath < j * 20)
+				{
+					float num6 = (float)(ActivePlayer.breath - (j - 1) * 20) / 20f;
+					if (num6 > 0f)
+					{
+						float scaleCenter = num6 * 0.25f + 0.75f;
+						int num7 = (int)(30f + 225f * num6);
+						if (num7 < 30)
+						{
+							num7 = 30;
+						}
+						c.R = (byte)num7;
+						c.G = (byte)num7;
+						c.B = (byte)num7;
+						c.A = (byte)num7;
+						SpriteSheet<_sheetSprites>.DrawScaled(140, num4 + 11, num5 + 11, scaleCenter, c);
+						c = new Color(128, 128, 128, 128);
+					}
+				}
+				else
+				{
+					SpriteSheet<_sheetSprites>.Draw(140, num4, num5);
+				}
+			}
+		}
+		if (ActivePlayer.statManaMax2 > 0)
+		{
+			int num8 = ActivePlayer.statManaMax2 / 20;
+			int num9 = CurrentView.ViewWidth - CurrentView.SafeAreaOffsetRight - 22;
+			pos.X = num9 + 11;
+			c.R = byte.MaxValue;
+			c.G = byte.MaxValue;
+			c.B = byte.MaxValue;
+			c.A = 229;
+			int num10 = 0;
+			do
+			{
+				bool flag = false;
+				float num11 = 1f;
+				if (ActivePlayer.statMana >= (num10 + 1) * 20)
+				{
+					if (ActivePlayer.statMana == (num10 + 1) * 20)
+					{
+						flag = true;
+					}
+				}
+				else
+				{
+					float num12 = (float)(ActivePlayer.statMana - num10 * 20) / 20f;
+					int num13 = (int)(30f + 225f * num12);
+					if (num13 < 30)
+					{
+						num13 = 30;
+					}
+					c.R = (byte)num13;
+					c.G = (byte)num13;
+					c.B = (byte)num13;
+					c.A = (byte)((double)num13 * 0.9);
+					num11 = num12 * 0.25f + 0.5f;
+					if (num11 < 0.5f)
+					{
+						num11 = 0.5f;
+					}
+					if (num12 > 0f)
+					{
+						flag = true;
+					}
+				}
+				if (flag)
+				{
+					num11 += cursorScale - 1f;
+				}
+				int num14 = CurrentView.SafeAreaOffsetTop + 23 * num10;
+				pos.Y = (float)(num14 + 11) + (6f - 6f * num11);
+				SpriteSheet<_sheetSprites>.Draw(1087, num9, num14, new Color(128, 128, 128, 128));
+				SpriteSheet<_sheetSprites>.DrawScaled(1086, ref pos, c, num11);
+			}
+			while (++num10 < num8);
+		}
+		c = new Color(99, 99, 99, 99);
+		for (int k = 0; k < 10; k++)
+		{
+			int type = ActivePlayer.buff[k].Type;
+			if (type <= 0)
+			{
+				continue;
+			}
+			int num15 = (int)(32f * Main.ScreenMultiplier) + CurrentView.SafeAreaOffsetLeft + k * (int)(38f * Main.ScreenMultiplier);
+			int num16 = (int)(76f * Main.ScreenMultiplier) + CurrentView.SafeAreaOffsetTop;
+			int num17 = 141 + type;
+			if (type == 40)
+			{
+				num17 += ActivePlayer.pet;
+			}
+			if (Main.ScreenHeightPtr == ScreenHeights.BASE)
+			{
+				SpriteSheet<_sheetSprites>.Draw(num17, num15, num16, c);
+			}
+			else
+			{
+				SpriteSheet<_sheetSprites>.DrawScaled(num17, num15, num16, Main.ScreenMultiplier, c);
+			}
+			if (type != 28 && type != 34 && type != 37 && type != 38 && type != 40)
+			{
+				int num18 = ActivePlayer.buff[k].Time / 60;
+				Main.StrBuilder.Length = 0;
+				Main.StrBuilder.Append((num18 / 60).ToStringLookup());
+				Main.StrBuilder.Append(':');
+				num18 %= 60;
+				if (num18 < 10)
+				{
+					Main.StrBuilder.Append('0');
+				}
+				Main.StrBuilder.Append(num18.ToStringLookup());
+				switch (Main.ScreenHeightPtr)
+				{
+				case ScreenHeights.HD:
+					num15 -= 24;
+					num16 -= 10;
+					break;
+				case ScreenHeights.FHD:
+					num15 -= 38;
+					num16 += 4;
+					break;
+				}
+				DrawStringLT(ItemStackFont, num15, num16 + 32, Color.White);
+			}
+		}
+		if (npcChatText == null)
+		{
+			bool flag2 = false;
+			bool flag3 = false;
+			bool flag4 = false;
+			for (int l = 0; l < 3; l++)
+			{
+				Main.StrBuilder.Length = 0;
+				if (ActivePlayer.accCompass && !flag4)
+				{
+					Main.StrBuilder.Append(Lang.MenuText[95]);
+					int num19 = (ActivePlayer.XYWH.X + 10 >> 3) - Main.MaxTilesX;
+					num19 >>= 2;
+					if (num19 > 0)
+					{
+						Main.StrBuilder.Append(num19.ToStringLookup());
+						Main.StrBuilder.Append(Lang.MenuText[96]);
+					}
+					else if (num19 < 0)
+					{
+						num19 = -num19;
+						Main.StrBuilder.Append(num19.ToStringLookup());
+						Main.StrBuilder.Append(Lang.MenuText[97]);
+					}
+					else
+					{
+						Main.StrBuilder.Append(Lang.MenuText[98]);
+					}
+					flag4 = true;
+				}
+				else if (ActivePlayer.accDepthMeter && !flag3)
+				{
+					Main.StrBuilder.Append(Lang.MenuText[85]);
+					int num20 = (ActivePlayer.XYWH.Y + 42 >> 3) - Main.WorldSurface * 2;
+					num20 >>= 2;
+					if (num20 > 0)
+					{
+						Main.StrBuilder.Append(num20.ToStringLookup());
+						Main.StrBuilder.Append(Lang.MenuText[86]);
+					}
+					else if (num20 < 0)
+					{
+						num20 = -num20;
+						Main.StrBuilder.Append(num20.ToStringLookup());
+						Main.StrBuilder.Append(Lang.MenuText[87]);
+					}
+					else
+					{
+						Main.StrBuilder.Append(Lang.MenuText[88]);
+					}
+					flag3 = true;
+				}
+				else if (ActivePlayer.accWatch > 0 && !flag2)
+				{
+					string value = " AM";
+					double num21 = Main.GameTime.WorldTime;
+					if (!Main.GameTime.DayTime)
+					{
+						num21 += 54000.0;
+					}
+					num21 = num21 / 86400.0 * 24.0;
+					num21 = num21 - 7.5 - 12.0;
+					if (num21 < 0.0)
+					{
+						num21 += 24.0;
+					}
+					if (num21 >= 12.0)
+					{
+						value = " PM";
+					}
+					int num22 = (int)num21;
+					int num23 = (int)((num21 - (double)num22) * 60.0);
+					if (num22 > 12)
+					{
+						num22 -= 12;
+					}
+					if (num22 == 0)
+					{
+						num22 = 12;
+					}
+					string text;
+					if (ActivePlayer.accWatch == 1)
+					{
+						text = "00";
+					}
+					else if (ActivePlayer.accWatch == 2)
+					{
+						text = ((num23 >= 30) ? "30" : "00");
+					}
+					else
+					{
+						text = num23.ToStringLookup();
+						if (num23 < 10)
+						{
+							text = "0" + text;
+						}
+					}
+					Main.StrBuilder.Append(Lang.InterfaceText[34]);
+					Main.StrBuilder.Append(num22.ToStringLookup());
+					Main.StrBuilder.Append(':');
+					Main.StrBuilder.Append(text);
+					Main.StrBuilder.Append(value);
+					flag2 = true;
+				}
+				if (Main.StrBuilder.Length > 0)
+				{
+					int num24 = 22;
+					switch (Main.ScreenHeightPtr)
+					{
+					case ScreenHeights.HD:
+						num24 = 25;
+						break;
+					case ScreenHeights.FHD:
+						num24 = 33;
+						break;
+					}
+					DrawStringLT(BoldSmallFont, CurrentView.SafeAreaOffsetLeft, (int)(110f * Main.ScreenMultiplier + (float)(num24 * l) + (float)(int)(48f * Main.ScreenMultiplier)), mouseTextColor);
+				}
+			}
+		}
+		int oldSelectedItem = ActivePlayer.oldSelectedItem;
+		int num25 = ((oldSelectedItem >= 0) ? oldSelectedItem : ActivePlayer.SelectedItem);
+		float num26 = 1.25f;
+		float num27 = 1f;
+		switch (Main.ScreenHeightPtr)
+		{
+		case ScreenHeights.HD:
+			num26 = 1.40625f;
+			num27 = 1.15f;
+			break;
+		case ScreenHeights.FHD:
+			num26 = 1.875f;
+			num27 = 1.534f;
+			break;
+		}
+		float num28 = ((NumActiveViews > 1) ? num26 : num27);
+		int num29 = CurrentView.SafeAreaOffsetLeft;
+		for (int m = 0; m < 10; m++)
+		{
+			float num30 = hotbarScale[m];
+			if (m == num25)
+			{
+				if (num30 < 1f)
+				{
+					num30 += 0.05f;
+					hotbarScale[m] = num30;
+				}
+			}
+			else if (num30 > 0.75f)
+			{
+				num30 -= 0.05f;
+				hotbarScale[m] = num30;
+			}
+			num30 *= num28;
+			int y = (int)((float)CurrentView.SafeAreaOffsetTop + 22f * (1f - num30));
+			int num31 = (int)(65f + 180f * num30);
+			Color itemColor = new Color(num31, num31, num31, num31);
+			if (m == num25)
+			{
+				c.R = 200;
+				c.G = 200;
+				c.B = 200;
+				c.A = 200;
+				SpriteSheet<_sheetSprites>.DrawTL(448, num29, y, c, num30);
+			}
+			else
+			{
+				c.R = 100;
+				c.G = 100;
+				c.B = 100;
+				c.A = 100;
+				SpriteSheet<_sheetSprites>.DrawTL(451, num29, y, c, num30);
+			}
+			int num32 = ((m == oldSelectedItem) ? ActivePlayer.SelectedItem : m);
+			if (ActivePlayer.Inventory[num32].Type > 0 && ActivePlayer.Inventory[num32].Stack > 0)
+			{
+				inventoryScale = num30;
+				DrawInventoryItem(ref ActivePlayer.Inventory[num32], num29, y, itemColor, StackType.HOTBAR);
+			}
+			num29 += (int)(52f * num30) + 4;
+		}
+		if (quickAccessDisplayTime > 0)
+		{
+			quickAccessDisplayTime--;
+			int alpha = ((quickAccessDisplayTime < 64) ? (quickAccessDisplayTime << 2) : 255);
+			DrawQuickAccess(ActivePlayer.SelectedItem, CurrentView.SafeAreaOffsetLeft, Main.ResolutionHeight - CurrentView.SafeAreaOffsetBottom - (int)(160f * Main.ScreenMultiplier), alpha, StackType.HOTBAR);
+		}
+		if (hotbarItemNameTime > 0)
+		{
+			hotbarItemNameTime--;
+			if (ActivePlayer.Inventory[ActivePlayer.SelectedItem].Type != 0)
+			{
+				string s = ActivePlayer.Inventory[ActivePlayer.SelectedItem].AffixName();
+				int num33 = ((hotbarItemNameTime < 64) ? (hotbarItemNameTime << 2) : 255);
+				DrawStringCT(SmallFont, s, (int)(216f * num28) + CurrentView.SafeAreaOffsetLeft, CurrentView.SafeAreaOffsetTop + (int)(44f * num28), new Color(num33, num33, num33, num33));
+			}
+		}
+		DrawControlsIngame();
+	}
+
+	private void DrawInventoryItem(int itemTexId, int x, int y, Color itemColor)
+	{
+		int width = SpriteSheet<_sheetSprites>.Source[itemTexId].Width;
+		int height = SpriteSheet<_sheetSprites>.Source[itemTexId].Height;
+		float num = ((width <= height) ? (41f / (float)height) : (41f / (float)width));
+		if (Main.ScreenHeightPtr == ScreenHeights.BASE)
+		{
+			num *= inventoryScale;
+		}
+		if (num > 1.25f)
+		{
+			num = 1.25f;
+		}
+		if (Main.ScreenHeightPtr != ScreenHeights.BASE)
+		{
+			num *= inventoryScale;
+		}
+		Vector2 pos = new Vector2
+		{
+			X = (float)x + 26f * inventoryScale,
+			Y = (float)y + 26f * inventoryScale
+		};
+		SpriteSheet<_sheetSprites>.DrawScaled(itemTexId, ref pos, itemColor, num);
+	}
+
+	private void DrawInventoryItem(ref Item item, int x, int y, Color itemColor, StackType stackType = StackType.NONE)
+	{
+		int num = item.Type + 452 - 1;
+		int width = SpriteSheet<_sheetSprites>.Source[num].Width;
+		int height = SpriteSheet<_sheetSprites>.Source[num].Height;
+		float num2 = ((width <= height) ? (41f / (float)height) : (41f / (float)width));
+		if (Main.ScreenHeightPtr == ScreenHeights.BASE)
+		{
+			num2 *= inventoryScale;
+		}
+		if (num2 > 1.25f)
+		{
+			num2 = 1.25f;
+		}
+		if (Main.ScreenHeightPtr != ScreenHeights.BASE)
+		{
+			num2 *= inventoryScale;
+		}
+		Vector2 pos = new Vector2
+		{
+			X = (float)x + 26f * inventoryScale,
+			Y = (float)y + 26f * inventoryScale
+		};
+		SpriteSheet<_sheetSprites>.DrawScaled(num, ref pos, item.GetAlphaInventory(itemColor), num2);
+		if (item.Colour.PackedValue != 0)
+		{
+			SpriteSheet<_sheetSprites>.DrawScaled(num, ref pos, item.GetColor(itemColor), num2);
+		}
+		switch (stackType)
+		{
+		case StackType.INGREDIENT:
+			DrawIngredientStack(ref item, x, y, itemColor);
+			return;
+		case StackType.NONE:
+			return;
+		}
+		DrawInventoryItemStack(ref item, x, y, ref itemColor);
+		if (stackType != StackType.HOTBAR)
+		{
+			return;
+		}
+		int useAmmo = item.UseAmmo;
+		float num3 = inventoryScale;
+		if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+		{
+			num3 *= 0.5f;
+			num3 -= 0.1f;
+			y += FONT_STACK_Y_OFFSET;
+		}
+		if (useAmmo > 0)
+		{
+			int num4 = 0;
+			for (int i = 0; i < ActivePlayer.Inventory.Length - 1; i++)
+			{
+				if (ActivePlayer.Inventory[i].Ammo == useAmmo)
+				{
+					num4 += ActivePlayer.Inventory[i].Stack;
+				}
+			}
+			DrawStringScaled(ItemStackFont, num4.ToStringLookup(), new Vector2((float)(x + FONT_STACK_X_OFFSET) + 10f * inventoryScale, (float)y + 26f * inventoryScale), itemColor, default, num3 + 0.1f);
+		}
+		else if (item.Type == 509)
+		{
+			int num5 = 0;
+			for (int j = 0; j < ActivePlayer.Inventory.Length - 1; j++)
+			{
+				if (ActivePlayer.Inventory[j].Type == 530)
+				{
+					num5 += ActivePlayer.Inventory[j].Stack;
+				}
+			}
+			DrawStringScaled(ItemStackFont, num5.ToStringLookup(), new Vector2((float)(x + FONT_STACK_X_OFFSET) + 10f * inventoryScale, (float)y + 26f * inventoryScale), itemColor, default, num3 + 0.1f);
+		}
+		if (item.IsPotion)
+		{
+			Color alphaInventory = item.GetAlphaInventory(itemColor);
+			float num6 = (float)(int)ActivePlayer.potionDelay / (float)(int)ActivePlayer.potionDelayTime;
+			alphaInventory *= num6;
+			pos.X = (float)x + 26f * inventoryScale;
+			pos.Y = (float)y + 26f * inventoryScale;
+			SpriteSheet<_sheetSprites>.DrawScaled(204, ref pos, alphaInventory, inventoryScale);
+		}
+	}
+
+	private static void DrawInventoryItemStack(ref Item item, int x, int y, ref Color itemColor)
+	{
+		if (item.Stack <= 1)
+		{
+			return;
+		}
+		float num = inventoryScale;
+		SpriteFont font = ItemStackFont;
+		if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+		{
+			num *= 0.5f;
+			if (!MainUI.CurrentView.IsFullScreen() && NumActiveViews > 1)
+			{
+				font = BoldSmallFont;
+				num = 1f;
+				y -= 15;
+			}
+			y += FONT_STACK_Y_OFFSET;
+		}
+		DrawStringScaled(font, item.Stack.ToStringLookup(), new Vector2((float)(x + FONT_STACK_X_OFFSET) + 10f * inventoryScale, (float)y + 26f * inventoryScale), itemColor, default, num + 0.1f);
+	}
+
+	private void DrawIngredientStack(ref Item item, int x, int y, Color itemColor)
+	{
+		int num = Math.Min(item.Stack, ActivePlayer.CountInventory(item.NetID));
+		Main.StrBuilder.Length = 0;
+		Main.StrBuilder.Append(item.Stack.ToStringLookup());
+		if (num < item.Stack)
+		{
+			itemColor.G >>= 1;
+			itemColor.B >>= 1;
+		}
+		float num2 = inventoryScale;
+		if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+		{
+			num2 *= 0.5f;
+			y += FONT_STACK_Y_OFFSET;
+		}
+		DrawStringScaled(ItemStackFont, new Vector2((float)(x + FONT_STACK_X_OFFSET) + 10f * inventoryScale, (float)y + 26f * inventoryScale), itemColor, default, num2 - 0.1f);
+	}
+
+	public void DrawInterface()
+	{
+		if (showNPCs)
+		{
+			CurrentView.DrawNPCHouse();
+		}
+		Vector2 pos = default;
+		if (ActivePlayer.rulerAcc)
+		{
+			CurrentView.DrawGrid();
+		}
+		if (signBubble)
+		{
+			signBubble = false;
+			int num = signX - CurrentView.ScreenPosition.X;
+			int num2 = signY - CurrentView.ScreenPosition.Y;
+			SpriteEffects se = SpriteEffects.None;
+			if ((float)signX > ActivePlayer.Position.X + 20f)
+			{
+				se = SpriteEffects.FlipHorizontally;
+				num -= 40;
+			}
+			else
+			{
+				num += 8;
+			}
+			num2 -= 22;
+			SpriteSheet<_sheetSprites>.Draw(200, num, num2, mouseTextColor, se);
+		}
+		Main.SpriteBatch.End();
+		for (int num3 = 7; num3 >= 0; num3--)
+		{
+			if (MyPlayer != num3)
+			{
+				Player player = Main.PlayerSet[num3];
+				if (player.Active != 0 && !player.IsDead && !player.XYWH.Intersects(CurrentView.ViewArea) && (ActivePlayer.team == 0 || player.team == 0 || ActivePlayer.team == player.team))
+				{
+					Vector2 GameView = default;
+					Vector2 PlayerView = default;
+					GameView.X = CurrentView.ViewWidth >> 1;
+					GameView.Y = Main.ResolutionHeight / 2;
+					PlayerView.X = player.XYWH.X + 10 - CurrentView.ScreenPosition.X;
+					PlayerView.Y = player.XYWH.Y + 21 - CurrentView.ScreenPosition.Y;
+					Vector2 Intersection = default;
+					bool flag = false;
+					int safeAreaOffsetLeft = CurrentView.SafeAreaOffsetLeft;
+					int num4 = CurrentView.ViewWidth - CurrentView.SafeAreaOffsetRight - 40;
+					int num5 = CurrentView.SafeAreaOffsetTop + 20 + 40;
+					int num6 = Main.ResolutionHeight - CurrentView.SafeAreaOffsetBottom - 40;
+					if (PlayerView.X <= (float)safeAreaOffsetLeft)
+					{
+						flag = Collision.LineIntersection(ref GameView, ref PlayerView, new Vector2(safeAreaOffsetLeft, num5), new Vector2(safeAreaOffsetLeft, num6), ref Intersection);
+					}
+					else if (PlayerView.X >= (float)num4)
+					{
+						flag = Collision.LineIntersection(ref GameView, ref PlayerView, new Vector2(num4, num5), new Vector2(num4, num6), ref Intersection);
+					}
+					if (!flag)
+					{
+						if (PlayerView.Y <= (float)num5)
+						{
+							flag = Collision.LineIntersection(ref GameView, ref PlayerView, new Vector2(safeAreaOffsetLeft, num5), new Vector2(num4, num5), ref Intersection);
+						}
+						else if (PlayerView.Y >= (float)num6)
+						{
+							flag = Collision.LineIntersection(ref GameView, ref PlayerView, new Vector2(safeAreaOffsetLeft, num6), new Vector2(num4, num6), ref Intersection);
+						}
+					}
+					float num7 = (float)CurrentView.ViewWidth * 1.5f / (PlayerView - GameView).Length();
+					if (num7 < 0.5f)
+					{
+						num7 = 0.5f;
+					}
+					Matrix matrix = Matrix.CreateTranslation(-10f, -8f, 0f) * Matrix.CreateScale(num7, num7, 1f);
+					Vector2 position = player.Position;
+					player.Position.X = CurrentView.ScreenPosition.X;
+					player.Position.Y = CurrentView.ScreenPosition.Y;
+					CurrentView.ScreenProjection.World = matrix * Matrix.CreateTranslation(Intersection.X, Intersection.Y, 0f);
+					Main.SpriteBatch.Begin(SpriteSortMode.Deferred, null, null, null, null, CurrentView.ScreenProjection);
+					player.Draw(CurrentView, IsMenuScr: true, IsIcon: true);
+					Main.SpriteBatch.End();
+					player.Position = position;
+					player.XYWH.X = (int)position.X;
+					player.XYWH.Y = (int)position.Y;
+				}
+			}
+		}
+		CurrentView.ScreenProjection.World = Matrix.Identity;
+		Main.SpriteBatch.Begin(SpriteSortMode.Deferred, null, null, null, null, CurrentView.ScreenProjection);
+		if (ActivePlayer.IsDead)
+		{
+			CloseInventory();
+			string s = Lang.InterfaceText[38];
+			int x = CurrentView.ViewWidth >> 1;
+			int y = Main.ResolutionHeight / 2;
+			Color deathAlpha = ActivePlayer.GetDeathAlpha(default);
+			DrawStringCC(BigFont, s, x, y, deathAlpha);
+			return;
+		}
+		if (InventoryMode != 0)
+		{
+			DrawInventoryMenu();
+			return;
+		}
+		CurrentView.SetWorldView();
+		Rectangle rectangle = new Rectangle(ActivePlayer.XYWH.X + 10 - 80, ActivePlayer.XYWH.Y + 21 - 64, 160, 128);
+		for (int i = 0; i < 8; i++)
+		{
+			if (Main.PlayerSet[i].Active != 0 && MyPlayer != i && !Main.PlayerSet[i].IsDead)
+			{
+				Rectangle value = new Rectangle(Main.PlayerSet[i].XYWH.X + -6, Main.PlayerSet[i].XYWH.Y + 42 - 48, 32, 48);
+				if (rectangle.Intersects(value))
+				{
+					Main.PlayerSet[i].DrawInfo(CurrentView);
+				}
+			}
+		}
+		if (!ActivePlayer.IsDead)
+		{
+			for (int num8 = 195; num8 >= 0; num8--)
+			{
+				CurrentView.drawNpcName[num8] = true;
+			}
+			ActivePlayer.npcChatBubble = -1;
+			int num9 = 10496;
+			Rectangle value2 = default;
+			Point center = rectangle.Center;
+			for (int j = 0; j < 196; j++)
+			{
+				NPC nPC = Main.NPCSet[j];
+				if (nPC.Active == 0)
+				{
+					continue;
+				}
+				int type = nPC.Type;
+				if (type == 85 && Main.NPCSet[j].AI0 == 0f)
+				{
+					continue;
+				}
+				if ((type >= 87 && type <= 92) || (type >= 159 && type <= 164))
+				{
+					value2.X = nPC.XYWH.X + (nPC.Width >> 1) - 32;
+					value2.Y = nPC.XYWH.Y + (nPC.Height >> 1) - 32;
+					value2.Width = 64;
+					value2.Height = 64;
+				}
+				else
+				{
+					int width = SpriteSheet<_sheetSprites>.Source[1088 + type].Width;
+					value2.X = nPC.XYWH.X + (nPC.Width >> 1) - (width >> 1);
+					value2.Y = nPC.XYWH.Y + nPC.Height - nPC.FrameHeight;
+					value2.Width = width;
+					value2.Height = nPC.FrameHeight;
+				}
+				rectangle.Intersects(ref value2, out var result);
+				if (result)
+				{
+					if (nPC.CanTalk() && ActivePlayer.CanInteractWithNPC())
+					{
+						Point value3 = value2.Center;
+						int num10 = Math.Abs(center.X - value3.X);
+						if (num10 <= 80)
+						{
+							int num11 = num10 * num10;
+							num10 = Math.Abs(center.Y - value3.Y);
+							if (num10 <= 64)
+							{
+								num11 += num10 * num10;
+								if (num11 < num9)
+								{
+									bool result2;
+									if (UsingSmartCursor)
+									{
+										result2 = true;
+									}
+									else
+									{
+										value3.X = MouseX + CurrentView.ScreenPosition.X;
+										value3.Y = MouseY + CurrentView.ScreenPosition.Y;
+										value2.Contains(ref value3, out result2);
+									}
+									if (result2)
+									{
+										ActivePlayer.npcChatBubble = (short)j;
+									}
+								}
+							}
+						}
+					}
+					if (nPC.DrawMyName < 32)
+					{
+						nPC.DrawMyName = 32;
+					}
+				}
+				if (nPC.DrawMyName > 0 && CurrentView.ClipArea.Intersects(value2))
+				{
+					nPC.DrawMyName--;
+					nPC.DrawInfo(CurrentView);
+				}
+			}
+			if (ActivePlayer.npcChatBubble >= 0)
+			{
+				NPC nPC2 = Main.NPCSet[ActivePlayer.npcChatBubble];
+				int num12 = -((nPC2.Width >> 1) + 8);
+				SpriteEffects se2 = SpriteEffects.None;
+				if (nPC2.SpriteDirection == -1)
+				{
+					se2 = SpriteEffects.FlipHorizontally;
+					num12 = -num12;
+				}
+				pos.X = nPC2.XYWH.X + (nPC2.Width >> 1) - CurrentView.ScreenPosition.X - 16 - num12;
+				pos.Y = nPC2.XYWH.Y - 26 - CurrentView.ScreenPosition.Y;
+				SpriteSheet<_sheetSprites>.Draw(201, ref pos, mouseTextColor, se2);
+			}
+		}
+		CurrentView.SetScreenView();
+		if (npcChatText != null || ActivePlayer.sign != -1)
+		{
+			DrawNpcChat();
+		}
+	}
+
+	public void ClearInput()
+	{
+		inputTextEnter = false;
+		inputTextCanceled = false;
+	}
+
+	public UserString GetInputText(UserString oldString, string title = null, string desc = null, bool validate = true)
+	{
+		if (!inputTextEnter && oldString.IsEditable())
+		{
+			if (!Guide.IsVisible)
+			{
+				try
+				{
+					kbResult = Guide.BeginShowKeyboardInput(controller, title, desc, oldString.IsCensored ? "" : oldString.UserText, null, null);
+				}
+				catch (GuideAlreadyVisibleException)
+				{
+					return oldString;
+				}
+			}
+			if (kbResult != null && kbResult.IsCompleted)
+			{
+				inputTextEnter = true;
+				string text = Guide.EndShowKeyboardInput(kbResult);
+				kbResult = null;
+				inputTextCanceled = text == null;
+				if (!inputTextCanceled)
+				{
+					text = text.Trim();
+					char[] array = text.ToCharArray();
+					bool flag = false;
+					for (int num = array.Length - 1; num >= 0; num--)
+					{
+						if (array[num] == '¤')
+						{
+							array[num] = 'Ʃ';
+							flag = true;
+						}
+						else if (!BoldSmallFont.Characters.Contains(array[num]))
+						{
+							if (array[num] == '€')
+							{
+								array[num] = 'Ɛ';
+							}
+							else
+							{
+								array[num] = '?';
+							}
+							flag = true;
+						}
+					}
+					if (flag)
+					{
+						text = new string(array);
+					}
+					if (validate)
+					{
+						oldString.SetUserString(text);
+					}
+					else
+					{
+						oldString.SetSystemString(text);
+					}
+				}
+			}
+		}
+		return oldString;
+	}
+
+	public void FirstProgressStep(int numSteps, string text = null)
+	{
+		Progress = 0f;
+		progressTotal = 0f;
+		numProgressStepsInv = 1f / (float)numSteps;
+		if (text != null)
+		{
+			statusText = text;
+		}
+	}
+
+	public void NextProgressStep(string text = null)
+	{
+		Progress = 0f;
+		progressTotal += numProgressStepsInv;
+		if (text != null)
+		{
+			statusText = text;
+		}
+	}
+
+	private static void UpdateCursorColor()
+	{
+		cursorAlpha = (float)(0.8 + 0.2 * Math.Sin((double)Main.FrameCounter * 0.0625));
+		double num = (double)cursorAlpha * 0.3 + 0.7;
+		byte r = (byte)((float)(int)mouseColor.R * cursorAlpha);
+		byte g = (byte)((float)(int)mouseColor.G * cursorAlpha);
+		byte b = (byte)((float)(int)mouseColor.B * cursorAlpha);
+		byte alpha = (byte)(255.0 * num);
+		CursorColour = new Color(r, g, b, alpha);
+		cursorScale = (float)(num + 0.1);
+	}
+
+	private void UpdateMouse()
+	{
+		if (uiCoords == null)
+		{
+			int num = 0;
+			int num2 = 0;
+			int num3 = 3;
+			bool flag = InventoryMode > 0 || CurMenuMode == MenuMode.MAP || CurMenuMode == MenuMode.WORLD_SELECT || CurMenuMode == MenuMode.GAME_MODE;
+			if (flag)
+			{
+				num3 = 1;
+			}
+			else
+			{
+				if (CurMenuType == MenuType.NONE)
+				{
+					if (IsButtonTriggered(Buttons.RightStick))
+					{
+						UsingSmartCursor = !UsingSmartCursor;
+					}
+					if (UsingSmartCursor)
+					{
+						ActivePlayer.UpdateMouseSmart();
+					}
+					else
+					{
+						ActivePlayer.UpdateMouse();
+					}
+					return;
+				}
+				uiDelay = 0;
+				uiDelayValue = 12;
+			}
+			if (CurMenuMode != MenuMode.MAP)
+			{
+				if (PadState.ThumbSticks.Right.X < -0.125f)
+				{
+					num = -num3;
+				}
+				else if (PadState.ThumbSticks.Right.X > 0.125f)
+				{
+					num = num3;
+				}
+				if (PadState.ThumbSticks.Right.Y < -0.125f)
+				{
+					num2 = num3;
+				}
+				else if (PadState.ThumbSticks.Right.Y > 0.125f)
+				{
+					num2 = -num3;
+				}
+			}
+			if (CurMenuType != MenuType.NONE || InventoryMode > 0)
+			{
+				if (PadState.ThumbSticks.Left.X < -0.125f)
+				{
+					num = -num3;
+				}
+				else if (PadState.ThumbSticks.Left.X > 0.125f)
+				{
+					num = num3;
+				}
+				if (PadState.ThumbSticks.Left.Y < -0.125f)
+				{
+					num2 = num3;
+				}
+				else if (PadState.ThumbSticks.Left.Y > 0.125f)
+				{
+					num2 = -num3;
+				}
+				if (InventoryMode == 0 || ActiveInvSection != InventorySection.ITEMS)
+				{
+					if (PadState.DPad.Left == ButtonState.Pressed)
+					{
+						num = -num3;
+					}
+					else if (PadState.DPad.Right == ButtonState.Pressed)
+					{
+						num = num3;
+					}
+					if (PadState.DPad.Down == ButtonState.Pressed)
+					{
+						num2 = num3;
+					}
+					else if (PadState.DPad.Up == ButtonState.Pressed)
+					{
+						num2 = -num3;
+					}
+				}
+			}
+			if (uiDelay > 0)
+			{
+				if (num == 0 && num2 == 0)
+				{
+					uiDelay = 0;
+					uiDelayValue = 12;
+				}
+				else
+				{
+					uiDelay--;
+				}
+			}
+			if (uiDelay != 0)
+			{
+				return;
+			}
+			if (flag)
+			{
+				if (num != 0 || num2 != 0)
+				{
+					uiDelay = uiDelayValue;
+					uiDelayValue = 6;
+				}
+				if (CurMenuMode == MenuMode.MAP)
+				{
+					PositionMapScreenCursor(num, num2);
+					return;
+				}
+				if (CurMenuMode == MenuMode.WORLD_SELECT)
+				{
+					WorldSelect.UpdateCursor(num, num2);
+					return;
+				}
+				if (CurMenuMode == MenuMode.GAME_MODE)
+				{
+					GameMode.UpdateCursor(num, num2);
+					return;
+				}
+				UpdateInventoryMenu();
+				if (ActiveInvSection == InventorySection.CRAFTING)
+				{
+					PositionCraftingCursor(num, num2);
+				}
+				else
+				{
+					PositionInventoryCursor(num, num2);
+				}
+			}
+			else if (num != 0 || num2 != 0)
+			{
+				uiDelay = 4;
+				MouseX += (short)num;
+				if (MouseX < 0)
+				{
+					MouseX = 0;
+				}
+				else if (MouseX > Main.ResolutionWidth - 16)
+				{
+					MouseX = (short)(Main.ResolutionWidth - 16);
+				}
+				MouseY += (short)num2;
+				if (MouseY < 0)
+				{
+					MouseY = 0;
+				}
+				else if (MouseY > Main.ResolutionHeight - 16)
+				{
+					MouseY = (short)(Main.ResolutionHeight - 16);
+				}
+			}
+			return;
+		}
+		if (uiDelay > 0)
+		{
+			if (PadState.ThumbSticks.Left.LengthSquared() <= 1f / 64f && PadState.ThumbSticks.Right.LengthSquared() <= 1f / 64f && PadState.DPad.Up == ButtonState.Released && PadState.DPad.Down == ButtonState.Released && PadState.DPad.Left == ButtonState.Released && PadState.DPad.Right == ButtonState.Released)
+			{
+				uiDelay = 0;
+				uiDelayValue = 12;
+			}
+			else
+			{
+				uiDelay--;
+			}
+			return;
+		}
+		int num4 = (IsLeftButtonDown() ? (-1) : (IsRightButtonDown() ? 1 : 0));
+		if (num4 < 0)
+		{
+			if (--uiX < 0)
+			{
+				uiX = (short)(uiWidth - 1);
+			}
+			uiDelay = uiDelayValue;
+			uiDelayValue = 6;
+		}
+		else if (num4 > 0)
+		{
+			if (++uiX == uiWidth)
+			{
+				uiX = 0;
+			}
+			uiDelay = uiDelayValue;
+			uiDelayValue = 6;
+		}
+		num4 = (IsDownButtonDown() ? (-1) : (IsUpButtonDown() ? 1 : 0));
+		while (true)
+		{
+			if (num4 > 0)
+			{
+				if (--uiY < 0)
+				{
+					uiY = (short)(uiHeight - 1);
+				}
+				uiDelay = uiDelayValue;
+				uiDelayValue = 6;
+			}
+			else if (num4 < 0)
+			{
+				if (++uiY == uiHeight)
+				{
+					uiY = 0;
+				}
+				uiDelay = uiDelayValue;
+				uiDelayValue = 6;
+			}
+			MouseX = uiCoords[uiX + uiY * uiWidth].X;
+			if (MouseX != 0)
+			{
+				break;
+			}
+			if (num4 == 0 && ++uiY >= uiHeight)
+			{
+				uiY = 0;
+			}
+		}
+		MouseY = uiCoords[uiX + uiY * uiWidth].Y;
+		MouseY++;
+	}
+
+	public static void UpdateOnce()
+	{
+		UpdateCursorColor();
+		MouseTextBrightness = (byte)(MouseTextBrightness + mouseTextColorChange);
+		if (MouseTextBrightness <= 175 || MouseTextBrightness >= 250)
+		{
+			mouseTextColorChange = (sbyte)(-mouseTextColorChange);
+		}
+		mouseTextColor.R = MouseTextBrightness;
+		mouseTextColor.G = MouseTextBrightness;
+		mouseTextColor.B = MouseTextBrightness;
+		mouseTextColor.A = MouseTextBrightness;
+		invAlpha = (byte)(invAlpha + invDir);
+		if (invAlpha > 240)
+		{
+			invAlpha = 240;
+			invDir = (sbyte)(-invDir);
+		}
+		else if (invAlpha < 180)
+		{
+			invAlpha = 180;
+			invDir = (sbyte)(-invDir);
+		}
+		PulseScale += essDir;
+		if (PulseScale > 1f)
+		{
+			PulseScale = 1f;
+			essDir = 0f - essDir;
+		}
+		else if (PulseScale < 0.7f)
+		{
+			PulseScale = 0.7f;
+			essDir = 0f - essDir;
+		}
+		BlueWave += blueDelta;
+		if (BlueWave > 1f)
+		{
+			BlueWave = 1f;
+			blueDelta = 0f - blueDelta;
+		}
+		else if (BlueWave < 0.97f)
+		{
+			BlueWave = 0.97f;
+			blueDelta = 0f - blueDelta;
+		}
+		if (MessageBox.CurrentMess.AutoUpdate)
+		{
+			MessageBox.Update();
+		}
+	}
+
+	public void UpdateGamePad()
+	{
+		if (Main.HasFocus)
+		{
+			gpPrevState = PadState;
+			PadState = GamePad.GetState(controller);
+		}
+		else
+		{
+			gpPrevState = (PadState = (PadState = default));
+		}
+	}
+
+	public void Update()
+	{
+		if (MainUI.CurMenuMode == MenuMode.WELCOME)
+		{
+			if (IsSelectButtonTriggered())
+			{
+				ClearButtonTriggers();
+				OpenMainView();
+			}
+		}
+		else if (CurrentView == null)
+		{
+			if (Main.IsGameStarted && IsSelectButtonTriggered() && !Main.IsTutorial() && (Netplay.Session == null || Netplay.Session.AllGamers.Count != 8))
+			{
+				ClearButtonTriggers();
+				SetMenu(MenuMode.CHARACTER_SELECT, rememberPrevious: false, reset: true);
+				OpenView();
+			}
+			return;
+		}
+		CurrentUI = this;
+		if (CurMenuType == MenuType.NONE)
+		{
+			if (IsButtonUntriggered(Buttons.Start))
+			{
+				Main.PlaySound(10);
+				uiFade = 0f;
+				uiFadeTarget = 1f;
+				CurMenuType = MenuType.PAUSE;
+				SetMenu(MenuMode.PAUSE);
+				ClearButtonTriggers();
+			}
+			else if (IsButtonTriggered(Buttons.Back))
+			{
+				miniMap.CreateMap(this);
+				Main.PlaySound(10);
+				if (Main.NetMode == 1)
+				{
+					NetMessage.CreateMessage0(11);
+					NetMessage.SendMessage();
+				}
+				SetMenu(MenuMode.MAP);
+				CurMenuType = MenuType.PAUSE;
+				ClearButtonTriggers();
+			}
+		}
+		else
+		{
+			if (transferredPlayerStorage.Count > 0 && !MessageBox.IsVisible())
+			{
+				DeleteTransferredPlayerStorage();
+			}
+			if (saveIconMessageTime <= 0)
+			{
+				UpdateMenu();
+			}
+		}
+		if (CurMenuType != MenuType.MAIN)
+		{
+			UpdateIngame();
+		}
+		if (teamCooldown > 0 && --teamCooldown == 0 && teamSelected != ActivePlayer.team)
+		{
+			ActivePlayer.team = teamSelected;
+			NetMessage.CreateMessage1(45, MyPlayer);
+			NetMessage.SendMessage();
+		}
+		if (pvpCooldown > 0 && --pvpCooldown == 0 && pvpSelected != ActivePlayer.hostile)
+		{
+			ActivePlayer.hostile = pvpSelected;
+			NetMessage.CreateMessage1(30, MyPlayer);
+			NetMessage.SendMessage();
+		}
+		UpdateMouse();
+		if (SignedInGamer != null && !SignedInGamer.IsGuest && !Main.IsTrial)
+		{
+			UpdateAchievements();
+		}
+	}
+
+	private void UpdateIngame()
+	{
+		if (editSign)
+		{
+			ActivePlayer.UpdateEditSign();
+		}
+		if (autoSave && Main.TutorialState == Tutorial.NUM_TUTORIALS && HasPlayerStorage())
+		{
+			if (!saveTime.IsRunning)
+			{
+				saveTime.Start();
+			}
+			else if (saveTime.ElapsedMilliseconds > 600000)
+			{
+				saveTime.Reset();
+				if (Main.NetMode == 1 || MainUI != this)
+				{
+					WorldGen.savePlayerWhilePlaying();
+				}
+				else
+				{
+					WorldGen.saveAllWhilePlaying();
+				}
+			}
+		}
+		else if (saveTime.IsRunning)
+		{
+			saveTime.Stop();
+		}
+		CurrentView.itemTextLocal.Update();
+		CurrentView.dustLocal.UpdateDust();
+		CurrentView.spawnSnow();
+	}
+
+	private void OpenMainView(SignedInGamer gamer = null)
+	{
+		if (MainUI != this)
+		{
+			CurrentView = MainUI.CurrentView;
+			CurrentView.Ui = this;
+			CurrentView.Player = ActivePlayer;
+			MainUI.CurrentView = null;
+			MainUI = this;
+			Main.MusicVolume = MusicVolume;
+			Main.SoundVolume = SoundVolume;
+		}
+		SignedInGamer = gamer;
+		SetMenu(MenuMode.TITLE);
+		if (gamer == null)
+		{
+			SignedInGamer = new SignedInGamer(Main.Gamertag);
+			InitPlayerStorage();
+		}
+		else
+		{
+			InitPlayerStorage();
+		}
+	}
+
+	private void OpenView()
+	{
+		CheckHDTV();
+		MessageBox.Update();
+		for (int i = 0; i < 4; i++)
+		{
+			UI uI = Main.UIInstance[i];
+			if (uI.CurrentView != null)
+			{
+				uI.SetUIView(WorldView.getViewType(uI.controller, this), NoAutoFullScreen: true);
+			}
+		}
+		SetUIView(WorldView.getViewType(controller, this), NoAutoFullScreen: true);
+		ShowSignInPortal();
+	}
+
+	public void ClearButtonTriggers()
+	{
+		gpPrevState = PadState;
+	}
+
+	public bool IsBackButtonTriggered()
+	{
+		Buttons button = (Main.TouchpadButton ? Buttons.Start : Buttons.Back);
+		if (!PadState.IsButtonDown(button) || !gpPrevState.IsButtonUp(button))
+		{
+			if (PadState.IsButtonDown(Buttons.B))
+			{
+				return gpPrevState.IsButtonUp(Buttons.B);
+			}
+			return false;
+		}
+		return true;
+	}
+
+	public bool IsSelectButtonTriggered()
+	{
+		Buttons button = (Main.TouchpadButton ? Buttons.TouchPadEXT : Buttons.Start);
+		if (!PadState.IsButtonDown(button) || !gpPrevState.IsButtonUp(button))
+		{
+			if (PadState.IsButtonDown(Buttons.A))
+			{
+				return gpPrevState.IsButtonUp(Buttons.A);
+			}
+			return false;
+		}
+		return true;
+	}
+
+	public bool IsLeftButtonDown()
+	{
+		if (!PadState.IsButtonDown(Buttons.DPadLeft) && !(PadState.ThumbSticks.Left.X < -0.125f))
+		{
+			return PadState.ThumbSticks.Right.X < -0.125f;
+		}
+		return true;
+	}
+
+	public bool IsRightButtonDown()
+	{
+		if (!PadState.IsButtonDown(Buttons.DPadRight) && !(PadState.ThumbSticks.Left.X > 0.125f))
+		{
+			return PadState.ThumbSticks.Right.X > 0.125f;
+		}
+		return true;
+	}
+
+	public bool IsUpButtonDown()
+	{
+		if (!PadState.IsButtonDown(Buttons.DPadUp) && !(PadState.ThumbSticks.Left.Y > 0.125f))
+		{
+			return PadState.ThumbSticks.Right.Y > 0.125f;
+		}
+		return true;
+	}
+
+	public bool IsDownButtonDown()
+	{
+		if (!PadState.IsButtonDown(Buttons.DPadDown) && !(PadState.ThumbSticks.Left.Y < -0.125f))
+		{
+			return PadState.ThumbSticks.Right.Y < -0.125f;
+		}
+		return true;
+	}
+
+	public bool IsAlternateLeftButtonDown()
+	{
+		return PadState.ThumbSticks.Right.X < -0.125f;
+	}
+
+	public bool IsAlternateRightButtonDown()
+	{
+		return PadState.ThumbSticks.Right.X > 0.125f;
+	}
+
+	public bool IsAlternateUpButtonDown()
+	{
+		return PadState.ThumbSticks.Right.Y > 0.125f;
+	}
+
+	public bool IsAlternateDownButtonDown()
+	{
+		return PadState.ThumbSticks.Right.Y < -0.125f;
+	}
+
+	public bool IsLeftButtonTriggered()
+	{
+		if (!PadState.IsButtonDown(Buttons.DPadLeft) || !gpPrevState.IsButtonUp(Buttons.DPadLeft))
+		{
+			if (PadState.ThumbSticks.Left.X < -0.125f)
+			{
+				return gpPrevState.ThumbSticks.Left.X >= -0.125f;
+			}
+			return false;
+		}
+		return true;
+	}
+
+	public bool IsRightButtonTriggered()
+	{
+		if (!PadState.IsButtonDown(Buttons.DPadRight) || !gpPrevState.IsButtonUp(Buttons.DPadRight))
+		{
+			if (PadState.ThumbSticks.Left.X > 0.125f)
+			{
+				return gpPrevState.ThumbSticks.Left.X <= 0.125f;
+			}
+			return false;
+		}
+		return true;
+	}
+
+	public bool IsButtonDown(Buttons b)
+	{
+		b = TouchpadSwap(b);
+		return PadState.IsButtonDown(b);
+	}
+
+	public bool IsButtonTriggered(Buttons b)
+	{
+		b = TouchpadSwap(b);
+		if (PadState.IsButtonDown(b))
+		{
+			return gpPrevState.IsButtonUp(b);
+		}
+		return false;
+	}
+
+	public bool IsButtonUntriggered(Buttons b)
+	{
+		b = TouchpadSwap(b);
+		if (PadState.IsButtonUp(b))
+		{
+			return gpPrevState.IsButtonDown(b);
+		}
+		return false;
+	}
+
+	private Buttons TouchpadSwap(Buttons b)
+	{
+		if (Main.TouchpadButton)
+		{
+			switch (b)
+			{
+			case Buttons.Start:
+				b = Buttons.TouchPadEXT;
+				break;
+			case Buttons.Back:
+				b = Buttons.Start;
+				break;
+			}
+		}
+		return b;
+	}
+
+	private void DrawCursor()
+	{
+		if (CurMenuType != MenuType.NONE || InventoryMode != 0 || npcChatText != null || ActivePlayer.IsDead)
+		{
+			return;
+		}
+		bool flag = ActivePlayer.Inventory[ActivePlayer.SelectedItem].PickPower > 0 || ActivePlayer.Inventory[ActivePlayer.SelectedItem].AxePower > 0 || ActivePlayer.Inventory[ActivePlayer.SelectedItem].HammerPower > 0 || ActivePlayer.Inventory[ActivePlayer.SelectedItem].CreateTile >= 0 || ActivePlayer.Inventory[ActivePlayer.SelectedItem].CreateWall >= 0;
+		if (cursorHighlight > 0)
+		{
+			int num = (16 - (CurrentView.ScreenPosition.X & 0xF)) & 0xF;
+			int x = ((MouseX - num) & -16) + num;
+			num = (16 - (CurrentView.ScreenPosition.Y & 0xF)) & 0xF;
+			int y = ((MouseY - num) & -16) + num;
+			Main.DrawRect(new Rectangle(x, y, 16, 16), new Color(cursorHighlight << 1, cursorHighlight << 1, 0, cursorHighlight << 1));
+		}
+		if (flag && ActivePlayer.velocity.X == 0f && ActivePlayer.velocity.Y == 0f)
+		{
+			if (cursorHighlight < 64)
+			{
+				cursorHighlight += 4;
+			}
+		}
+		else if (cursorHighlight > 0)
+		{
+			cursorHighlight -= 2;
+		}
+		Rectangle value = new Rectangle
+		{
+			Y = (int)(Main.FrameCounter & 0x10),
+			Width = 16,
+			Height = 16
+		};
+		Vector2 position = default;
+		if (!UsingSmartCursor)
+		{
+			value.X = 16;
+			position.X = MouseX - 8;
+			position.Y = MouseY - 8;
+		}
+		else
+		{
+			if (ActivePlayer.controlDir.LengthSquared() <= 576f)
+			{
+				return;
+			}
+			position.X = ActivePlayer.XYWH.X + 10 - CurrentView.ScreenPosition.X + (int)ActivePlayer.controlDir.X - 8;
+			position.Y = ActivePlayer.XYWH.Y + 21 - CurrentView.ScreenPosition.Y + (int)ActivePlayer.controlDir.Y - 8;
+		}
+		Main.SpriteBatch.Draw(cursorTexture, position, value, Color.White);
+	}
+
+	public void DrawInventoryCursor(int x, int y, double scale, int alpha = 255)
+	{
+		alpha = MouseTextBrightness * alpha >> 8;
+		SpriteSheet<_sheetSprites>.DrawTL(448, x, y, new Color(alpha, alpha, alpha, alpha), (float)scale);
+		MouseX = (short)x;
+		MouseY = (short)y;
+	}
+
+	public static bool IsStorageEnabledForAnyPlayer()
+	{
+		if (Main.IsTrial)
+		{
+			return false;
+		}
+		for (int i = 0; i < 4; i++)
+		{
+			if (Main.UIInstance[i].HasPlayerStorage())
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public void CheckPlayerStorage(string name)
+	{
+		Main.ShowSaveIcon();
+		Main.HideSaveIcon();
+	}
+
+	public void DeleteTransferredPlayerStorage()
+	{
+		for (int num = transferredPlayerStorage.Count - 1; num >= 0; num--)
+		{
+			playerStorage.Device.DeleteContainer(transferredPlayerStorage[num]);
+		}
+		transferredPlayerStorage.Clear();
+		DeviceSelected(null, null);
+	}
+
+	public StorageContainer OpenPlayerStorage(string name)
+	{
+		IAsyncResult asyncResult = playerStorage.Device.BeginOpenContainer(name, null, null);
+		asyncResult.AsyncWaitHandle.WaitOne();
+		StorageContainer result = playerStorage.Device.EndOpenContainer(asyncResult);
+		asyncResult.AsyncWaitHandle.Close();
+		return result;
+	}
+
+	private void DeviceDisconnected(object sender, EventArgs args)
+	{
+		LoadPlayers();
+		WorldSelect.LoadWorlds();
+		MessageBox.Show(controller, Lang.MenuText[69], Lang.MenuText[70], new string[1] { Lang.MenuText[90] });
+		if (CurMenuMode == MenuMode.CONFIRM_DELETE_CHARACTER || CurMenuMode == MenuMode.CONFIRM_DELETE_WORLD)
+		{
+			PrevMenu();
+		}
+	}
+
+	private void DeviceSelectorCanceled(object sender, EventArgs args)
+	{
+		LoadPlayers();
+		WorldSelect.LoadWorlds();
+		MessageBox.Show(controller, Lang.MenuText[69], Lang.MenuText[66], new string[1] { Lang.MenuText[90] });
+	}
+
+	private void DeviceSelected(object sender, EventArgs e)
+	{
+		try
+		{
+			CheckPlayerStorage("Settings");
+			CheckPlayerStorage("Characters");
+			CheckPlayerStorage("Worlds");
+		}
+		catch (Exception)
+		{
+			transferredPlayerStorage.Clear();
+			return;
+		}
+		if (transferredPlayerStorage.Count <= 0)
+		{
+			if (!OpenSettings())
+			{
+				MessageBox.Show(controller, Lang.MenuText[9], Lang.MenuText[102], new string[1] { Lang.MenuText[90] });
+			}
+			LoadPlayers();
+			if (this == MainUI && !WorldSelect.LoadWorlds())
+			{
+				MessageBox.Show(controller, Lang.MenuText[9], Lang.MenuText[103], new string[1] { Lang.MenuText[90] });
+			}
+		}
+	}
+
+	public void LoadPlayers()
+	{
+		if (HasPlayerStorage())
+		{
+			numLoadPlayers = 0;
+			try
+			{
+				using StorageContainer storageContainer = MainUI.OpenPlayerStorage("Characters");
+				bool flag;
+				do
+				{
+					flag = true;
+					string[] fileNames = storageContainer.GetFileNames("player?.plr");
+					int num = fileNames.Length;
+					if (num > 5)
+					{
+						num = 5;
+					}
+					int num2 = 0;
+					while (true)
+					{
+						if (num2 < 5)
+						{
+							if (num2 < num)
+							{
+								loadPlayerPath[num2] = fileNames[num2];
+								loadPlayer[num2].Load(storageContainer, loadPlayerPath[num2]);
+								if (loadPlayer[num2].Name == null)
+								{
+									MessageBox.Show(controller, Lang.MenuText[9], Lang.MenuText[12], new string[1] { Lang.MenuText[90] });
+									flag = false;
+									break;
+								}
+							}
+							else
+							{
+								loadPlayer[num2] = new Player();
+							}
+							num2++;
+							continue;
+						}
+						numLoadPlayers = (sbyte)num;
+						break;
+					}
+				}
+				while (!flag);
+			}
+			catch (IOException)
+			{
+				ReadError();
+				numLoadPlayers = 0;
+			}
+			catch (Exception)
+			{
+				numLoadPlayers = 0;
+			}
+		}
+		else
+		{
+			numLoadPlayers = 0;
+		}
+		if (CurMenuMode == MenuMode.CHARACTER_SELECT)
+		{
+			ResetPlayerMenuSelection();
+		}
+	}
+
+	public void SaveSettings()
+	{
+		if (!HasPlayerStorage())
+		{
+			return;
+		}
+		using MemoryStream memoryStream = new MemoryStream(512);
+		using BinaryWriter binaryWriter = new BinaryWriter(memoryStream);
+		binaryWriter.Write(5);
+		binaryWriter.Write(0u);
+		binaryWriter.Write(SoundVolume);
+		binaryWriter.Write(MusicVolume);
+		binaryWriter.Write(autoSave);
+		binaryWriter.Write(ShowItemText);
+		binaryWriter.Write(alternateGrappleControls);
+		byte[] buffer = Statistics.Serialize();
+		binaryWriter.Write(buffer);
+		binaryWriter.Write(totalSteps);
+		binaryWriter.Write(TotalOrePicked);
+		binaryWriter.Write(TotalBarsCrafted);
+		binaryWriter.Write(TotalAnvilCrafting);
+		binaryWriter.Write(totalWires);
+		binaryWriter.Write(totalAirTime);
+		binaryWriter.Write(petSpawnMask);
+		int num = armorFound.Length + 7 >> 3;
+		byte[] array = new byte[num];
+		armorFound.CopyTo(array, 0);
+		binaryWriter.Write((ushort)num);
+		binaryWriter.Write(array, 0, num);
+		binaryWriter.Write(IsOnline);
+		binaryWriter.Write(IsInviteOnly);
+		num = blacklist.Count;
+		int num2 = num;
+		if (num > 65535)
+		{
+			num = 65535;
+		}
+		binaryWriter.Write((ushort)num);
+		for (int i = num2 - num; i < num2; i++)
+		{
+			binaryWriter.Write(blacklist[i]);
+		}
+		CRC32 cRC = new CRC32();
+		cRC.Update(memoryStream.GetBuffer(), 8, (int)memoryStream.Length - 8);
+		binaryWriter.Seek(4, SeekOrigin.Begin);
+		binaryWriter.Write(cRC.GetValue());
+		Main.ShowSaveIcon();
+		try
+		{
+			if (TestStorageSpace("Settings", "config.dat", (int)memoryStream.Length))
+			{
+				using StorageContainer storageContainer = OpenPlayerStorage("Settings");
+				using (Stream stream = storageContainer.OpenFile("config.dat", FileMode.Create))
+				{
+					stream.Write(memoryStream.GetBuffer(), 0, (int)memoryStream.Length);
+					stream.Close();
+				}
+				SettingsDirty = false;
+			}
+		}
+		catch (IOException)
+		{
+			WriteError();
+		}
+		catch (Exception)
+		{
+		}
+		binaryWriter.Close();
+		Main.HideSaveIcon();
+	}
+
+	private bool OpenSettings()
+	{
+		bool flag = true;
+		try
+		{
+			using (StorageContainer storageContainer = OpenPlayerStorage("Settings"))
+			{
+				if (storageContainer.FileExists("config.dat"))
+				{
+					try
+					{
+						using Stream stream = storageContainer.OpenFile("config.dat", FileMode.Open);
+						using MemoryStream memoryStream = new MemoryStream((int)stream.Length);
+						memoryStream.SetLength(stream.Length);
+						stream.Read(memoryStream.GetBuffer(), 0, (int)stream.Length);
+						stream.Close();
+						using BinaryReader binaryReader = new BinaryReader(memoryStream);
+						int num = binaryReader.ReadInt32();
+						if (num > 5)
+						{
+							throw new InvalidOperationException("Invalid version");
+						}
+						if (num == 4 || num == 5)
+						{
+							CRC32 cRC = new CRC32();
+							cRC.Update(memoryStream.GetBuffer(), 8, (int)memoryStream.Length - 8);
+							if (cRC.GetValue() != binaryReader.ReadUInt32())
+							{
+								throw new InvalidOperationException("Invalid CRC32");
+							}
+						}
+						else
+						{
+							binaryReader.ReadUInt32();
+						}
+						SoundVolume = binaryReader.ReadSingle();
+						MusicVolume = binaryReader.ReadSingle();
+						autoSave = binaryReader.ReadBoolean();
+						ShowItemText = binaryReader.ReadBoolean();
+						alternateGrappleControls = binaryReader.ReadBoolean();
+						if (num <= 3)
+						{
+							alternateGrappleControls = false;
+						}
+						UpdateAlternateGrappleControls();
+						if (this == MainUI)
+						{
+							Main.MusicVolume = MusicVolume;
+							Main.SoundVolume = SoundVolume;
+						}
+						int count = Statistics.CalculateSerialisationSize();
+						byte[] statStream = binaryReader.ReadBytes(count);
+						Statistics.Deserialize(statStream);
+						if (num >= 2)
+						{
+							if (num >= 3)
+							{
+								totalSteps = binaryReader.ReadUInt32();
+								TotalOrePicked = binaryReader.ReadUInt32();
+								TotalBarsCrafted = binaryReader.ReadUInt32();
+								TotalAnvilCrafting = binaryReader.ReadUInt32();
+								totalWires = binaryReader.ReadUInt32();
+								totalAirTime = binaryReader.ReadUInt32();
+								petSpawnMask = binaryReader.ReadByte();
+								int count2 = binaryReader.ReadUInt16();
+								armorFound = new BitArray(binaryReader.ReadBytes(count2));
+								if (armorFound.Length < 632)
+								{
+									armorFound.Length = 632;
+								}
+							}
+							IsOnline = binaryReader.ReadBoolean();
+							IsInviteOnly = binaryReader.ReadBoolean();
+						}
+						if (num >= 6)
+						{
+							binaryReader.ReadBoolean();
+							binaryReader.ReadBoolean();
+						}
+						blacklist.Clear();
+						if (num >= 5)
+						{
+							int num2 = binaryReader.ReadUInt16();
+							blacklist.Capacity = num2 + 4;
+							while (num2 > 0)
+							{
+								blacklist.Add(binaryReader.ReadUInt64());
+								num2--;
+							}
+						}
+						binaryReader.Close();
+					}
+					catch (InvalidOperationException)
+					{
+						Main.ShowSaveIcon();
+						flag = false;
+						storageContainer.DeleteFile("config.dat");
+						armorFound = new BitArray(632);
+						Main.HideSaveIcon();
+					}
+					catch (Exception)
+					{
+					}
+				}
+			}
+			SettingsDirty = !flag;
+		}
+		catch (IOException)
+		{
+			if (!flag)
+			{
+				WriteError();
+				flag = true;
+			}
+			else
+			{
+				ReadError();
+			}
+		}
+		catch (Exception)
+		{
+		}
+		if (Main.NetMode == 1 && Main.IsGameStarted)
+		{
+			CheckBlacklist();
+		}
+		return flag;
+	}
+
+	public void ErasePlayer(int i)
+	{
+		if (HasPlayerStorage())
+		{
+			Main.ShowSaveIcon();
+			try
+			{
+				using StorageContainer storageContainer = OpenPlayerStorage("Characters");
+				storageContainer.DeleteFile(loadPlayerPath[i]);
+			}
+			catch (IOException)
+			{
+				WriteError();
+			}
+			catch (Exception)
+			{
+			}
+			Main.HideSaveIcon();
+		}
+		numLoadPlayers--;
+		loadPlayer[i] = loadPlayer[numLoadPlayers];
+		loadPlayerPath[i] = loadPlayerPath[numLoadPlayers];
+	}
+
+	private string nextLoadPlayer()
+	{
+		string result = null;
+		if (HasPlayerStorage())
+		{
+			try
+			{
+				using StorageContainer storageContainer = OpenPlayerStorage("Characters");
+				int num = 0;
+				do
+				{
+					num++;
+					result = "player" + num + ".plr";
+				}
+				while (storageContainer.FileExists(result));
+				return result;
+			}
+			catch (IOException)
+			{
+				ReadError();
+				return null;
+			}
+			catch (Exception)
+			{
+				return null;
+			}
+		}
+		return result;
+	}
+
+	public void SetUIView(WorldView.Type viewType, bool NoAutoFullScreen = false)
+	{
+		if (CurrentView != null)
+		{
+			for (int i = 0; i < NumActiveViews; i++)
+			{
+				if (activeView[i] == CurrentView)
+				{
+					activeView[i] = activeView[--NumActiveViews];
+					activeView[NumActiveViews] = null;
+					break;
+				}
+			}
+		}
+		if (viewType != WorldView.Type.NONE)
+		{
+			if (CurrentView == null)
+			{
+				CurrentView = new WorldView();
+				CurrentView.Player = ActivePlayer;
+				CurrentView.Ui = this;
+			}
+			activeView[NumActiveViews++] = CurrentView;
+			CurrentUI = this;
+			if (NumActiveViews == 2)
+			{
+				LoadSplitscreenFonts(theGame.Content);
+				InvalidateCachedText();
+			}
+			if (CurrentView.setViewType(viewType) && CurMenuType != MenuType.MAIN)
+			{
+				worldFade = -0.25f;
+			}
+		}
+		else if (CurrentView != null)
+		{
+			CurrentView.Dispose();
+			CurrentView = null;
+			if (NumActiveViews == 1)
+			{
+				LoadFonts(theGame.Content);
+				InvalidateCachedText();
+			}
+			if (MainUI == this)
+			{
+				if (NumActiveViews > 0)
+				{
+					for (int j = 0; j < 4; j++)
+					{
+						if (Main.UIInstance[j].CurrentView != null)
+						{
+							MainUI = Main.UIInstance[j];
+							WorldSelect.LoadWorlds();
+							break;
+						}
+					}
+				}
+				else
+				{
+					MainUI = null;
+				}
+			}
+		}
+		else
+		{
+			NoAutoFullScreen = true;
+		}
+		if (ActivePlayer != null)
+		{
+			ActivePlayer.CurrentView = CurrentView;
+			if (CurrentView == null)
+			{
+				ActivePlayer.Active = 0;
+			}
+		}
+		if (NoAutoFullScreen)
+		{
+			return;
+		}
+		if (NumActiveViews == 1 && MainUI != null && MainUI.CurrentView != null && !MainUI.CurrentView.IsFullScreen())
+		{
+			MainUI.CurrentView.setViewType();
+			if (MainUI.CurMenuType != MenuType.MAIN)
+			{
+				MainUI.worldFade = -0.25f;
+			}
+			return;
+		}
+		for (int k = 0; k < 4; k++)
+		{
+			UI uI = Main.UIInstance[k];
+			if (uI.CurrentView != null)
+			{
+				uI.CurrentView.setViewType(WorldView.getViewType(uI.controller));
+			}
+		}
+	}
+
+	public void setPlayer(int id, bool swapIfUsed = true)
+	{
+		if (id < 0)
+		{
+			for (int num = 7; num >= 0; num--)
+			{
+				if (Main.PlayerSet[num].Active == 0 && Main.PlayerSet[num].CurrentView == null)
+				{
+					id = num;
+					break;
+				}
+			}
+			if (id < 0)
+			{
+				MyPlayer = 8;
+				ActivePlayer = null;
+				return;
+			}
+		}
+		if (ActivePlayer != null && id != MyPlayer)
+		{
+			Player player = ActivePlayer.DeepCopy();
+			player.WhoAmI = (byte)id;
+			ActivePlayer.ui = null;
+			ActivePlayer.CurrentView = null;
+			if (swapIfUsed)
+			{
+				for (int i = 0; i < 4; i++)
+				{
+					UI uI = Main.UIInstance[i];
+					if (uI != this && uI.MyPlayer == id)
+					{
+						uI.setPlayer(MyPlayer, swapIfUsed: false);
+						break;
+					}
+				}
+			}
+			if (id != MyPlayer)
+			{
+				Main.PlayerSet[id] = player;
+			}
+		}
+		MyPlayer = (byte)id;
+		ActivePlayer = Main.PlayerSet[id];
+		ActivePlayer.ui = this;
+		ActivePlayer.CurrentView = CurrentView;
+		if (SignedInGamer != null)
+		{
+			ActivePlayer.Name = SignedInGamer.Gamertag;
+		}
+		teamCooldown = 0;
+		teamSelected = ActivePlayer.team;
+		pvpCooldown = 0;
+		pvpSelected = ActivePlayer.hostile;
+		if (CurrentView != null)
+		{
+			CurrentView.Player = ActivePlayer;
+		}
+		else
+		{
+			ActivePlayer.Active = 0;
+		}
+	}
+
+	public void SetPlayer(Player p)
+	{
+		if (ActivePlayer != null && p != ActivePlayer)
+		{
+			ActivePlayer.ui = null;
+			ActivePlayer.CurrentView = null;
+		}
+		ActivePlayer = p;
+		teamCooldown = 0;
+		pvpCooldown = 0;
+		if (CurrentView != null)
+		{
+			CurrentView.Player = p;
+		}
+		if (p != null)
+		{
+			teamSelected = p.team;
+			pvpSelected = p.hostile;
+			p.ui = this;
+			p.CurrentView = CurrentView;
+			p.WhoAmI = MyPlayer;
+			if (SignedInGamer != null)
+			{
+				p.Name = SignedInGamer.Gamertag;
+			}
+			p.Active = 0;
+			Main.PlayerSet[MyPlayer] = p;
+		}
+		else
+		{
+			MyPlayer = 8;
+			SetUIView(WorldView.Type.NONE);
+		}
+	}
+
+	public void JoinSession(int newPlayerIndex)
+	{
+		setPlayer(newPlayerIndex);
+		if (Main.NetMode == 1)
+		{
+			NetMessage.CreateMessage0(11);
+			NetMessage.SendMessage();
+		}
+	}
+
+	public void LeaveSession()
+	{
+		localGamer = null;
+	}
+
+	public void InviteAccepted(InviteAcceptedEventArgs e)
+	{
+		if (e.IsCurrentSession || Netplay.isJoiningRemoteInvite)
+		{
+			if (Netplay.Session == null)
+			{
+				if (!Netplay.gamersWhoReceivedInvite.Contains(e.Gamer))
+				{
+					Netplay.gamersWhoReceivedInvite.Add(e.Gamer);
+				}
+				if (!Netplay.gamersWaitingToJoinInvite.Contains(e.Gamer))
+				{
+					Netplay.gamersWaitingToJoinInvite.Add(e.Gamer);
+				}
+			}
+			if (CurrentView == null)
+			{
+				SetMenu(MenuMode.CHARACTER_SELECT, rememberPrevious: false, reset: true);
+				OpenView();
+			}
+			return;
+		}
+		Netplay.isJoiningRemoteInvite = true;
+		Netplay.gamersWhoReceivedInvite.Add(e.Gamer);
+		Netplay.gamersWaitingToJoinInvite.Add(e.Gamer);
+		for (int i = 0; i < 4; i++)
+		{
+			SignedInGamer signedInGamer = Main.UIInstance[i].SignedInGamer;
+			if (signedInGamer != null && !Netplay.gamersWaitingToJoinInvite.Contains(signedInGamer))
+			{
+				Netplay.gamersWaitingToJoinInvite.Add(signedInGamer);
+			}
+		}
+		if (Netplay.Session != null)
+		{
+			ExitGame();
+			return;
+		}
+		if (MainUI.CurMenuMode == MenuMode.WELCOME)
+		{
+			OpenMainView(e.Gamer);
+			return;
+		}
+		if (Main.WorldGenThread != null)
+		{
+			Main.WorldGenThread.Abort();
+			Main.WorldGenThread = null;
+			WorldGen.Gen = false;
+		}
+		MainUI.SetMenu(MenuMode.TITLE, rememberPrevious: false, reset: true);
+	}
+
+	private static void CancelInvite(SignedInGamer gamer)
+	{
+		Netplay.gamersWhoReceivedInvite.Remove(gamer);
+		if (Netplay.gamersWhoReceivedInvite.Count == 0)
+		{
+			Netplay.isJoiningRemoteInvite = false;
+			Netplay.gamersWaitingToJoinInvite.Clear();
+		}
+		else
+		{
+			Netplay.gamersWaitingToJoinInvite.Remove(gamer);
+		}
+	}
+
+	private unsafe void DrawControlsIngame()
+	{
+		if (CurMenuType != MenuType.NONE)
+		{
+			return;
+		}
+		Main.StrBuilder.Length = 0;
+		if (!Main.TutorialMaskY)
+		{
+			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.INVENTORY));
+			Main.StrBuilder.Append(' ');
+		}
+		if (ActivePlayer.grappleItemSlot >= 0)
+		{
+			Main.StrBuilder.Append(Lang.Controls(alternateGrappleControls ? Lang.CONTROLS.GRAPPLE_ALT : Lang.CONTROLS.GRAPPLE));
+			Main.StrBuilder.Append(' ');
+		}
+		fixed (Item* ptr = &ActivePlayer.Inventory[ActivePlayer.SelectedItem])
+		{
+			if (!Main.TutorialMaskRT && ptr->Type > 0)
+			{
+				if (ptr->PickPower > 0)
+				{
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.DIG));
+				}
+				else if (ptr->AxePower > 0)
+				{
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CHOP));
+				}
+				else if (ptr->HammerPower > 0)
+				{
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.HIT));
+				}
+				else if (ptr->CreateTile >= 0 || ptr->CreateWall >= 0)
+				{
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.BUILD));
+				}
+				else if (ptr->Ammo > 0 || ptr->Damage > 0)
+				{
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.ATTACK));
+				}
+				else
+				{
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.USE));
+				}
+				Main.StrBuilder.Append(' ');
+			}
+			if (!Main.TutorialMaskB)
+			{
+				if (ActivePlayer.npcChatBubble >= 0)
+				{
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.TALK));
+				}
+				else if (ActivePlayer.tileInteractX != 0)
+				{
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.INTERACT));
+				}
+			}
+		}
+		DrawStringLB(BoldSmallFont, CurrentView.SafeAreaOffsetLeft, CurrentView.SafeAreaOffsetBottom);
+	}
+
+	private void DrawControlsInventory()
+	{
+		if (CurMenuType != MenuType.NONE)
+		{
+			return;
+		}
+		Main.StrBuilder.Length = 0;
+		Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CHANGE_MENU));
+		Main.StrBuilder.Append(' ');
+		if (toolTip.Type > 0 && !reforge && !CraftGuide)
+		{
+			if (toolTip.IsEquipable() && (ActiveInvSection != InventorySection.EQUIP || inventoryEquipX == 0))
+			{
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.EQUIP));
+				Main.StrBuilder.Append(' ');
+			}
+			if (toolTip.Type >= 599 && toolTip.Type <= 601)
+			{
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.OPEN));
+				Main.StrBuilder.Append(' ');
+			}
+			else if (toolTip.Stack > 1 && (mouseItem.Type == 0 || mouseItem.NetID == toolTip.NetID))
+			{
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.SELECT_ONE));
+				Main.StrBuilder.Append(' ');
+			}
+		}
+		if (mouseItem.Type == 0)
+		{
+			if (toolTip.Type > 0)
+			{
+				if (reforge)
+				{
+					if (toolTip.SetPrefix(-3))
+					{
+						Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.REFORGE));
+						Main.StrBuilder.Append(' ');
+					}
+				}
+				else if (CraftGuide)
+				{
+					if (toolTip.IsMaterial)
+					{
+						Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.SHOW_RECIPES));
+						Main.StrBuilder.Append(' ');
+					}
+				}
+				else
+				{
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.SELECT_ALL));
+					Main.StrBuilder.Append(' ');
+				}
+			}
+			else if (ActiveInvSection == InventorySection.CHEST)
+			{
+				if (inventoryChestX < 0)
+				{
+					switch (inventoryChestY)
+					{
+					case 1:
+						Main.StrBuilder.Append(Lang.InterfaceText[29]);
+						break;
+					case 2:
+						Main.StrBuilder.Append(Lang.InterfaceText[30]);
+						break;
+					case 3:
+						Main.StrBuilder.Append(Lang.InterfaceText[31]);
+						break;
+					}
+					Main.StrBuilder.Append(' ');
+				}
+			}
+			else if (ActiveInvSection == InventorySection.EQUIP && inventoryEquipY == 0)
+			{
+				int num = inventoryEquipX + inventoryBuffX;
+				num %= 10;
+				if (ActivePlayer.buff[num].Time > 0 && !ActivePlayer.buff[num].IsDebuff())
+				{
+					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CANCEL_BUFF));
+					Main.StrBuilder.Append(' ');
+				}
+			}
+		}
+		else
+		{
+			bool flag = false;
+			bool flag2 = true;
+			if (ActiveInvSection == InventorySection.EQUIP)
+			{
+				sbyte b = inventoryEquipY;
+				if (1 == 0)
+				{
+				}
+				bool flag3 = b switch
+				{
+					0 => mouseItem.HeadSlot >= 0, 
+					1 => mouseItem.BodySlot >= 0, 
+					2 => mouseItem.LegSlot >= 0, 
+					_ => mouseItem.IsAccessory, 
+				};
+				if (1 == 0)
+				{
+				}
+				flag = flag3;
+			}
+			else if (ActiveInvSection == InventorySection.ITEMS && mouseItem.Type > 0 && mouseItem.Stack > 0)
+			{
+				switch (inventoryItemY)
+				{
+				case 4:
+					flag2 = mouseItem.CanBePlacedInAmmoSlot();
+					break;
+				case 5:
+					flag2 = mouseItem.CanBePlacedInCoinSlot();
+					break;
+				}
+			}
+			if (flag2)
+			{
+				if (toolTip.Type > 0 && (toolTip.NetID != mouseItem.NetID || toolTip.Stack == toolTip.MaxStack || mouseItem.Stack == mouseItem.MaxStack))
+				{
+					if ((ActiveInvSection != InventorySection.EQUIP) | flag)
+					{
+						Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.SWAP));
+						Main.StrBuilder.Append(' ');
+					}
+				}
+				else if (toolTip.Type == 0 || toolTip.Stack < toolTip.MaxStack)
+				{
+					if (ActiveInvSection == InventorySection.EQUIP)
+					{
+						if (flag)
+						{
+							Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.PLACE_EQUIPMENT));
+							Main.StrBuilder.Append(' ');
+						}
+					}
+					else
+					{
+						Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.PLACE));
+						Main.StrBuilder.Append(' ');
+					}
+				}
+			}
+		}
+		Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CLOSE));
+		Main.StrBuilder.Append(' ');
+		if (!reforge && !CraftGuide)
+		{
+			if (mouseItem.Type > 0)
+			{
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.DROP));
+				Main.StrBuilder.Append(' ');
+			}
+			else if (ActiveInvSection == InventorySection.ITEMS && toolTip.Type > 0)
+			{
+				Lang.CONTROLS idx = ((npcShop <= 0) ? Lang.CONTROLS.TRASH : Lang.CONTROLS.SELL);
+				Main.StrBuilder.Append(Lang.Controls(idx));
+				Main.StrBuilder.Append(' ');
+			}
+		}
+		DrawStringLB(BoldSmallFont, CurrentView.SafeAreaOffsetLeft, CurrentView.SafeAreaOffsetBottom);
+	}
+
+	private void DrawControlsShop()
+	{
+		if (CurMenuType != MenuType.NONE)
+		{
+			return;
+		}
+		Main.StrBuilder.Length = 0;
+		Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CHANGE_MENU));
+		Main.StrBuilder.Append(' ');
+		if (toolTip.Type > 0 && toolTip.Stack > 1 && (mouseItem.Type == 0 || mouseItem.NetID == toolTip.NetID))
+		{
+			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.BUY_ONE));
+			Main.StrBuilder.Append(' ');
+		}
+		if (mouseItem.Type == 0)
+		{
+			if (toolTip.Type > 0)
+			{
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.BUY_ALL));
+				Main.StrBuilder.Append(' ');
+			}
+		}
+		else if (toolTip.Type == 0)
+		{
+			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.SELL_ITEM_IN_HAND));
+			Main.StrBuilder.Append(' ');
+		}
+		Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CLOSE));
+		Main.StrBuilder.Append(' ');
+		if (mouseItem.Type > 0)
+		{
+			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.DROP));
+			Main.StrBuilder.Append(' ');
+		}
+		DrawStringLB(BoldSmallFont, CurrentView.SafeAreaOffsetLeft, CurrentView.SafeAreaOffsetBottom);
+	}
+
+	private void DrawControlsCrafting()
+	{
+		if (CurMenuType == MenuType.NONE)
+		{
+			Main.StrBuilder.Length = 0;
+			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CHANGE_MENU));
+			Main.StrBuilder.Append(' ');
+			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CRAFTING_CATEGORY));
+			Main.StrBuilder.Append(' ');
+			if (ActivePlayer.CanCraftRecipe(CraftingRecipe))
+			{
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CRAFT));
+				Main.StrBuilder.Append(' ');
+			}
+			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CLOSE));
+			Main.StrBuilder.Append(' ');
+			if (mouseItem.Type > 0)
+			{
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.DROP));
+				Main.StrBuilder.Append(' ');
+			}
+			else
+			{
+				Main.StrBuilder.Append(Lang.Controls(craftingShowCraftable ? Lang.CONTROLS.SHOW_ALL : Lang.CONTROLS.SHOW_AVAILABLE));
+				Main.StrBuilder.Append(' ');
+			}
+			Lang.CONTROLS idx = ((craftingSection == CraftingSection.RECIPES) ? Lang.CONTROLS.INGREDIENTS : Lang.CONTROLS.RECIPES);
+			Main.StrBuilder.Append(Lang.Controls(idx));
+			DrawStringLB(BoldSmallFont, CurrentView.SafeAreaOffsetLeft, CurrentView.SafeAreaOffsetBottom);
+		}
+	}
+
+	private void DrawControlsHousing()
+	{
+		if (CurMenuType == MenuType.NONE)
+		{
+			Main.StrBuilder.Length = 0;
+			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CHANGE_MENU));
+			Main.StrBuilder.Append(' ');
+			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CHECK_HOUSING));
+			Main.StrBuilder.Append(' ');
+			Main.StrBuilder.Append(Lang.Controls(showNPCs ? Lang.CONTROLS.HIDE_BANNERS : Lang.CONTROLS.SHOW_BANNERS));
+			Main.StrBuilder.Append(' ');
+			if (inventoryHousingNpc >= 0)
+			{
+				Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.ASSIGN_TO_ROOM));
+				Main.StrBuilder.Append(' ');
+			}
+			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CLOSE));
+			Main.StrBuilder.Append(' ');
+			DrawStringLB(BoldSmallFont, CurrentView.SafeAreaOffsetLeft, CurrentView.SafeAreaOffsetBottom);
+		}
+	}
+
+	public int DrawDialog(Vector2 pos, Color backColor, Color textColor, CompiledText ct, string caption = null, bool anchorBottom = false)
+	{
+		int num = (int)(30f * Main.ScreenMultiplier);
+		if (Main.ScreenHeightPtr != ScreenHeights.BASE)
+		{
+			if (anchorBottom)
+			{
+				switch (Main.ScreenHeightPtr)
+				{
+				case ScreenHeights.HD:
+					num = (int)((float)num / 1.33f);
+					break;
+				case ScreenHeights.FHD:
+					num = (int)((float)num / 2f);
+					break;
+				}
+			}
+			else
+			{
+				switch (Main.ScreenHeightPtr)
+				{
+				case ScreenHeights.HD:
+					num = (int)((float)num / 1.33f);
+					break;
+				case ScreenHeights.FHD:
+					num = (int)((float)num / 1.25f);
+					break;
+				}
+			}
+		}
+		if (anchorBottom)
+		{
+			pos.Y -= ct.Height + num;
+			num = 0;
+		}
+		int num2 = 30;
+		int width = 470;
+		int num3 = 500;
+		switch (Main.ScreenHeightPtr)
+		{
+		case ScreenHeights.HD:
+			num3 = (int)((float)num3 * 1.15f);
+			width = 548;
+			if (CurMenuType != MenuType.NONE)
+			{
+				num2 = (int)((float)num2 / 1.33f);
+			}
+			break;
+		case ScreenHeights.FHD:
+			num3 = (int)((float)num3 * 1.534f);
+			width = 705;
+			break;
+		}
+		if (Main.PSMode && Main.ScreenHeightPtr == ScreenHeights.HD)
+		{
+			num2 -= 7;
+		}
+		if (Main.ScreenHeightPtr != ScreenHeights.BASE)
+		{
+			Main.DrawRect(451, pos, new Rectangle(0, 0, num3, ct.Height + num + num2), backColor);
+		}
+		else
+		{
+			Main.SpriteBatch.Draw(chatBackTexture, pos, new Rectangle(0, 0, chatBackTexture.Width, ct.Height + num), backColor);
+			pos.Y += ct.Height + num;
+			Main.SpriteBatch.Draw(chatBackTexture, pos, new Rectangle(0, chatBackTexture.Height - 30, chatBackTexture.Width, num2), backColor);
+			pos.Y -= ct.Height + num;
+		}
+		if (caption != null)
+		{
+			int num4 = (int)BoldSmallFont.MeasureString(caption).X;
+			int num5 = num3 - num4 >> 1;
+			int num6 = 0;
+			if (Main.ScreenHeightPtr == ScreenHeights.FHD)
+			{
+				num6 += num2 / 2;
+			}
+			Main.SpriteBatch.DrawString(BoldSmallFont, caption, new Vector2(pos.X + (float)num5, pos.Y + (float)num6), Color.LightGreen);
+			pos.Y += num;
+		}
+		else
+		{
+			pos.Y += 10f;
+		}
+		pos.X += 20f;
+		switch (Main.ScreenHeightPtr)
+		{
+		case ScreenHeights.HD:
+			if (caption == null)
+			{
+				pos.Y += 0.62f;
+			}
+			if (CurMenuType != MenuType.NONE)
+			{
+				pos.Y -= 5f;
+				pos.X -= 6.25f;
+			}
+			pos.X -= 1.25f;
+			break;
+		case ScreenHeights.FHD:
+			pos.X += 8f;
+			pos.Y += 4f;
+			if (caption != null)
+			{
+				pos.Y += 12f;
+			}
+			break;
+		}
+		ct.Draw(Main.SpriteBatch, new Rectangle((int)pos.X, (int)pos.Y, width, Main.ResolutionHeight), textColor, new Color(255, 212, 64, 255));
+		return ct.Height;
+	}
+
+	private void HelpText()
+	{
+		bool flag = ActivePlayer.StatLifeMax > 100;
+		bool flag2 = ActivePlayer.statManaMax > 0;
+		bool flag3 = true;
+		bool flag4 = false;
+		bool flag5 = false;
+		bool flag6 = false;
+		bool flag7 = false;
+		bool flag8 = false;
+		bool flag9 = false;
+		for (int i = 0; i < 48; i++)
+		{
+			if (ActivePlayer.Inventory[i].PickPower > 0 && ActivePlayer.Inventory[i].NetID != -13)
+			{
+				flag3 = false;
+			}
+			else if (ActivePlayer.Inventory[i].AxePower > 0 && ActivePlayer.Inventory[i].NetID != -16)
+			{
+				flag3 = false;
+			}
+			else if (ActivePlayer.Inventory[i].HammerPower > 0)
+			{
+				flag3 = false;
+			}
+			switch ((EntityID.ItemID)ActivePlayer.Inventory[i].Type)
+			{
+			case EntityID.ItemID.IRON_ORE:
+			case EntityID.ItemID.COPPER_ORE:
+			case EntityID.ItemID.GOLD_ORE:
+			case EntityID.ItemID.SILVER_ORE:
+				flag4 = true;
+				break;
+			case EntityID.ItemID.GOLD_BAR:
+			case EntityID.ItemID.COPPER_BAR:
+			case EntityID.ItemID.SILVER_BAR:
+			case EntityID.ItemID.IRON_BAR:
+				flag5 = true;
+				break;
+			case EntityID.ItemID.FALLEN_STAR:
+				flag6 = true;
+				break;
+			case EntityID.ItemID.LENS:
+				flag7 = true;
+				break;
+			case EntityID.ItemID.ROTTEN_CHUNK:
+			case EntityID.ItemID.WORM_FOOD:
+				flag8 = true;
+				break;
+			case EntityID.ItemID.GRAPPLING_HOOK:
+				flag9 = true;
+				break;
+			}
+		}
+		bool flag10 = false;
+		bool flag11 = false;
+		bool flag12 = false;
+		bool flag13 = false;
+		bool flag14 = false;
+		bool flag15 = false;
+		bool flag16 = false;
+		bool flag17 = false;
+		bool flag18 = false;
+		for (int j = 0; j < 196; j++)
+		{
+			if (Main.NPCSet[j].Active != 0)
+			{
+				switch ((EntityID.NPCID)Main.NPCSet[j].Type)
+				{
+				case EntityID.NPCID.MERCHANT:
+					flag10 = true;
+					break;
+				case EntityID.NPCID.NURSE:
+					flag11 = true;
+					break;
+				case EntityID.NPCID.ARMS_DEALER:
+					flag13 = true;
+					break;
+				case EntityID.NPCID.DRYAD:
+					flag12 = true;
+					break;
+				case EntityID.NPCID.GOBLIN_TINKERER:
+					flag17 = true;
+					break;
+				case EntityID.NPCID.CLOTHIER:
+					flag18 = true;
+					break;
+				case EntityID.NPCID.MECHANIC:
+					flag15 = true;
+					break;
+				case EntityID.NPCID.DEMOLITIONIST:
+					flag14 = true;
+					break;
+				case EntityID.NPCID.WIZARD:
+					flag16 = true;
+					break;
+				}
+			}
+		}
+		while (true)
+		{
+			helpText++;
+			if (flag3)
+			{
+				if (helpText == 1)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 177);
+					return;
+				}
+				if (helpText == 2)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 178);
+					return;
+				}
+				if (helpText == 3)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 179);
+					return;
+				}
+				if (helpText == 4)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 180);
+					return;
+				}
+				if (helpText == 5)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 181);
+					return;
+				}
+				if (helpText == 6)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 182);
+					return;
+				}
+			}
+			if (flag3 && !flag4 && !flag5 && helpText == 11)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 183);
+				return;
+			}
+			if ((flag3 & flag4) && !flag5)
+			{
+				if (helpText == 21)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 184);
+					return;
+				}
+				if (helpText == 22)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 185);
+					return;
+				}
+			}
+			if (flag3 & flag5)
+			{
+				if (helpText == 31)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 186);
+					return;
+				}
+				if (helpText == 32)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 187);
+					return;
+				}
+			}
+			if (!flag && helpText == 41)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 188);
+				return;
+			}
+			if (!flag2 && helpText == 42)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 189);
+				return;
+			}
+			if (!flag2 && !flag6 && helpText == 43)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 190);
+				return;
+			}
+			if (!flag10 && !flag11)
+			{
+				if (helpText == 51)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 191);
+					return;
+				}
+				if (helpText == 52)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 192);
+					return;
+				}
+				if (helpText == 53)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 193);
+					return;
+				}
+				if (helpText == 54)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 194);
+					return;
+				}
+			}
+			if (!flag10 && helpText == 61)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 195);
+				return;
+			}
+			if (!flag11 && helpText == 62)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 196);
+				return;
+			}
+			if (!flag13 && helpText == 63)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 197);
+				return;
+			}
+			if (!flag12 && helpText == 64)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 198);
+				return;
+			}
+			if (!flag15 && helpText == 65 && NPC.HasDownedBoss3)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 199);
+				return;
+			}
+			if (!flag18 && helpText == 66 && NPC.HasDownedBoss3)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 200);
+				return;
+			}
+			if (!flag14 && helpText == 67)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 201);
+				return;
+			}
+			if (!flag17 && NPC.HasDownedBoss2 && helpText == 68)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 202);
+				return;
+			}
+			if (!flag16 && Main.InHardMode && helpText == 69)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 203);
+				return;
+			}
+			if (flag7 && helpText == 71)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 204);
+				return;
+			}
+			if (flag8 && helpText == 72)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 205);
+				return;
+			}
+			if ((flag7 | flag8) && helpText == 80)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 206);
+				return;
+			}
+			if (!flag9 && helpText == 201 && !Main.InHardMode && !NPC.HasDownedBoss3 && !NPC.HasDownedBoss2)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 207);
+				return;
+			}
+			if (helpText == 1000 && !NPC.HasDownedBoss1 && !NPC.HasDownedBoss2)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 208);
+				return;
+			}
+			if (helpText == 1001 && !NPC.HasDownedBoss1 && !NPC.HasDownedBoss2)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 209);
+				return;
+			}
+			if (helpText == 1002 && !NPC.HasDownedBoss3)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 210);
+				return;
+			}
+			if (helpText == 1050 && !NPC.HasDownedBoss1)
+			{
+				if (ActivePlayer.StatLifeMax < 200)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 211);
+					return;
+				}
+				continue;
+			}
+			if (helpText == 1051 && !NPC.HasDownedBoss1)
+			{
+				if (ActivePlayer.StatDefense <= 10)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 212);
+					return;
+				}
+				continue;
+			}
+			if (helpText == 1052 && !NPC.HasDownedBoss1)
+			{
+				if (ActivePlayer.StatLifeMax >= 200 && ActivePlayer.StatDefense > 10)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 213);
+					return;
+				}
+				continue;
+			}
+			if (helpText == 1053 && NPC.HasDownedBoss1 && !NPC.HasDownedBoss2)
+			{
+				if (ActivePlayer.StatLifeMax < 300)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 214);
+					return;
+				}
+				continue;
+			}
+			if (helpText == 1054 && NPC.HasDownedBoss1 && !NPC.HasDownedBoss2)
+			{
+				if (ActivePlayer.StatLifeMax >= 300)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 215);
+					return;
+				}
+				continue;
+			}
+			if (helpText == 1055 && NPC.HasDownedBoss1 && !NPC.HasDownedBoss2)
+			{
+				if (ActivePlayer.StatLifeMax >= 300)
+				{
+					npcChatText = Lang.NPCDialog(ActivePlayer, 216);
+					return;
+				}
+				continue;
+			}
+			if (helpText == 1056 && NPC.HasDownedBoss1 && NPC.HasDownedBoss2 && !NPC.HasDownedBoss3)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 217);
+				return;
+			}
+			if (helpText == 1057 && NPC.HasDownedBoss1 && NPC.HasDownedBoss2 && NPC.HasDownedBoss3 && !Main.InHardMode && ActivePlayer.StatLifeMax < 400)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 218);
+				return;
+			}
+			if (helpText == 1058 && NPC.HasDownedBoss1 && NPC.HasDownedBoss2 && NPC.HasDownedBoss3 && !Main.InHardMode && ActivePlayer.StatLifeMax >= 400)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 219);
+				return;
+			}
+			if (helpText == 1059 && NPC.HasDownedBoss1 && NPC.HasDownedBoss2 && NPC.HasDownedBoss3 && !Main.InHardMode && ActivePlayer.StatLifeMax >= 400)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 220);
+				return;
+			}
+			if (helpText == 1060 && NPC.HasDownedBoss1 && NPC.HasDownedBoss2 && NPC.HasDownedBoss3 && !Main.InHardMode && ActivePlayer.StatLifeMax >= 400)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 221);
+				return;
+			}
+			if (helpText == 1061 && Main.InHardMode)
+			{
+				npcChatText = Lang.NPCDialog(ActivePlayer, 222);
+				return;
+			}
+			if (helpText == 1062 && Main.InHardMode)
+			{
+				break;
+			}
+			if (helpText > 1100)
+			{
+				helpText = 0;
+			}
+		}
+		npcChatText = Lang.NPCDialog(ActivePlayer, 223);
+	}
+
+	public void UpdateNpcChat()
+	{
+		focusText = null;
+		focusText3 = null;
+		int num = (MouseTextBrightness * 2 + 255) / 3;
+		focusColor = new Color(num, (int)((double)num * 0.9090909361839294), num >> 1, num);
+		int num2 = ActivePlayer.StatLifeMax - ActivePlayer.statLife;
+		if (ActivePlayer.sign >= 0)
+		{
+			focusText = Lang.InterfaceText[48];
+		}
+		else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 20)
+		{
+			focusText = Lang.InterfaceText[28];
+			focusText3 = Lang.InterfaceText[49];
+		}
+		else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 107)
+		{
+			focusText = Lang.InterfaceText[28];
+			focusText3 = Lang.InterfaceText[19];
+		}
+		else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 17 || Main.NPCSet[ActivePlayer.TalkNPC].Type == 19 || Main.NPCSet[ActivePlayer.TalkNPC].Type == 38 || Main.NPCSet[ActivePlayer.TalkNPC].Type == 54 || Main.NPCSet[ActivePlayer.TalkNPC].Type == 108 || Main.NPCSet[ActivePlayer.TalkNPC].Type == 124 || Main.NPCSet[ActivePlayer.TalkNPC].Type == 142)
+		{
+			focusText = Lang.InterfaceText[28];
+		}
+		else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 37)
+		{
+			if (!Main.GameTime.DayTime)
+			{
+				focusText = Lang.InterfaceText[50];
+			}
+		}
+		else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 22)
+		{
+			focusText = Lang.InterfaceText[51];
+			if (!Main.IsTutorial())
+			{
+				focusText3 = Lang.InterfaceText[25];
+			}
+		}
+		else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 18)
+		{
+			focusText = Lang.InterfaceText[54];
+			for (int i = 0; i < 10; i++)
+			{
+				if (ActivePlayer.buff[i].IsHealable())
+				{
+					num2 += 1000;
+				}
+			}
+			if (num2 > 0)
+			{
+				string text = "";
+				int num3 = 0;
+				int num4 = 0;
+				int num5 = 0;
+				int num6 = 0;
+				int num7 = (int)((double)num2 * 0.75);
+				if (num7 < 1)
+				{
+					num7 = 1;
+				}
+				num2 = num7;
+				if (num7 >= 1000000)
+				{
+					num3 = num7 / 1000000;
+					num7 -= num3 * 1000000;
+				}
+				if (num7 >= 10000)
+				{
+					num4 = num7 / 10000;
+					num7 -= num4 * 10000;
+				}
+				if (num7 >= 100)
+				{
+					num5 = num7 / 100;
+					num7 -= num5 * 100;
+				}
+				if (num7 > 0)
+				{
+					num6 = num7;
+				}
+				if (num3 > 0)
+				{
+					text = num3 + Lang.InterfaceText[15];
+				}
+				if (num4 > 0)
+				{
+					text = text + num4 + Lang.InterfaceText[16];
+				}
+				if (num5 > 0)
+				{
+					text = text + num5 + Lang.InterfaceText[17];
+				}
+				if (num6 > 0)
+				{
+					text = text + num6 + Lang.InterfaceText[18];
+				}
+				float num8 = (float)(int)MouseTextBrightness * (1f / 255f);
+				if (num3 > 0)
+				{
+					focusColor = new Color((byte)(220f * num8), (byte)(220f * num8), (byte)(198f * num8), MouseTextBrightness);
+				}
+				else if (num4 > 0)
+				{
+					focusColor = new Color((byte)(224f * num8), (byte)(201f * num8), (byte)(92f * num8), MouseTextBrightness);
+				}
+				else if (num5 > 0)
+				{
+					focusColor = new Color((byte)(181f * num8), (byte)(192f * num8), (byte)(193f * num8), MouseTextBrightness);
+				}
+				else if (num6 > 0)
+				{
+					focusColor = new Color((byte)(246f * num8), (byte)(138f * num8), (byte)(96f * num8), MouseTextBrightness);
+				}
+				focusText = focusText + " (" + text + ")";
+			}
+		}
+		ActivePlayer.releaseUseItem = false;
+		if (focusText == null && focusText3 == null)
+		{
+			npcChatSelectedItem = 1;
+		}
+		else if (IsLeftButtonTriggered())
+		{
+			Main.PlaySound(12);
+			if (--npcChatSelectedItem < 0)
+			{
+				npcChatSelectedItem = (sbyte)((focusText3 == null) ? 1 : 2);
+			}
+		}
+		else if (IsRightButtonTriggered())
+		{
+			Main.PlaySound(12);
+			npcChatSelectedItem++;
+			if (npcChatSelectedItem == 3 || (npcChatSelectedItem == 2 && focusText3 == null))
+			{
+				npcChatSelectedItem = 0;
+			}
+		}
+		if (IsButtonTriggered(Buttons.B))
+		{
+			ActivePlayer.TalkNPC = -1;
+			ActivePlayer.sign = -1;
+			editSign = false;
+			npcChatText = null;
+			Main.PlaySound(11);
+			ClearButtonTriggers();
+		}
+		else
+		{
+			if (!IsButtonTriggered(Buttons.A))
+			{
+				return;
+			}
+			if (npcChatSelectedItem == 0)
+			{
+				if (ActivePlayer.sign != -1)
+				{
+					Main.PlaySound(12);
+					editSign = true;
+					ClearInput();
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 17)
+				{
+					npcChatText = null;
+					npcShop = 1;
+					Main.Shop[npcShop].SetupShop(npcShop, ActivePlayer);
+					Main.PlaySound(12);
+					OpenInventory();
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 19)
+				{
+					npcChatText = null;
+					npcShop = 2;
+					Main.Shop[npcShop].SetupShop(npcShop);
+					Main.PlaySound(12);
+					OpenInventory();
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 124)
+				{
+					npcChatText = null;
+					npcShop = 8;
+					Main.Shop[npcShop].SetupShop(npcShop);
+					Main.PlaySound(12);
+					OpenInventory();
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 142)
+				{
+					npcChatText = null;
+					npcShop = 9;
+					Main.Shop[npcShop].SetupShop(npcShop);
+					Main.PlaySound(12);
+					OpenInventory();
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 37)
+				{
+					if (Main.NetMode != 1)
+					{
+						NPC.SpawnSkeletron();
+					}
+					else
+					{
+						NetMessage.CreateMessage0(62);
+						NetMessage.SendMessage();
+					}
+					npcChatText = null;
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 20)
+				{
+					npcChatText = null;
+					npcShop = 3;
+					Main.Shop[npcShop].SetupShop(npcShop);
+					Main.PlaySound(12);
+					OpenInventory();
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 38)
+				{
+					npcChatText = null;
+					npcShop = 4;
+					Main.Shop[npcShop].SetupShop(npcShop);
+					Main.PlaySound(12);
+					OpenInventory();
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 54)
+				{
+					npcChatText = null;
+					npcShop = 5;
+					Main.Shop[npcShop].SetupShop(npcShop, ActivePlayer);
+					Main.PlaySound(12);
+					OpenInventory();
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 107)
+				{
+					npcChatText = null;
+					npcShop = 6;
+					Main.Shop[npcShop].SetupShop(npcShop);
+					Main.PlaySound(12);
+					OpenInventory();
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 108)
+				{
+					npcChatText = null;
+					npcShop = 7;
+					Main.Shop[npcShop].SetupShop(npcShop);
+					Main.PlaySound(12);
+					OpenInventory();
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 22)
+				{
+					Main.PlaySound(12);
+					HelpText();
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 18)
+				{
+					Main.PlaySound(12);
+					if (num2 > 0)
+					{
+						if (ActivePlayer.BuyItem(num2))
+						{
+							Main.PlaySound(2, -1, -1, 4);
+							ActivePlayer.HealEffect(ActivePlayer.StatLifeMax - ActivePlayer.statLife);
+							if ((float)ActivePlayer.statLife < (float)ActivePlayer.StatLifeMax * 0.25f)
+							{
+								npcChatText = Lang.NPCDialog(ActivePlayer, 227);
+							}
+							else if ((float)ActivePlayer.statLife < (float)ActivePlayer.StatLifeMax * 0.5f)
+							{
+								npcChatText = Lang.NPCDialog(ActivePlayer, 228);
+							}
+							else if ((float)ActivePlayer.statLife < (float)ActivePlayer.StatLifeMax * 0.75f)
+							{
+								npcChatText = Lang.NPCDialog(ActivePlayer, 229);
+							}
+							else
+							{
+								npcChatText = Lang.NPCDialog(ActivePlayer, 230);
+							}
+							ActivePlayer.statLife = ActivePlayer.StatLifeMax;
+							for (int j = 0; j < 10; j++)
+							{
+								if (ActivePlayer.buff[j].IsHealable())
+								{
+									j = ActivePlayer.DelBuff(j);
+								}
+							}
+						}
+						else
+						{
+							switch (Main.Rand.Next(3))
+							{
+							case 0:
+								npcChatText = Lang.NPCDialog(ActivePlayer, 52);
+								break;
+							case 1:
+								npcChatText = Lang.NPCDialog(ActivePlayer, 53);
+								break;
+							default:
+								npcChatText = Lang.NPCDialog(ActivePlayer, 54);
+								break;
+							}
+						}
+					}
+					else
+					{
+						switch (Main.Rand.Next(3))
+						{
+						case 0:
+							npcChatText = Lang.NPCDialog(ActivePlayer, 55);
+							break;
+						case 1:
+							npcChatText = Lang.NPCDialog(ActivePlayer, 56);
+							break;
+						default:
+							npcChatText = Lang.NPCDialog(ActivePlayer, 57);
+							break;
+						}
+					}
+				}
+			}
+			else if (npcChatSelectedItem == 1)
+			{
+				ActivePlayer.TalkNPC = -1;
+				ActivePlayer.sign = -1;
+				editSign = false;
+				npcChatText = null;
+				Main.PlaySound(11);
+			}
+			else if (ActivePlayer.TalkNPC >= 0)
+			{
+				if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 20)
+				{
+					Main.PlaySound(12);
+					npcChatText = Lang.DryadEvilGood();
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 22)
+				{
+					npcChatText = null;
+					Main.PlaySound(12);
+					CraftGuide = true;
+					GuideItem.Init();
+					OpenInventory();
+				}
+				else if (Main.NPCSet[ActivePlayer.TalkNPC].Type == 107)
+				{
+					npcChatText = null;
+					Main.PlaySound(12);
+					reforge = true;
+					OpenInventory();
+				}
+			}
+			ClearButtonTriggers();
+		}
+	}
+
+	private void DrawNpcChat()
+	{
+		string text = npcChatText.GetString();
+		int num = 500;
+		int wrapWidth = 470;
+		switch (Main.ScreenHeightPtr)
+		{
+		case ScreenHeights.HD:
+			num = (int)((float)num * 1.15f);
+			wrapWidth = 548;
+			break;
+		case ScreenHeights.FHD:
+			num = (int)((float)num * 1.534f);
+			wrapWidth = 705;
+			break;
+		}
+		if (text != npcCompiledChatText)
+		{
+			npcCompiledChatText = text;
+			npcChatCompiledText = new CompiledText(text, wrapWidth, BoldSmallTextStyle);
+		}
+		int num2 = (MouseTextBrightness * 2 + 255) / 3;
+		int num3 = DrawDialog(textColor: new Color(num2, num2, num2, num2), pos: new Vector2(CurrentView.ViewWidth - num >> 1, 100f * Main.ScreenMultiplier), backColor: new Color(200, 200, 200, 200), ct: npcChatCompiledText);
+		num2 = MouseTextBrightness;
+		int num4 = 180 + (CurrentView.ViewWidth - 800 >> 1);
+		int num5 = 128 + num3;
+		switch (Main.ScreenHeightPtr)
+		{
+		case ScreenHeights.HD:
+			num4 = 370;
+			num5 = 150 + num3;
+			break;
+		case ScreenHeights.FHD:
+			num4 = 602;
+			num5 = 215 + num3;
+			break;
+		}
+		Vector2 pivot = default;
+		if (focusText != null)
+		{
+			pivot = MeasureString(BoldSmallFont, focusText);
+			pivot.X *= 0.5f;
+			pivot.Y *= 0.5f;
+			DrawStringScaled(BoldSmallFont, focusText, new Vector2((float)num4 + pivot.X, (float)num5 + pivot.Y), focusColor, pivot, (npcChatSelectedItem == 0) ? 1.1f : 0.9f);
+		}
+		string text2 = Lang.InterfaceText[52];
+		Color c = new Color(num2, (int)((double)num2 * 0.9090909361839294), num2 >> 1, num2);
+		float num6 = 30f;
+		switch (Main.ScreenHeightPtr)
+		{
+		case ScreenHeights.HD:
+			num6 *= 1.15f;
+			break;
+		case ScreenHeights.FHD:
+			num6 *= 1.5f;
+			break;
+		}
+		num4 = num4 + (int)(pivot.X * 2f) + (int)num6;
+		Vector2 pivot2 = MeasureString(BoldSmallFont, text2);
+		pivot2.X *= 0.5f;
+		pivot2.Y *= 0.5f;
+		DrawStringScaled(BoldSmallFont, text2, new Vector2((float)num4 + pivot2.X, (float)num5 + pivot2.Y), c, pivot2, (npcChatSelectedItem == 1) ? 1.1f : 0.9f);
+		if (focusText3 != null)
+		{
+			num4 = num4 + (int)(pivot2.X * 2f) + 30;
+			Vector2 pivot3 = MeasureString(BoldSmallFont, focusText3);
+			pivot3.X *= 0.5f;
+			pivot3.Y *= 0.5f;
+			DrawStringScaled(BoldSmallFont, focusText3, new Vector2((float)num4 + pivot3.X, (float)num5 + pivot3.Y), c, pivot3, (npcChatSelectedItem == 2) ? 1.1f : 0.9f);
+		}
+	}
+
+	private void Reforge(int slot, bool isArmor = false)
+	{
+		if (toolTip.SetPrefix(-3) && ActivePlayer.BuyItem(toolTip.Value))
+		{
+			int prefixType = toolTip.PrefixType;
+			toolTip.NetDefaults(toolTip.NetID);
+			do
+			{
+				toolTip.SetPrefix(-2);
+			}
+			while (toolTip.PrefixType == prefixType);
+			toolTip.Position.X = ActivePlayer.XYWH.X + 10 - (toolTip.Width >> 1);
+			toolTip.Position.Y = ActivePlayer.XYWH.Y + 21 - (toolTip.Height >> 1);
+			if (isArmor)
+			{
+				ref Item reference = ref ActivePlayer.armor[slot];
+				reference = toolTip;
+			}
+			else
+			{
+				ref Item reference2 = ref ActivePlayer.Inventory[slot];
+				reference2 = toolTip;
+			}
+			Main.PlaySound(2, ActivePlayer.XYWH.X, ActivePlayer.XYWH.Y, 37);
+		}
+	}
+
+	private void CraftingGuide()
+	{
+		if (toolTip.Type <= 0 || !toolTip.IsMaterial)
+		{
+			return;
+		}
+		GuideItem = toolTip;
+		ActiveInvSection = InventorySection.CRAFTING;
+		craftingCategory = Recipe.Category.MISC;
+		for (int i = 0; i < 6; i++)
+		{
+			NextCraftingCategory();
+			if (CurrentRecipeCategory.Count > 0)
+			{
+				break;
+			}
+		}
+	}
+
+	private bool IsSlotAssignedToQuickAccess(int slot)
+	{
+		if (quickAccessUp != slot && quickAccessDown != slot && quickAccessLeft != slot)
+		{
+			return quickAccessRight == slot;
+		}
+		return true;
+	}
+
+	private void UpdateInventory()
+	{
+		if (inventoryItemX == 9 && inventoryItemY == 6)
+		{
+			if (!IsButtonTriggered(Buttons.A))
+			{
+				return;
+			}
+			if (mouseItem.Type != 0)
+			{
+				trashItem.Init();
+			}
+			Item item = mouseItem;
+			mouseItem = trashItem;
+			trashItem = item;
+			mouseItemSrcSection = InventorySection.ITEMS;
+			mouseItemSrcX = inventoryItemX;
+			mouseItemSrcY = inventoryItemY;
+			if (trashItem.Type == 0 || trashItem.Stack < 1)
+			{
+				trashItem.Init();
+			}
+			if (mouseItem.NetID == trashItem.NetID && trashItem.Stack != trashItem.MaxStack && mouseItem.Stack != mouseItem.MaxStack)
+			{
+				if (mouseItem.Stack + trashItem.Stack <= mouseItem.MaxStack)
+				{
+					trashItem.Stack += mouseItem.Stack;
+					mouseItem.Stack = 0;
+				}
+				else
+				{
+					short num = (short)(mouseItem.MaxStack - trashItem.Stack);
+					trashItem.Stack += num;
+					mouseItem.Stack -= num;
+				}
+			}
+			if (mouseItem.Type == 0 || mouseItem.Stack < 1)
+			{
+				mouseItem.Init();
+			}
+			if (mouseItem.Type > 0 || trashItem.Type > 0)
+			{
+				Main.PlaySound(7);
+			}
+			return;
+		}
+		bool flag = true;
+		int num2;
+		switch (inventoryItemY)
+		{
+		case 4:
+			num2 = 44 + inventoryItemX - 6;
+			flag = mouseItem.CanBePlacedInAmmoSlot();
+			break;
+		case 5:
+			num2 = 40 + inventoryItemX - 6;
+			flag = mouseItem.CanBePlacedInCoinSlot();
+			break;
+		default:
+			num2 = inventoryItemX + inventoryItemY * 10;
+			break;
+		}
+		if (num2 < 40 && mouseItem.Type == 0)
+		{
+			if (IsButtonTriggered(Buttons.DPadUp))
+			{
+				if (quickAccessUp == num2)
+				{
+					quickAccessUp = -1;
+				}
+				else
+				{
+					quickAccessUp = (sbyte)num2;
+					if (quickAccessDown == num2)
+					{
+						quickAccessDown = -1;
+					}
+					else if (quickAccessLeft == num2)
+					{
+						quickAccessLeft = -1;
+					}
+					else if (quickAccessRight == num2)
+					{
+						quickAccessRight = -1;
+					}
+				}
+				Main.PlaySound(7);
+			}
+			else if (IsButtonTriggered(Buttons.DPadDown))
+			{
+				if (quickAccessDown == num2)
+				{
+					quickAccessDown = -1;
+				}
+				else
+				{
+					quickAccessDown = (sbyte)num2;
+					if (quickAccessUp == num2)
+					{
+						quickAccessUp = -1;
+					}
+					else if (quickAccessLeft == num2)
+					{
+						quickAccessLeft = -1;
+					}
+					else if (quickAccessRight == num2)
+					{
+						quickAccessRight = -1;
+					}
+				}
+				Main.PlaySound(7);
+			}
+			else if (IsButtonTriggered(Buttons.DPadLeft))
+			{
+				if (quickAccessLeft == num2)
+				{
+					quickAccessLeft = -1;
+				}
+				else
+				{
+					quickAccessLeft = (sbyte)num2;
+					if (quickAccessUp == num2)
+					{
+						quickAccessUp = -1;
+					}
+					else if (quickAccessDown == num2)
+					{
+						quickAccessDown = -1;
+					}
+					else if (quickAccessRight == num2)
+					{
+						quickAccessRight = -1;
+					}
+				}
+				Main.PlaySound(7);
+			}
+			else if (IsButtonTriggered(Buttons.DPadRight))
+			{
+				if (quickAccessRight == num2)
+				{
+					quickAccessRight = -1;
+				}
+				else
+				{
+					quickAccessRight = (sbyte)num2;
+					if (quickAccessUp == num2)
+					{
+						quickAccessUp = -1;
+					}
+					else if (quickAccessDown == num2)
+					{
+						quickAccessDown = -1;
+					}
+					else if (quickAccessLeft == num2)
+					{
+						quickAccessLeft = -1;
+					}
+				}
+				Main.PlaySound(7);
+			}
+		}
+		if (IsButtonTriggered(Buttons.A))
+		{
+			if (reforge)
+			{
+				Reforge(num2);
+			}
+			else if (CraftGuide)
+			{
+				CraftingGuide();
+			}
+			else
+			{
+				if (mouseItem.Type != 0 && (!flag || (ActivePlayer.SelectedItem == num2 && ActivePlayer.itemAnimation > 0)))
+				{
+					return;
+				}
+				Item item2 = mouseItem;
+				mouseItem = ActivePlayer.Inventory[num2];
+				ActivePlayer.Inventory[num2] = item2;
+				if (ActivePlayer.Inventory[num2].Type == 0 || ActivePlayer.Inventory[num2].Stack < 1)
+				{
+					ActivePlayer.Inventory[num2].Init();
+				}
+				bool flag2 = false;
+				if (mouseItem.NetID == ActivePlayer.Inventory[num2].NetID && ActivePlayer.Inventory[num2].Stack != ActivePlayer.Inventory[num2].MaxStack && mouseItem.Stack != mouseItem.MaxStack)
+				{
+					if (mouseItem.Stack + ActivePlayer.Inventory[num2].Stack <= mouseItem.MaxStack)
+					{
+						ActivePlayer.Inventory[num2].Stack += mouseItem.Stack;
+						mouseItem.Init();
+					}
+					else
+					{
+						short num3 = (short)(mouseItem.MaxStack - ActivePlayer.Inventory[num2].Stack);
+						ActivePlayer.Inventory[num2].Stack += num3;
+						mouseItem.Stack -= num3;
+						flag2 = true;
+					}
+				}
+				if (mouseItem.Type > 0 && item2.Type > 0 && !flag2 && mouseItemSrcSection == InventorySection.ITEMS && mouseItemSrcX < 10 && mouseItemSrcY < 4)
+				{
+					int num4 = mouseItemSrcX + mouseItemSrcY * 10;
+					if (ActivePlayer.Inventory[num4].Type == 0)
+					{
+						ref Item reference = ref ActivePlayer.Inventory[num4];
+						reference = mouseItem;
+						mouseItem.Init();
+					}
+					if (quickAccessUp == num4)
+					{
+						quickAccessUp = (sbyte)num2;
+					}
+					else if (quickAccessDown == num4)
+					{
+						quickAccessDown = (sbyte)num2;
+					}
+					else if (quickAccessLeft == num4)
+					{
+						quickAccessLeft = (sbyte)num2;
+					}
+					else if (quickAccessRight == num4)
+					{
+						quickAccessRight = (sbyte)num2;
+					}
+				}
+				mouseItemSrcSection = InventorySection.ITEMS;
+				mouseItemSrcX = inventoryItemX;
+				mouseItemSrcY = inventoryItemY;
+				if (mouseItem.Type > 0 || ActivePlayer.Inventory[num2].Type > 0)
+				{
+					Main.PlaySound(7);
+				}
+			}
+		}
+		else if (PadState.IsButtonDown(Buttons.RightTrigger))
+		{
+			if (gpPrevState.IsButtonUp(Buttons.RightTrigger))
+			{
+				if (ActivePlayer.Inventory[num2].Type >= 599 && ActivePlayer.Inventory[num2].Type <= 601)
+				{
+					Main.PlaySound(7);
+					stackSplit = 30;
+					int num5 = Main.Rand.Next(14);
+					if (num5 == 0 && Main.InHardMode)
+					{
+						ActivePlayer.Inventory[num2].SetDefaults(602);
+						return;
+					}
+					ActivePlayer.Inventory[num2].SetDefaults((num5 <= 7) ? 586 : 591);
+					ActivePlayer.Inventory[num2].Stack = (short)Main.Rand.Next(20, 50);
+				}
+				else if (ActivePlayer.Inventory[num2].IsEquipable())
+				{
+					ref Item reference2 = ref ActivePlayer.Inventory[num2];
+					reference2 = ActivePlayer.armorSwap(ref ActivePlayer.Inventory[num2]);
+				}
+			}
+			else if (stackSplit <= 1 && ActivePlayer.Inventory[num2].MaxStack > 1 && ActivePlayer.Inventory[num2].Type > 0 && (mouseItem.NetID == ActivePlayer.Inventory[num2].NetID || mouseItem.Type == 0) && (mouseItem.Stack < mouseItem.MaxStack || mouseItem.Type == 0))
+			{
+				if (mouseItem.Type == 0)
+				{
+					mouseItem = ActivePlayer.Inventory[num2];
+					mouseItem.Stack = 0;
+					mouseItemSrcSection = InventorySection.ITEMS;
+					mouseItemSrcX = inventoryItemX;
+					mouseItemSrcY = inventoryItemY;
+				}
+				mouseItem.Stack++;
+				ActivePlayer.Inventory[num2].Stack--;
+				if (ActivePlayer.Inventory[num2].Stack <= 0)
+				{
+					ActivePlayer.Inventory[num2].Init();
+				}
+				Main.PlaySound(12);
+				if (stackSplit == 0)
+				{
+					stackSplit = 15;
+				}
+				else
+				{
+					stackSplit = stackDelay;
+				}
+			}
+		}
+		else
+		{
+			if (mouseItem.Type != 0 || reforge || !IsButtonTriggered(Buttons.X) || ActivePlayer.Inventory[num2].Type <= 0)
+			{
+				return;
+			}
+			if (npcShop > 0 && !ActivePlayer.Inventory[num2].CanBePlacedInCoinSlot())
+			{
+				if (ActivePlayer.SellItem(ActivePlayer.Inventory[num2].Value, ActivePlayer.Inventory[num2].Stack))
+				{
+					Main.Shop[npcShop].AddShop(ref ActivePlayer.Inventory[num2]);
+					ActivePlayer.Inventory[num2].Init();
+					Main.PlaySound(18);
+				}
+				else if (ActivePlayer.Inventory[num2].Value == 0)
+				{
+					Main.Shop[npcShop].AddShop(ref ActivePlayer.Inventory[num2]);
+					ActivePlayer.Inventory[num2].Init();
+					Main.PlaySound(7);
+				}
+			}
+			else
+			{
+				Main.PlaySound(7);
+				trashItem = ActivePlayer.Inventory[num2];
+				ActivePlayer.Inventory[num2].Init();
+			}
+		}
+	}
+
+	private void DrawInventory(int itemsSectionX, int itemsSectionY)
+	{
+		Vector2 pos = default;
+		Color color = new Color(invAlpha, invAlpha, invAlpha, invAlpha);
+		inventoryScale = 149f / 160f;
+		inventoryScale *= Main.ScreenMultiplier;
+		int num = (int)(469f * Main.ScreenMultiplier);
+		DrawStringRC(SmallFont, Lang.InterfaceText[3], itemsSectionX + num, (int)((float)itemsSectionY + 338f * Main.ScreenMultiplier), Color.White);
+		int num2 = (int)(469f * Main.ScreenMultiplier + (float)itemsSectionX);
+		int num3 = (int)(312f * Main.ScreenMultiplier + (float)itemsSectionY);
+		if (inventoryItemX == 9 && inventoryItemY == 6)
+		{
+			DrawInventoryCursor(num2, num3, inventoryScale);
+			toolTip = trashItem;
+		}
+		else
+		{
+			SpriteSheet<_sheetSprites>.DrawTL(446, num2, num3, color, inventoryScale);
+		}
+		if (trashItem.Type == 0 || trashItem.Stack == 0)
+		{
+			pos.X = (float)num2 + 26f * inventoryScale;
+			pos.Y = (float)num3 + 26f * inventoryScale;
+			SpriteSheet<_sheetSprites>.DrawScaled(1482, ref pos, new Color(100, 100, 100, 100), inventoryScale);
+		}
+		else
+		{
+			DrawInventoryItem(ref trashItem, num2, num3, Color.White, StackType.INVENTORY);
+		}
+		for (int i = 0; i < 10; i++)
+		{
+			for (int j = 0; j < 4; j++)
+			{
+				int x = itemsSectionX + (int)((float)i * (52.15f * Main.ScreenMultiplier));
+				int y = itemsSectionY + (int)((float)j * (52.15f * Main.ScreenMultiplier));
+				int num4 = i + j * 10;
+				if (inventoryItemX == i && inventoryItemY == j)
+				{
+					toolTip = ActivePlayer.Inventory[num4];
+					DrawInventoryCursor(x, y, inventoryScale);
+				}
+				else
+				{
+					Color c = color;
+					int id;
+					if (!IsSlotAssignedToQuickAccess(num4))
+					{
+						id = ((j == 0) ? 447 : 451);
+					}
+					else
+					{
+						id = 450;
+						c = mouseTextColor;
+					}
+					SpriteSheet<_sheetSprites>.DrawTL(id, x, y, c, inventoryScale);
+				}
+				if (ActivePlayer.Inventory[num4].Type > 0 && ActivePlayer.Inventory[num4].Stack > 0)
+				{
+					StackType stackType;
+					Color itemColor;
+					if ((CraftGuide && !ActivePlayer.Inventory[num4].IsMaterial) || (reforge && !ActivePlayer.Inventory[num4].SetPrefix(-3)))
+					{
+						stackType = StackType.NONE;
+						itemColor = DISABLED_COLOR;
+					}
+					else
+					{
+						stackType = StackType.INVENTORY;
+						itemColor = new Color(255, 255, 255, 255);
+					}
+					DrawInventoryItem(ref ActivePlayer.Inventory[num4], x, y, itemColor, stackType);
+				}
+			}
+		}
+		int num5 = (int)(312f * Main.ScreenMultiplier);
+		DrawStringRC(SmallFont, Lang.InterfaceText[26], itemsSectionX + num5, (int)((float)itemsSectionY + 286f * Main.ScreenMultiplier), Color.White);
+		for (int k = 0; k < 4; k++)
+		{
+			int x2 = (int)((float)(6 + k) * (52.15f * Main.ScreenMultiplier)) + itemsSectionX;
+			int y2 = (int)(260f * Main.ScreenMultiplier + (float)itemsSectionY);
+			int num6 = k + 40;
+			if (inventoryItemY == 5 && inventoryItemX - 6 == k)
+			{
+				DrawInventoryCursor(x2, y2, inventoryScale);
+				toolTip = ActivePlayer.Inventory[num6];
+			}
+			else
+			{
+				SpriteSheet<_sheetSprites>.DrawTL(451, x2, y2, color, inventoryScale);
+			}
+			if (ActivePlayer.Inventory[num6].Type > 0 && ActivePlayer.Inventory[num6].Stack > 0)
+			{
+				DrawInventoryItem(ref ActivePlayer.Inventory[num6], x2, y2, Color.White, StackType.INVENTORY);
+			}
+		}
+		DrawStringRC(SmallFont, Lang.InterfaceText[27], itemsSectionX + num5, (int)((float)itemsSectionY + 234f * Main.ScreenMultiplier), Color.White);
+		for (int l = 0; l < 4; l++)
+		{
+			int x3 = (int)((float)(6 + l) * (52.15f * Main.ScreenMultiplier)) + itemsSectionX;
+			int y3 = (int)(208f * Main.ScreenMultiplier + (float)itemsSectionY);
+			int num7 = l + 40 + 4;
+			if (ActiveInvSection == InventorySection.ITEMS && inventoryItemY == 4 && inventoryItemX - 6 == l)
+			{
+				DrawInventoryCursor(x3, y3, inventoryScale);
+				toolTip = ActivePlayer.Inventory[num7];
+			}
+			else
+			{
+				SpriteSheet<_sheetSprites>.DrawTL(451, x3, y3, color, inventoryScale);
+			}
+			if (ActivePlayer.Inventory[num7].Type > 0 && ActivePlayer.Inventory[num7].Stack > 0)
+			{
+				StackType stackType2;
+				Color itemColor2;
+				if ((CraftGuide && !ActivePlayer.Inventory[num7].IsMaterial) || reforge)
+				{
+					stackType2 = StackType.NONE;
+					itemColor2 = DISABLED_COLOR;
+				}
+				else
+				{
+					stackType2 = StackType.INVENTORY;
+					itemColor2 = new Color(255, 255, 255, 255);
+				}
+				DrawInventoryItem(ref ActivePlayer.Inventory[num7], x3, y3, itemColor2, stackType2);
+			}
+		}
+		DrawQuickAccess(-1, (int)((float)itemsSectionX + 26f * Main.ScreenMultiplier), (int)((float)itemsSectionY + 234f * Main.ScreenMultiplier), 255, StackType.INVENTORY);
+		UpdateToolTipText(null);
+		int num8 = (int)(8f * Main.ScreenMultiplier);
+		DrawToolTip(itemsSectionX + INVENTORY_W - TOOLTIP_W - num8, itemsSectionY + num8, (int)(344f * Main.ScreenMultiplier));
+		DrawControlsInventory();
+	}
+
+	public int UpdateQuickAccess()
+	{
+		int result = -1;
+		int num = quickAccessUp;
+		if (num >= 0)
+		{
+			if (ActivePlayer.Inventory[num].Type == 0)
+			{
+				quickAccessUp = -1;
+			}
+			else if (PadState.DPad.Up == ButtonState.Pressed && gpPrevState.DPad.Up == ButtonState.Released)
+			{
+				result = num;
+			}
+		}
+		num = quickAccessDown;
+		if (num >= 0)
+		{
+			if (ActivePlayer.Inventory[num].Type == 0)
+			{
+				quickAccessDown = -1;
+			}
+			else if (PadState.DPad.Down == ButtonState.Pressed && gpPrevState.DPad.Down == ButtonState.Released)
+			{
+				result = num;
+			}
+		}
+		num = quickAccessLeft;
+		if (num >= 0)
+		{
+			if (ActivePlayer.Inventory[num].Type == 0)
+			{
+				quickAccessLeft = -1;
+			}
+			else if (PadState.DPad.Left == ButtonState.Pressed && gpPrevState.DPad.Left == ButtonState.Released)
+			{
+				result = num;
+			}
+		}
+		num = quickAccessRight;
+		if (num >= 0)
+		{
+			if (ActivePlayer.Inventory[num].Type == 0)
+			{
+				quickAccessRight = -1;
+			}
+			else if (PadState.DPad.Right == ButtonState.Pressed && gpPrevState.DPad.Right == ButtonState.Released)
+			{
+				result = num;
+			}
+		}
+		return result;
+	}
+
+	private void DrawQuickAccess(int selectedItem, int x, int y, int alpha, StackType stackType)
+	{
+		Color color = new Color(alpha, alpha, alpha, alpha);
+		Color color2 = new Color(0, 0, 0, alpha >> 1);
+		alpha = alpha * MouseTextBrightness >> 8;
+		Color c = new Color(alpha, alpha, alpha, alpha);
+		int num = 56;
+		switch (Main.ScreenHeightPtr)
+		{
+		case ScreenHeights.HD:
+			num = 75;
+			break;
+		case ScreenHeights.FHD:
+			num = 112;
+			break;
+		}
+		int num2 = num;
+		Main.SpriteBatch.Draw(dpadTexture, new Vector2(x + num, y + num2), new Rectangle(0, 0, 112, 112), color, 0f, new Vector2(56f, 56f), Main.ScreenMultiplier, SpriteEffects.None, 0f);
+		inventoryScale = Main.ScreenMultiplier;
+		int num3 = quickAccessUp;
+		int num4 = (int)(32f * Main.ScreenMultiplier);
+		int num5 = (int)(30f * Main.ScreenMultiplier);
+		int num6 = (int)(70f * Main.ScreenMultiplier);
+		int num7 = (int)(4f * Main.ScreenMultiplier);
+		if (num3 >= 0)
+		{
+			if (selectedItem == num3)
+			{
+				SpriteSheet<_sheetSprites>.DrawTL(448, x + num4 + num7, y - num7, color2, Main.ScreenMultiplier);
+				SpriteSheet<_sheetSprites>.DrawTL(448, x + num4, y - num7 * 2, c, Main.ScreenMultiplier);
+			}
+			if (ActivePlayer.Inventory[num3].Type > 0)
+			{
+				if (selectedItem != num3)
+				{
+					DrawInventoryItem(ref ActivePlayer.Inventory[num3], x + num4 + num7, y - num7, color2, stackType);
+				}
+				DrawInventoryItem(ref ActivePlayer.Inventory[num3], x + num4, y - num7 * 2, color, stackType);
+			}
+		}
+		num3 = quickAccessDown;
+		if (num3 >= 0)
+		{
+			if (selectedItem == num3)
+			{
+				SpriteSheet<_sheetSprites>.DrawTL(448, x + num4 + num7, y + num6 + num7, color2, Main.ScreenMultiplier);
+				SpriteSheet<_sheetSprites>.DrawTL(448, x + num4, y + num6, c, Main.ScreenMultiplier);
+			}
+			if (ActivePlayer.Inventory[num3].Type > 0)
+			{
+				if (selectedItem != num3)
+				{
+					DrawInventoryItem(ref ActivePlayer.Inventory[num3], x + num4 + num7, y + num6 + num7, color2, stackType);
+				}
+				DrawInventoryItem(ref ActivePlayer.Inventory[num3], x + num4, y + num6, color, stackType);
+			}
+		}
+		num3 = quickAccessLeft;
+		if (num3 >= 0)
+		{
+			if (selectedItem == num3)
+			{
+				SpriteSheet<_sheetSprites>.DrawTL(448, x - num7, y + num5 + num7, color2, Main.ScreenMultiplier);
+				SpriteSheet<_sheetSprites>.DrawTL(448, x - num7 * 2, y + num5, c, Main.ScreenMultiplier);
+			}
+			if (ActivePlayer.Inventory[num3].Type > 0)
+			{
+				if (selectedItem != num3)
+				{
+					DrawInventoryItem(ref ActivePlayer.Inventory[num3], x - num7, y + num5 + num7, color2, stackType);
+				}
+				DrawInventoryItem(ref ActivePlayer.Inventory[num3], x - num7 * 2, y + num5, color, stackType);
+			}
+		}
+		num3 = quickAccessRight;
+		if (num3 < 0)
+		{
+			return;
+		}
+		if (selectedItem == num3)
+		{
+			SpriteSheet<_sheetSprites>.DrawTL(448, x + num6 + num7, y + num5 + num7, color2, Main.ScreenMultiplier);
+			SpriteSheet<_sheetSprites>.DrawTL(448, x + num6, y + num5, c, Main.ScreenMultiplier);
+		}
+		if (ActivePlayer.Inventory[num3].Type > 0)
+		{
+			if (selectedItem != num3)
+			{
+				DrawInventoryItem(ref ActivePlayer.Inventory[num3], x + num6 + num7, y + num5 + num7, color2, stackType);
+			}
+			DrawInventoryItem(ref ActivePlayer.Inventory[num3], x + num6, y + num5, color, stackType);
+		}
+	}
+
+	private void UpdateStorage()
+	{
+		if (inventoryChestX < 0)
+		{
+			if (!IsButtonTriggered(Buttons.A))
+			{
+				return;
+			}
+			switch (inventoryChestY)
+			{
+			case 1:
+				if (ActivePlayer.PlayerChest >= 0)
+				{
+					Main.ChestSet[ActivePlayer.PlayerChest].LootAll(ActivePlayer);
+				}
+				else if (ActivePlayer.PlayerChest == -3)
+				{
+					ActivePlayer.safe.LootAll(ActivePlayer);
+				}
+				else
+				{
+					ActivePlayer.bank.LootAll(ActivePlayer);
+				}
+				break;
+			case 2:
+				if (ActivePlayer.PlayerChest >= 0)
+				{
+					Main.ChestSet[ActivePlayer.PlayerChest].Deposit(ActivePlayer);
+				}
+				else if (ActivePlayer.PlayerChest == -3)
+				{
+					ActivePlayer.safe.Deposit(ActivePlayer);
+				}
+				else
+				{
+					ActivePlayer.bank.Deposit(ActivePlayer);
+				}
+				break;
+			case 3:
+				if (ActivePlayer.PlayerChest >= 0)
+				{
+					Main.ChestSet[ActivePlayer.PlayerChest].QuickStack(ActivePlayer);
+				}
+				else if (ActivePlayer.PlayerChest == -3)
+				{
+					ActivePlayer.safe.QuickStack(ActivePlayer);
+				}
+				else
+				{
+					ActivePlayer.bank.QuickStack(ActivePlayer);
+				}
+				break;
+			}
+			return;
+		}
+		int playerChest = ActivePlayer.PlayerChest;
+		if (1 == 0)
+		{
+		}
+		Chest chest = playerChest switch
+		{
+			-2 => ActivePlayer.bank, 
+			-3 => ActivePlayer.safe, 
+			_ => Main.ChestSet[playerChest], 
+		};
+		if (1 == 0)
+		{
+		}
+		Chest chest2 = chest;
+		int num = inventoryChestX + inventoryChestY * 5;
+		if (IsButtonTriggered(Buttons.A))
+		{
+			if (ActivePlayer.SelectedItem == num && ActivePlayer.itemAnimation > 0)
+			{
+				return;
+			}
+			Item item = mouseItem;
+			mouseItem = chest2.ItemSet[num];
+			mouseItemSrcSection = InventorySection.CHEST;
+			mouseItemSrcX = inventoryChestX;
+			mouseItemSrcY = inventoryChestY;
+			chest2.ItemSet[num] = item;
+			if (chest2.ItemSet[num].Type == 0 || chest2.ItemSet[num].Stack < 1)
+			{
+				chest2.ItemSet[num].Init();
+			}
+			if (mouseItem.NetID == chest2.ItemSet[num].NetID && chest2.ItemSet[num].Stack != chest2.ItemSet[num].MaxStack && mouseItem.Stack != mouseItem.MaxStack)
+			{
+				if (mouseItem.Stack + chest2.ItemSet[num].Stack <= mouseItem.MaxStack)
+				{
+					chest2.ItemSet[num].Stack += mouseItem.Stack;
+					mouseItem.Stack = 0;
+				}
+				else
+				{
+					short num2 = (short)(mouseItem.MaxStack - chest2.ItemSet[num].Stack);
+					chest2.ItemSet[num].Stack += num2;
+					mouseItem.Stack -= num2;
+				}
+			}
+			if (mouseItem.Type == 0 || mouseItem.Stack < 1)
+			{
+				mouseItem.Init();
+			}
+			if (mouseItem.Type > 0 || chest2.ItemSet[num].Type > 0)
+			{
+				Main.PlaySound(7);
+			}
+			if (playerChest >= 0)
+			{
+				NetMessage.CreateMessage2(32, playerChest, num);
+				NetMessage.SendMessage();
+			}
+		}
+		else if (IsButtonTriggered(Buttons.RightTrigger) && chest2.ItemSet[num].IsEquipable())
+		{
+			ref Item reference = ref chest2.ItemSet[num];
+			reference = ActivePlayer.armorSwap(ref chest2.ItemSet[num]);
+			if (playerChest >= 0)
+			{
+				NetMessage.CreateMessage2(32, playerChest, num);
+				NetMessage.SendMessage();
+			}
+		}
+		else if (stackSplit <= 1 && PadState.IsButtonDown(Buttons.RightTrigger) && chest2.ItemSet[num].MaxStack > 1 && (mouseItem.NetID == chest2.ItemSet[num].NetID || mouseItem.Type == 0) && (mouseItem.Stack < mouseItem.MaxStack || mouseItem.Type == 0))
+		{
+			if (mouseItem.Type == 0)
+			{
+				mouseItem = chest2.ItemSet[num];
+				mouseItem.Stack = 0;
+				mouseItemSrcSection = InventorySection.CHEST;
+				mouseItemSrcX = inventoryChestX;
+				mouseItemSrcY = inventoryChestY;
+			}
+			mouseItem.Stack++;
+			chest2.ItemSet[num].Stack--;
+			if (chest2.ItemSet[num].Stack <= 0)
+			{
+				chest2.ItemSet[num].Init();
+			}
+			Main.PlaySound(12);
+			if (stackSplit == 0)
+			{
+				stackSplit = 15;
+			}
+			else
+			{
+				stackSplit = stackDelay;
+			}
+			if (playerChest >= 0)
+			{
+				NetMessage.CreateMessage2(32, playerChest, num);
+				NetMessage.SendMessage();
+			}
+		}
+	}
+
+	private void DrawStorage(int INVENTORY_X, int INVENTORY_Y)
+	{
+		int playerChest = ActivePlayer.PlayerChest;
+		Chest chest;
+		switch (playerChest)
+		{
+		case -1:
+			return;
+		case -2:
+			chest = ActivePlayer.bank;
+			break;
+		case -3:
+			chest = ActivePlayer.safe;
+			break;
+		default:
+			chest = Main.ChestSet[playerChest];
+			if (chest == null)
+			{
+				return;
+			}
+			break;
+		}
+		Color c = new Color(invAlpha, invAlpha, invAlpha, invAlpha);
+		inventoryScale = Main.ScreenMultiplier;
+		int num = (int)(56f * inventoryScale);
+		int x = num * 2 + INVENTORY_X - num;
+		int num2 = num + INVENTORY_Y + num;
+		int id = ((inventoryChestX < 0 && inventoryChestY == 1) ? 448 : 451);
+		SpriteSheet<_sheetSprites>.DrawTL(id, x, num2, c, inventoryScale);
+		id = 1085;
+		DrawInventoryItem(id, x, num2, Color.White);
+		num2 += num;
+		id = ((inventoryChestX < 0 && inventoryChestY == 2) ? 448 : 451);
+		SpriteSheet<_sheetSprites>.DrawTL(id, x, num2, c, inventoryScale);
+		id = 213;
+		DrawInventoryItem(id, x, num2, Color.White);
+		num2 += num;
+		id = ((inventoryChestX < 0 && inventoryChestY == 3) ? 448 : 451);
+		SpriteSheet<_sheetSprites>.DrawTL(id, x, num2, c, inventoryScale);
+		id = 1469;
+		DrawInventoryItem(id, x, num2, Color.White);
+		if (inventoryChestX < 0)
+		{
+			toolTip.Init();
+		}
+		for (int i = 0; i < 5; i++)
+		{
+			for (int j = 0; j < 4; j++)
+			{
+				x = num * 2 + INVENTORY_X + i * num;
+				num2 = num + INVENTORY_Y + j * num;
+				int num3 = i + j * 5;
+				SpriteSheet<_sheetSprites>.DrawTL(444, x, num2, c, inventoryScale);
+				if (inventoryChestX == i && inventoryChestY == j)
+				{
+					DrawInventoryCursor(x, num2, inventoryScale);
+					toolTip = chest.ItemSet[num3];
+				}
+				if (chest.ItemSet[num3].Type > 0 && chest.ItemSet[num3].Stack > 0)
+				{
+					Color white = Color.White;
+					DrawInventoryItem(ref chest.ItemSet[num3], x, num2, white, StackType.INVENTORY);
+				}
+			}
+		}
+		UpdateToolTipText(null);
+		DrawToolTip(INVENTORY_X + INVENTORY_W - TOOLTIP_W - (int)(8f * Main.ScreenMultiplier), INVENTORY_Y + (int)(8f * Main.ScreenMultiplier), (int)(344f * Main.ScreenMultiplier));
+		DrawControlsInventory();
+	}
+
+	private void UpdateShop()
+	{
+		int num = inventoryChestX + inventoryChestY * 5;
+		if (IsButtonTriggered(Buttons.A))
+		{
+			if (mouseItem.Type == 0)
+			{
+				if ((ActivePlayer.SelectedItem == num && ActivePlayer.itemAnimation > 0) || !ActivePlayer.BuyItem(Main.Shop[npcShop].ItemSet[num].Value))
+				{
+					return;
+				}
+				if (Main.Shop[npcShop].ItemSet[num].OnlyBuyOnce)
+				{
+					int prefixType = Main.Shop[npcShop].ItemSet[num].PrefixType;
+					mouseItem.NetDefaults(Main.Shop[npcShop].ItemSet[num].NetID);
+					mouseItem.SetPrefix(prefixType);
+				}
+				else
+				{
+					mouseItem.NetDefaults(Main.Shop[npcShop].ItemSet[num].NetID);
+					mouseItem.SetPrefix(-1);
+				}
+				mouseItem.Position.X = ActivePlayer.Position.X + 10f - (float)(mouseItem.Width >> 1);
+				mouseItem.Position.Y = ActivePlayer.Position.Y + 21f - (float)(mouseItem.Height >> 1);
+				if (Main.Shop[npcShop].ItemSet[num].OnlyBuyOnce)
+				{
+					Main.Shop[npcShop].ItemSet[num].Stack--;
+					if (Main.Shop[npcShop].ItemSet[num].Stack <= 0)
+					{
+						Main.Shop[npcShop].ItemSet[num].Init();
+					}
+				}
+				Main.PlaySound(18);
+			}
+			else if (Main.Shop[npcShop].ItemSet[num].Type == 0)
+			{
+				if (ActivePlayer.SellItem(mouseItem.Value, mouseItem.Stack))
+				{
+					Main.Shop[npcShop].AddShop(ref mouseItem);
+					mouseItem.Stack = 0;
+					mouseItem.Type = 0;
+					Main.PlaySound(18);
+				}
+				else if (mouseItem.Value == 0)
+				{
+					Main.Shop[npcShop].AddShop(ref mouseItem);
+					mouseItem.Stack = 0;
+					mouseItem.Type = 0;
+					Main.PlaySound(7);
+				}
+			}
+		}
+		else
+		{
+			if (stackSplit > 1 || !PadState.IsButtonDown(Buttons.RightTrigger) || (mouseItem.NetID != Main.Shop[npcShop].ItemSet[num].NetID && mouseItem.Type != 0) || (mouseItem.Stack >= mouseItem.MaxStack && mouseItem.Type != 0) || !ActivePlayer.BuyItem(Main.Shop[npcShop].ItemSet[num].Value))
+			{
+				return;
+			}
+			Main.PlaySound(18);
+			if (mouseItem.Type == 0)
+			{
+				mouseItem.NetDefaults(Main.Shop[npcShop].ItemSet[num].NetID);
+				mouseItem.Stack = 0;
+			}
+			mouseItem.Stack++;
+			if (stackSplit == 0)
+			{
+				stackSplit = 15;
+			}
+			else
+			{
+				stackSplit = stackDelay;
+			}
+			if (Main.Shop[npcShop].ItemSet[num].OnlyBuyOnce)
+			{
+				Main.Shop[npcShop].ItemSet[num].Stack--;
+				if (Main.Shop[npcShop].ItemSet[num].Stack <= 0)
+				{
+					Main.Shop[npcShop].ItemSet[num].Init();
+				}
+			}
+		}
+	}
+
+	private void DrawShop(int INVENTORY_X, int INVENTORY_Y)
+	{
+		Color c = new Color(invAlpha, invAlpha, invAlpha, invAlpha);
+		inventoryScale = Main.ScreenMultiplier;
+		for (int i = 0; i < 5; i++)
+		{
+			for (int j = 0; j < 4; j++)
+			{
+				int num = (int)(56f * Main.ScreenMultiplier);
+				int x = num * 2 + INVENTORY_X + i * num;
+				int y = num + INVENTORY_Y + j * num;
+				int num2 = i + j * 5;
+				SpriteSheet<_sheetSprites>.DrawTL(445, x, y, c, inventoryScale);
+				if (ActiveInvSection == InventorySection.CHEST && inventoryChestX == i && inventoryChestY == j)
+				{
+					DrawInventoryCursor(x, y, inventoryScale);
+					toolTip = Main.Shop[npcShop].ItemSet[num2];
+					toolTip.CanBuy = true;
+				}
+				if (Main.Shop[npcShop].ItemSet[num2].Type > 0 && Main.Shop[npcShop].ItemSet[num2].Stack > 0)
+				{
+					Color white = Color.White;
+					DrawInventoryItem(ref Main.Shop[npcShop].ItemSet[num2], x, y, white, StackType.INVENTORY);
+				}
+			}
+		}
+		UpdateToolTipText(null);
+		DrawToolTip(INVENTORY_X + INVENTORY_W - TOOLTIP_W - (int)(8f * Main.ScreenMultiplier), INVENTORY_Y + (int)(8f * Main.ScreenMultiplier), (int)(344f * Main.ScreenMultiplier));
+		DrawControlsShop();
+	}
+
+	private void UpdateEquip()
+	{
+		if (inventoryEquipY == 0)
+		{
+			if (IsButtonTriggered(Buttons.A))
+			{
+				int num = inventoryEquipX + inventoryBuffX;
+				num %= 10;
+				if (ActivePlayer.buff[num].Time > 0 && !ActivePlayer.buff[num].IsDebuff())
+				{
+					ActivePlayer.DelBuff(num);
+					Main.PlaySound(12);
+				}
+			}
+			return;
+		}
+		int num2;
+		if (inventoryEquipY == 4)
+		{
+			num2 = 3 + inventoryEquipX;
+		}
+		else
+		{
+			num2 = ((inventoryEquipX != 0) ? (inventoryEquipY + 7) : (inventoryEquipY - 1));
+		}
+		if (IsButtonTriggered(Buttons.A))
+		{
+			if (reforge)
+			{
+				Reforge(num2, isArmor: true);
+			}
+			else if (CraftGuide)
+			{
+				CraftingGuide();
+			}
+			else if (mouseItem.Type == 0 || (mouseItem.HeadSlot >= 0 && (num2 == 0 || num2 == 8)) || (mouseItem.BodySlot >= 0 && (num2 == 1 || num2 == 9)) || (mouseItem.LegSlot >= 0 && (num2 == 2 || num2 == 10)) || (mouseItem.IsAccessory && num2 > 2 && !AccCheck(ref mouseItem, num2)))
+			{
+				Item item = mouseItem;
+				mouseItem = ActivePlayer.armor[num2];
+				ActivePlayer.armor[num2] = item;
+				mouseItemSrcSection = InventorySection.EQUIP;
+				mouseItemSrcX = inventoryEquipX;
+				mouseItemSrcY = inventoryEquipY;
+				if (ActivePlayer.armor[num2].Type == 0 || ActivePlayer.armor[num2].Stack < 1)
+				{
+					ActivePlayer.armor[num2].Init();
+				}
+				if (mouseItem.Type > 0 || ActivePlayer.armor[num2].Type > 0)
+				{
+					Main.PlaySound(7);
+				}
+			}
+		}
+		else if (IsButtonTriggered(Buttons.RightTrigger) && ActivePlayer.armor[num2].IsEquipable() && !reforge)
+		{
+			ref Item reference = ref ActivePlayer.armor[num2];
+			reference = ActivePlayer.armorSwap(ref ActivePlayer.armor[num2]);
+		}
+	}
+
+	private void DrawEquip(int INVENTORY_X, int INVENTORY_Y)
+	{
+		Color c = new Color(invAlpha, invAlpha, invAlpha, invAlpha);
+		Color c2 = new Color(invAlpha >> 1, invAlpha, invAlpha >> 1, invAlpha);
+		inventoryScale = Main.ScreenMultiplier;
+		int num = (int)(56f * Main.ScreenMultiplier);
+		int num2 = INVENTORY_X + num * 2;
+		int y = INVENTORY_Y;
+		Rectangle rect = new Rectangle
+		{
+			Y = y,
+			Width = (int)(16f * Main.ScreenMultiplier),
+			Height = num
+		};
+		if (inventoryBuffX > 0)
+		{
+			rect.X = num2 - (int)(16f * Main.ScreenMultiplier);
+			SpriteSheet<_sheetSprites>.DrawCentered(136, ref rect, SpriteEffects.FlipHorizontally);
+		}
+		if (inventoryBuffX < 5)
+		{
+			rect.X = num2 + (int)(280f * Main.ScreenMultiplier);
+			SpriteSheet<_sheetSprites>.DrawCentered(136, ref rect);
+		}
+		string extraInfo = null;
+		for (int i = 0; i < 5; i++)
+		{
+			int num3 = ActivePlayer.buff[inventoryBuffX + i].Type;
+			if (inventoryEquipY == 0 && inventoryEquipX == i)
+			{
+				DrawInventoryCursor(num2, y, inventoryScale);
+				toolTip.Init();
+				extraInfo = ((!Buff.IsDebuff(num3)) ? "<f c='#C0FFC0'>" : "<f c='#FFC0C0'>");
+				if (num3 == 40)
+				{
+					num3 += ActivePlayer.pet;
+				}
+				extraInfo += Buff.BuffName[num3];
+				extraInfo += "</f>\n";
+				extraInfo += Buff.BuffTip[num3];
+			}
+			else
+			{
+				SpriteSheet<_sheetSprites>.DrawTL(442, num2, y, c2, inventoryScale);
+			}
+			if (num3 > 0)
+			{
+				int num4 = 141 + num3;
+				if (num3 == 40)
+				{
+					num4 += ActivePlayer.pet;
+				}
+				DrawInventoryItem(num4, num2, y, Color.White);
+			}
+			num2 += num;
+		}
+		num2 = INVENTORY_X + 2 * num;
+		y = INVENTORY_Y + (int)(88f * Main.ScreenMultiplier);
+		for (int j = 0; j < 3; j++)
+		{
+			if (inventoryEquipX == 0 && inventoryEquipY == j + 1)
+			{
+				DrawInventoryCursor(num2, y, inventoryScale);
+				toolTip = ActivePlayer.armor[j];
+				toolTip.WornArmor = true;
+			}
+			else
+			{
+				SpriteSheet<_sheetSprites>.DrawTL(442, num2, y, c, inventoryScale);
+			}
+			if (ActivePlayer.armor[j].Type > 0 && ActivePlayer.armor[j].Stack > 0)
+			{
+				DrawInventoryItem(itemColor: ((CraftGuide && !ActivePlayer.armor[j].IsMaterial) || (reforge && !ActivePlayer.armor[j].SetPrefix(-3))) ? DISABLED_COLOR : new Color(255, 255, 255, 255), item: ref ActivePlayer.armor[j], x: num2, y: y);
+			}
+			y += num;
+		}
+		y += (int)(32f * Main.ScreenMultiplier);
+		for (int k = 3; k < 8; k++)
+		{
+			if (inventoryEquipY == 4 && inventoryEquipX == k - 3)
+			{
+				DrawInventoryCursor(num2, y, inventoryScale);
+				toolTip = ActivePlayer.armor[k];
+			}
+			else
+			{
+				SpriteSheet<_sheetSprites>.DrawTL(442, num2, y, c, inventoryScale);
+			}
+			if (ActivePlayer.armor[k].Type > 0 && ActivePlayer.armor[k].Stack > 0)
+			{
+				DrawInventoryItem(itemColor: ((CraftGuide && !ActivePlayer.armor[k].IsMaterial) || (reforge && !ActivePlayer.armor[k].SetPrefix(-3))) ? DISABLED_COLOR : new Color(255, 255, 255, 255), item: ref ActivePlayer.armor[k], x: num2, y: y);
+			}
+			num2 += num;
+		}
+		num2 -= num;
+		y = INVENTORY_Y + (int)(88f * Main.ScreenMultiplier);
+		for (int l = 8; l < 11; l++)
+		{
+			if (inventoryEquipX == 4 && inventoryEquipY == l - 7)
+			{
+				DrawInventoryCursor(num2, y, inventoryScale);
+				toolTip = ActivePlayer.armor[l];
+				toolTip.IsSocial = true;
+			}
+			else
+			{
+				SpriteSheet<_sheetSprites>.DrawTL(442, num2, y, c, inventoryScale);
+			}
+			if (ActivePlayer.armor[l].Type > 0 && ActivePlayer.armor[l].Stack > 0)
+			{
+				DrawInventoryItem(itemColor: ((CraftGuide && !ActivePlayer.armor[l].IsMaterial) || (reforge && !ActivePlayer.armor[l].SetPrefix(-3))) ? DISABLED_COLOR : new Color(255, 255, 255, 255), item: ref ActivePlayer.armor[l], x: num2, y: y);
+			}
+			y += num;
+		}
+		int num5 = (int)(6f * Main.ScreenMultiplier);
+		DrawPlayer(ActivePlayer, new Vector2(INVENTORY_X + num * 4, INVENTORY_Y + (int)(88f * Main.ScreenMultiplier)), 3.75f * Main.ScreenMultiplier);
+		DrawStringCT(SmallFont, Lang.InterfaceText[6], INVENTORY_X + 2 * num + (int)(140f * Main.ScreenMultiplier), INVENTORY_Y + num - 2 * num5, Color.White);
+		DrawStringCT(SmallFont, Lang.InterfaceText[45], INVENTORY_X + num * 2 + (int)(28f * Main.ScreenMultiplier), y - 2 * num5, Color.White);
+		DrawStringCT(SmallFont, Lang.InterfaceText[11], num2 + (int)(28f * Main.ScreenMultiplier), y - num5 * 2, Color.White);
+		DrawStringCT(BoldSmallFont, ((int)ActivePlayer.StatDefense).ToStringLookup() + Lang.InterfaceText[10], INVENTORY_X + num * 2 + (int)(140f * Main.ScreenMultiplier), y - num5, new Color(100, 255, 200, 255));
+		UpdateToolTipText(extraInfo);
+		DrawToolTip(INVENTORY_X + INVENTORY_W - TOOLTIP_W - (int)(8f * Main.ScreenMultiplier), INVENTORY_Y + (int)(8f * Main.ScreenMultiplier), (int)(344f * Main.ScreenMultiplier));
+		DrawControlsInventory();
+	}
+
+	private void UpdateHousing()
+	{
+		int x = ActivePlayer.XYWH.X >> 4;
+		int y = ActivePlayer.XYWH.Y >> 4;
+		if (IsButtonTriggered(Buttons.X))
+		{
+			Main.PlaySound(12);
+			if (WorldGen.MoveNPC(x, y, -1))
+			{
+				Main.NewText(Lang.InterfaceText[39], 255, 240, 20);
+			}
+		}
+		else if (IsButtonTriggered(Buttons.Y))
+		{
+			Main.PlaySound(12);
+			showNPCs = !showNPCs;
+		}
+		else if (IsButtonTriggered(Buttons.A) && inventoryHousingNpc >= 0)
+		{
+			Main.PlaySound(12);
+			if (WorldGen.MoveNPC(x, y, inventoryHousingNpc))
+			{
+				WorldGen.moveRoom(x, y, inventoryHousingNpc);
+				Main.PlaySound(12);
+			}
+		}
+	}
+
+	private void DrawHousing(int INVENTORY_X, int INVENTORY_Y)
+	{
+		Color c = new Color(invAlpha, invAlpha, invAlpha, invAlpha);
+		inventoryScale = Main.ScreenMultiplier;
+		string extraInfo = null;
+		int num = INVENTORY_X;
+		int num2 = INVENTORY_Y;
+		for (int i = 0; i < 11; i++)
+		{
+			if (i == 6)
+			{
+				num += (int)(240f * Main.ScreenMultiplier);
+				num2 = INVENTORY_Y;
+			}
+			string text = null;
+			NPC nPC = null;
+			int num3 = -1;
+			for (int j = 0; j < 196; j++)
+			{
+				nPC = Main.NPCSet[j];
+				if (nPC.Active != 0 && i + 1 == nPC.GetHeadTextureID())
+				{
+					num3 = j;
+					text = ((!nPC.HasName()) ? nPC.DisplayName : nPC.GetName());
+					break;
+				}
+			}
+			if (inventoryHousingX == i / 6 && inventoryHousingY == i % 6)
+			{
+				DrawInventoryCursor(num, num2, inventoryScale);
+				inventoryHousingNpc = (short)num3;
+				if (text != null)
+				{
+					extraInfo = text;
+					if (i != 10 && Lang.LangOption <= 1)
+					{
+						extraInfo = extraInfo + " the " + nPC.TypeName;
+					}
+					extraInfo += "\n";
+					extraInfo += Lang.InterfaceText[55 + i];
+				}
+			}
+			else
+			{
+				SpriteSheet<_sheetSprites>.DrawTL(449, num, num2, c, inventoryScale);
+			}
+			if (num3 >= 0)
+			{
+				int itemTexId = i + 1256;
+				DrawInventoryItem(itemTexId, num, num2, Color.White);
+				if (!nPC.IsHomeless)
+				{
+					SpriteSheet<_sheetSprites>.DrawTL(437, num + (int)(44f * Main.ScreenMultiplier), num2 - (int)(8f * Main.ScreenMultiplier), Color.White, inventoryScale);
+				}
+				DrawStringLC(BoldSmallFont, text, num + (int)(60f * Main.ScreenMultiplier), num2 + (int)(30f * Main.ScreenMultiplier), Color.White);
+			}
+			num2 += (int)(60f * Main.ScreenMultiplier);
+		}
+		UpdateToolTipText(extraInfo);
+		DrawToolTip(INVENTORY_X + INVENTORY_W - TOOLTIP_W - (int)(8f * Main.ScreenMultiplier), INVENTORY_Y + (int)(8f * Main.ScreenMultiplier), (int)(344f * Main.ScreenMultiplier));
+		DrawControlsHousing();
+	}
+
+	private void DrawMouseItem()
+	{
+		if (mouseItem.Stack <= 0)
+		{
+			mouseItem.Init();
+		}
+		else if (mouseItem.Type > 0 && mouseItem.Stack > 0)
+		{
+			inventoryScale = cursorScale * Main.ScreenMultiplier;
+			DrawInventoryItem(ref mouseItem, MouseX + 6, MouseY + 6, new Color(0, 0, 0, 128), StackType.INVENTORY);
+			DrawInventoryItem(ref mouseItem, MouseX, MouseY, Color.White, StackType.INVENTORY);
+		}
+	}
+
+	private void DrawInventoryMenu()
+	{
+		int num = CurrentView.SafeAreaOffsetLeft;
+		int safeAreaOffsetTop = CurrentView.SafeAreaOffsetTop;
+		if (CurrentView.ViewWidth > Main.ResolutionWidth)
+		{
+			num = CurrentView.ViewWidth - INVENTORY_W >> 1;
+		}
+		bool flag = ActivePlayer.PlayerChest != -1;
+		bool flag2 = npcShop > 0;
+		bool flag3 = flag | flag2;
+		InventorySection activeInvSection = ActiveInvSection;
+		if (1 == 0)
+		{
+		}
+		int num2 = activeInvSection switch
+		{
+			InventorySection.CRAFTING => 441, 
+			InventorySection.EQUIP => 442, 
+			InventorySection.CHEST => flag2 ? 445 : 444, 
+			InventorySection.HOUSING => 449, 
+			_ => 451, 
+		};
+		if (1 == 0)
+		{
+		}
+		int texId = num2;
+		switch (Main.ScreenHeightPtr)
+		{
+		case ScreenHeights.HD:
+			INVENTORY_H = USABLE_HEIGHT;
+			break;
+		case ScreenHeights.FHD:
+			INVENTORY_H = USABLE_HEIGHT + 16;
+			break;
+		}
+		Main.DrawRect(texId, new Rectangle(num, safeAreaOffsetTop, INVENTORY_W, INVENTORY_H), 96);
+		Color c = default;
+		int num3 = num + (INVENTORY_W - (int)((float)((flag3 ? 4 : 3) * 43 + 56) * Main.ScreenMultiplier)) / 2;
+		for (int i = 0; i < 5; i++)
+		{
+			switch ((byte)i)
+			{
+			case 1:
+				texId = 440;
+				break;
+			case 0:
+				texId = 205;
+				break;
+			case 3:
+				texId = 219;
+				break;
+			case 2:
+			{
+				if (flag2)
+				{
+					texId = Chest.GetShopOwnerHeadTextureId(npcShop);
+					break;
+				}
+				if (!flag)
+				{
+					continue;
+				}
+				short playerChest = ActivePlayer.PlayerChest;
+				if (1 == 0)
+				{
+				}
+				num2 = playerChest switch
+				{
+					-2 => 538, 
+					-3 => 797, 
+					_ => 499, 
+				};
+				if (1 == 0)
+				{
+				}
+				texId = num2;
+				break;
+			}
+			default:
+				texId = 437;
+				break;
+			}
+			int activeInvSection2 = (int)ActiveInvSection;
+			float num4 = inventoryMenuSectionScale[i];
+			if (i == activeInvSection2)
+			{
+				if (num4 < 1f)
+				{
+					num4 += 0.05f;
+					inventoryMenuSectionScale[i] = num4;
+				}
+			}
+			else if (num4 > 0.75f)
+			{
+				num4 -= 0.05f;
+				inventoryMenuSectionScale[i] = num4;
+			}
+			int y = (int)((float)safeAreaOffsetTop + 22f * Main.ScreenMultiplier * (1f - num4));
+			int num5 = (int)(65f + 180f * num4);
+			num4 *= Main.ScreenMultiplier;
+			if (i == activeInvSection2)
+			{
+				c.R = 200;
+				c.G = 200;
+				c.B = 200;
+				c.A = 200;
+				SpriteSheet<_sheetSprites>.DrawTL(448, num3, y, c, num4);
+			}
+			else
+			{
+				c.R = 100;
+				c.G = 100;
+				c.B = 100;
+				c.A = 100;
+				SpriteSheet<_sheetSprites>.DrawTL(451, num3, y, c, num4);
+			}
+			inventoryScale = num4;
+			Color itemColor = ((!IsInventorySectionAvailable((InventorySection)i)) ? DISABLED_COLOR : new Color(num5, num5, num5, num5));
+			DrawInventoryItem(texId, num3, y, itemColor);
+			num3 += (int)(52f * num4) + (int)(4f * Main.ScreenMultiplier);
+		}
+		InventorySection activeInvSection3 = ActiveInvSection;
+		if (1 == 0)
+		{
+		}
+		string text;
+		switch (activeInvSection3)
+		{
+		case InventorySection.CRAFTING:
+			text = Lang.InterfaceText[25];
+			break;
+		case InventorySection.ITEMS:
+			text = Lang.InterfaceText[4];
+			break;
+		case InventorySection.CHEST:
+		{
+			string text3;
+			if (!flag2)
+			{
+				Player.ExtraStorage playerChest2 = (Player.ExtraStorage)ActivePlayer.PlayerChest;
+				if (1 == 0)
+				{
+				}
+				string text2 = playerChest2 switch
+				{
+					Player.ExtraStorage.PIGGYBANK => Lang.InterfaceText[32], 
+					Player.ExtraStorage.SAFE => Lang.InterfaceText[33], 
+					_ => chestText, 
+				};
+				if (1 == 0)
+				{
+				}
+				text3 = text2;
+			}
+			else
+			{
+				text3 = Lang.InterfaceText[28];
+			}
+			text = text3;
+			break;
+		}
+		case InventorySection.EQUIP:
+			text = Lang.InterfaceText[45];
+			break;
+		default:
+			text = Lang.InterfaceText[7];
+			break;
+		}
+		if (1 == 0)
+		{
+		}
+		string text4 = text;
+		if (reforge)
+		{
+			text4 += " (";
+			text4 += Lang.InterfaceText[19];
+			text4 += ")";
+		}
+		DrawStringCT(SmallFont, text4, (int)((float)num + 432f * Main.ScreenMultiplier), (int)((float)safeAreaOffsetTop + 44f * Main.ScreenMultiplier), Color.White);
+		switch (ActiveInvSection)
+		{
+		case InventorySection.ITEMS:
+			DrawInventory(num, safeAreaOffsetTop + INVENTORY_CLIENT_Y_OFFSET);
+			break;
+		case InventorySection.CHEST:
+			if (flag2)
+			{
+				DrawShop(num, safeAreaOffsetTop + INVENTORY_CLIENT_Y_OFFSET);
+			}
+			else
+			{
+				DrawStorage(num, safeAreaOffsetTop + INVENTORY_CLIENT_Y_OFFSET);
+			}
+			break;
+		case InventorySection.CRAFTING:
+			DrawCrafting(num, safeAreaOffsetTop + INVENTORY_CLIENT_Y_OFFSET);
+			break;
+		case InventorySection.EQUIP:
+			DrawEquip(num, safeAreaOffsetTop + INVENTORY_CLIENT_Y_OFFSET);
+			break;
+		case InventorySection.HOUSING:
+			DrawHousing(num, safeAreaOffsetTop + INVENTORY_CLIENT_Y_OFFSET);
+			break;
+		}
+		DrawMouseItem();
+	}
+
+	private void DrawCrafting(int CRAFTING_X, int CRAFTING_Y)
+	{
+		Color color = default;
+		Color color2 = new Color(invAlpha, invAlpha, invAlpha, invAlpha);
+		string text = null;
+		int num = 48;
+		int height = 318;
+		switch (Main.ScreenHeightPtr)
+		{
+		case ScreenHeights.HD:
+			num = 60;
+			height = 438;
+			break;
+		case ScreenHeights.FHD:
+			num = 88;
+			height = 676;
+			break;
+		}
+		Main.DrawRectOpenAtTop(441, new Rectangle(CRAFTING_X, CRAFTING_Y + num, INVENTORY_W, height), 192);
+		int num2 = (int)((float)CRAFTING_X + 3f * Main.ScreenMultiplier);
+		for (int i = 0; i < 6; i++)
+		{
+			Rectangle rect = new Rectangle(num2, (int)((float)CRAFTING_Y + 8f * Main.ScreenMultiplier), (int)(127f * Main.ScreenMultiplier), (int)(32f * Main.ScreenMultiplier));
+			if ((int)craftingCategory != i)
+			{
+				Main.DrawRectStraightBottom(441, rect, 192, 2);
+			}
+			else
+			{
+				Main.DrawRectOpenAtBottom(441, rect, 192);
+			}
+			SpriteSheet<_sheetSprites>.DrawCentered(206 + i, ref rect, Main.ScreenMultiplier);
+			num2 += (int)(146f * Main.ScreenMultiplier);
+		}
+		int num3 = (int)((float)CRAFTING_X + 20f * Main.ScreenMultiplier);
+		int num4 = (int)((float)CRAFTING_Y + 60f * Main.ScreenMultiplier);
+		int count = CurrentRecipeCategory.Count;
+		int num5 = (int)(56f * Main.ScreenMultiplier);
+		byte b = 8;
+		byte b2 = 5;
+		if (count > 0)
+		{
+			inventoryScale = Main.ScreenMultiplier;
+			int num6 = CraftingRecipeY - Math.Sign(craftingRecipeScrollY);
+			int num7 = Math.Min(b, CurrentRecipeCategory[CraftingRecipeY].RecipeList.Count) * num5;
+			int width = ((craftingRecipeScrollX == 0f) ? ((int)(448f * Main.ScreenMultiplier)) : num7);
+			int num8 = Math.Min(b2, count) * num5;
+			Rectangle scissorRectangle = default;
+			for (int j = 0; j < 2; j++)
+			{
+				Main.SpriteBatch.End();
+				scissorRectangle.X = num3;
+				scissorRectangle.Y = num4;
+				if (j == 0)
+				{
+					scissorRectangle.Width = num5;
+					scissorRectangle.Height = num8;
+				}
+				else
+				{
+					scissorRectangle.Y += num5;
+					scissorRectangle.Width = width;
+					scissorRectangle.Height = num5;
+				}
+				if (!CurrentView.IsFullScreen())
+				{
+					scissorRectangle.X >>= 1;
+					scissorRectangle.X += CurrentView.ActiveViewport.X;
+					scissorRectangle.Y >>= 1;
+					scissorRectangle.Y += CurrentView.ActiveViewport.Y;
+					scissorRectangle.Width >>= 1;
+					scissorRectangle.Height >>= 1;
+				}
+				WorldView.GraphicsDevice.ScissorRectangle = scissorRectangle;
+				Main.SpriteBatch.Begin(SpriteSortMode.Deferred, null, null, null, WorldView.ScissorRastTest, CurrentView.ScreenProjection);
+				int num9 = num4;
+				int num10 = 1;
+				if (craftingRecipeScrollY != 0f)
+				{
+					num10 = 2;
+					num9 -= num5;
+					num9 -= (int)((1f - Math.Abs(craftingRecipeScrollY)) * (float)num5) * Math.Sign(craftingRecipeScrollY);
+					if (j == 1)
+					{
+						craftingRecipeScrollY *= craftingRecipeScrollMul;
+						if (Math.Abs(craftingRecipeScrollY) < 1f / 56f)
+						{
+							craftingRecipeScrollY = 0f;
+						}
+					}
+				}
+				for (int k = -num10; k < b2 + num10; k++)
+				{
+					int num11 = num6 + k;
+					if (num11 >= 0)
+					{
+						if (num11 >= count)
+						{
+							int num12 = num9 - num4;
+							if (num12 < num8)
+							{
+								num8 = num12;
+							}
+							break;
+						}
+						int num13 = 0;
+						int num14 = num3;
+						if (craftingRecipeScrollX != 0f && num11 == CraftingRecipeY)
+						{
+							num13 = 1;
+							num14 -= num5;
+							if (j == 0)
+							{
+								craftingRecipeScrollX *= craftingRecipeScrollMul;
+								if (Math.Abs(craftingRecipeScrollX) < 1f / 56f)
+								{
+									craftingRecipeScrollX = 0f;
+								}
+							}
+							num14 -= (int)((1f - Math.Abs(craftingRecipeScrollX)) * (float)num5) * Math.Sign(craftingRecipeScrollX);
+						}
+						Recipe.SubCategoryList subCategoryList = CurrentRecipeCategory[num11];
+						int num15 = ((num11 == CraftingRecipeY) ? (CraftingRecipeX - Math.Sign(craftingRecipeScrollX)) : 0);
+						int count2 = subCategoryList.RecipeList.Count;
+						for (int l = -num13; l < b + num13; l++)
+						{
+							int num16 = num15 + l;
+							if (num16 < 0)
+							{
+								num16 += count2;
+							}
+							if (num13 == 0 && l >= count2)
+							{
+								break;
+							}
+							num16 %= subCategoryList.RecipeList.Count;
+							int num17 = subCategoryList.RecipeList[num16];
+							Recipe recipe = Main.ActiveRecipe[num17];
+							bool flag = ActivePlayer.CanCraftRecipe(recipe);
+							bool flag2 = num11 == CraftingRecipeY && num16 == CraftingRecipeX;
+							if (flag2)
+							{
+								CraftingRecipe = recipe;
+								DrawInventoryCursor(num14, num9, inventoryScale, (craftingSection == CraftingSection.RECIPES) ? 255 : 96);
+								if (j == 0)
+								{
+									toolTip = recipe.CraftedItem;
+									text = "(";
+									text += ActivePlayer.CountPossession(toolTip.NetID).ToStringLookup();
+									text += Lang.MenuText[1];
+									UpdateToolTipText(text);
+								}
+							}
+							else
+							{
+								int id = ((j == 0) ? 443 : 450);
+								color = color2;
+								if (!flag)
+								{
+									color.R >>= 1;
+									color.G >>= 1;
+									color.B >>= 1;
+									color.A >>= 1;
+								}
+								SpriteSheet<_sheetSprites>.DrawTL(id, num14, num9, color, inventoryScale);
+							}
+							color = (flag ? new Color(255, 255, 255, 255) : new Color(16, 16, 16, 128));
+							DrawInventoryItem(ref recipe.CraftedItem, num14, num9, color, StackType.INVENTORY);
+							if (ActivePlayer.recipesNew.Get(num17))
+							{
+								if (flag2)
+								{
+									ActivePlayer.recipesNew.Set(num17, value: false);
+								}
+								else
+								{
+									color = new Color(cursorAlpha, cursorAlpha, cursorAlpha, cursorAlpha);
+									SpriteSheet<_sheetTiles>.Draw(23, num14 + (int)(40f * Main.ScreenMultiplier), num9 + (int)(12f * Main.ScreenMultiplier), color, (float)((double)Main.FrameCounter * (1.0 / (8.0 * Math.PI))), (float)(0.800000011920929 + Math.Sin((double)Main.FrameCounter * (1.0 / (16.0 * Math.PI))) * 0.20000000298023224));
+									SpriteSheet<_sheetTiles>.Draw(23, num14 + (int)(28f * Main.ScreenMultiplier), num9 + (int)(28f * Main.ScreenMultiplier), color, (float)((double)Main.FrameCounter * (1.0 / (6.0 * Math.PI))), (float)(0.6000000238418579 + Math.Sin((double)Main.FrameCounter * (1.0 / (24.0 * Math.PI))) * 0.4000000059604645));
+									SpriteSheet<_sheetTiles>.Draw(23, num14 + (int)(16f * Main.ScreenMultiplier), num9 + (int)(20f * Main.ScreenMultiplier), color, (float)((double)Main.FrameCounter * (1.0 / (4.0 * Math.PI))), (float)(0.699999988079071 + Math.Sin((double)Main.FrameCounter * (1.0 / (32.0 * Math.PI))) * 0.30000001192092896));
+								}
+							}
+							num14 += num5;
+						}
+					}
+					num9 += num5;
+				}
+			}
+			Main.SpriteBatch.End();
+			Main.SpriteBatch.Begin(SpriteSortMode.Deferred, null, null, null, null, CurrentView.ScreenProjection);
+			if (craftingRecipeScrollX == 0f && craftingRecipeScrollY == 0f)
+			{
+				Rectangle rect2 = default;
+				if (num7 > num5)
+				{
+					rect2.X = num3 - (int)(16f * Main.ScreenMultiplier);
+					rect2.Y = num4 + num5;
+					rect2.Width = (int)(16f * Main.ScreenMultiplier);
+					rect2.Height = num5;
+					SpriteSheet<_sheetSprites>.DrawCentered(136, ref rect2, SpriteEffects.FlipHorizontally);
+					rect2.X += (int)(10f * Main.ScreenMultiplier) + num7;
+					SpriteSheet<_sheetSprites>.DrawCentered(136, ref rect2);
+				}
+				if (count > 1)
+				{
+					if (CraftingRecipeY == 0)
+					{
+						num4 += num5;
+						num8 -= num5;
+					}
+					rect2.X = num3;
+					rect2.Y = num4 - (int)(16f * Main.ScreenMultiplier);
+					rect2.Width = num5;
+					rect2.Height = (int)(16f * Main.ScreenMultiplier);
+					SpriteSheet<_sheetSprites>.DrawCentered(135, ref rect2, SpriteEffects.FlipVertically);
+					rect2.Y += num8 + (int)(10f * Main.ScreenMultiplier);
+					SpriteSheet<_sheetSprites>.DrawCentered(135, ref rect2);
+					if (CraftingRecipeY == 0)
+					{
+						num4 -= num5;
+						num8 += num5;
+					}
+				}
+			}
+			int num18 = (int)((float)num3 + 64f * Main.ScreenMultiplier);
+			int num19 = (int)((float)num4 + 120f * Main.ScreenMultiplier);
+			Main.DrawRect(441, new Rectangle(num18, num19, (int)((float)(CRAFTING_X + INVENTORY_W - TOOLTIP_W) - 32f * Main.ScreenMultiplier - (float)num18), (int)(174f * Main.ScreenMultiplier)), 96);
+			SmallFont.MeasureString(Lang.MenuText[0]);
+			DrawStringCT(SmallFont, Lang.MenuText[0], (int)((float)num18 + 100f * Main.ScreenMultiplier), (int)((float)num19 + 144f * Main.ScreenMultiplier), Color.White);
+			inventoryScale = 0.9f * Main.ScreenMultiplier;
+			int num20 = 0;
+			for (int m = 0; m < 3; m++)
+			{
+				int num21 = 0;
+				while (num21 < 4)
+				{
+					int num22 = (int)(50f * Main.ScreenMultiplier);
+					int x = num18 + num22 * num21;
+					int y = num19 + num22 * m;
+					if (craftingSection == CraftingSection.INGREDIENTS && num21 == craftingIngredientX && m == craftingIngredientY)
+					{
+						DrawInventoryCursor(x, y, inventoryScale);
+						if (num20 < CraftingRecipe.NumRequiredItems)
+						{
+							toolTip = CraftingRecipe.RequiredItem[num20];
+							text = "(";
+							text += ActivePlayer.CountPossession(toolTip.NetID).ToStringLookup();
+							text += Lang.MenuText[1];
+							UpdateToolTipText(text);
+						}
+					}
+					else
+					{
+						color = ((num20 < CraftingRecipe.NumRequiredItems) ? color2 : new Color(64, 64, 64, 64));
+						SpriteSheet<_sheetSprites>.DrawTL(442, x, y, color, inventoryScale);
+					}
+					if (num20 < CraftingRecipe.NumRequiredItems)
+					{
+						DrawInventoryItem(ref CraftingRecipe.RequiredItem[num20], x, y, new Color(255, 255, 255, 255), StackType.INGREDIENT);
+					}
+					num21++;
+					num20++;
+				}
+			}
+			int num23 = -1;
+			Main.StrBuilder.Length = 0;
+			if (CraftingRecipe.NumRequiredTiles > 0)
+			{
+				Main.StrBuilder.Append(Main.TileNames[CraftingRecipe.RequiredTile[0]]);
+				switch (CraftingRecipe.RequiredTile[0])
+				{
+				case 13:
+					num23 = 1;
+					break;
+				case 14:
+					num23 = 1480;
+					Main.StrBuilder.Append(" & ");
+					Main.StrBuilder.Append(Main.TileNames[15]);
+					break;
+				case 16:
+					num23 = 486;
+					break;
+				case 17:
+					num23 = 484;
+					break;
+				case 18:
+					if (CraftingRecipe.RequiredTile[1] == 15)
+					{
+						num23 = 1487;
+						Main.StrBuilder.Append(" & ");
+						Main.StrBuilder.Append(Main.TileNames[15]);
+					}
+					else
+					{
+						num23 = 487;
+					}
+					break;
+				case 26:
+					num23 = 212;
+					break;
+				case 86:
+					num23 = 783;
+					break;
+				case 94:
+					num23 = 803;
+					break;
+				case 96:
+					num23 = 796;
+					break;
+				case 101:
+					num23 = 139;
+					break;
+				case 106:
+					num23 = 814;
+					break;
+				case 114:
+					num23 = 849;
+					break;
+				case 134:
+					num23 = 976;
+					break;
+				}
+			}
+			else if (CraftingRecipe.NeedsWater)
+			{
+				num23 = 1484;
+				Main.StrBuilder.Append(Lang.InterfaceText[53]);
+			}
+			if (num23 >= 0)
+			{
+				Rectangle destRect = new Rectangle
+				{
+					X = (int)((float)num18 + 280f * Main.ScreenMultiplier),
+					Y = (int)((float)num19 + 46f * Main.ScreenMultiplier),
+					Width = (int)(68f * Main.ScreenMultiplier),
+					Height = (int)(68f * Main.ScreenMultiplier)
+				};
+				Main.DrawRect(442, destRect, 192);
+				int width2 = SpriteSheet<_sheetSprites>.Source[num23].Width;
+				int height2 = SpriteSheet<_sheetSprites>.Source[num23].Height;
+				float num24 = ((width2 <= height2) ? (64f / (float)height2) : (64f / (float)width2));
+				Vector2 pos = new Vector2
+				{
+					X = destRect.Center.X,
+					Y = destRect.Center.Y
+				};
+				SpriteSheet<_sheetSprites>.DrawScaled(num23, ref pos, Color.White, num24 * Main.ScreenMultiplier);
+				DrawStringCT(SmallFont, destRect.Center.X, destRect.Bottom + 2, ActivePlayer.IsNearCraftingStation(CraftingRecipe) ? Color.White : new Color(255, 64, 64, 255));
+			}
+			if (text != null)
+			{
+				DrawToolTip((int)((float)(CRAFTING_X + INVENTORY_W - TOOLTIP_W) - 8f * Main.ScreenMultiplier), (int)((float)num4 + 8f * Main.ScreenMultiplier), INVENTORY_CLIENT_H - INVENTORY_CLIENT_Y_OFFSET);
+			}
+		}
+		DrawControlsCrafting();
+	}
+
+	private void DrawMiniMap()
+	{
+		int safeAreaOffsetLeft = CurrentView.SafeAreaOffsetLeft;
+		int safeAreaOffsetTop = CurrentView.SafeAreaOffsetTop;
+		int width = CurrentView.ViewWidth - CurrentView.SafeAreaOffsetLeft - CurrentView.SafeAreaOffsetRight;
+		int height = Main.ResolutionHeight - CurrentView.SafeAreaOffsetTop - CurrentView.SafeAreaOffsetBottom - (int)(36f * Main.ScreenMultiplier);
+		Main.DrawRect(451, new Rectangle(safeAreaOffsetLeft, safeAreaOffsetTop, width, height), 128);
+		int num = (int)(31f * Main.ScreenMultiplier) + safeAreaOffsetLeft;
+		int num2 = (int)(2f * Main.ScreenMultiplier) + safeAreaOffsetTop;
+		Color white = Color.White;
+		if (mapScreenCursorX == 0 && mapScreenCursorY < 2)
+		{
+			DrawInventoryCursor(num, num2, Main.ScreenMultiplier);
+		}
+		else
+		{
+			SpriteSheet<_sheetSprites>.DrawTL(451, num, num2, white, Main.ScreenMultiplier);
+		}
+		if (pvpSelected)
+		{
+			Vector2 pos = new Vector2(num + (int)(9f * Main.ScreenMultiplier), num2 + (int)(11f * Main.ScreenMultiplier));
+			Vector2 pivot = default;
+			SpriteSheet<_sheetSprites>.Draw(455, ref pos, white, 0f, ref pivot, Main.ScreenMultiplier, SpriteEffects.None);
+			pos.X += (int)(2f * Main.ScreenMultiplier);
+			SpriteSheet<_sheetSprites>.Draw(455, ref pos, white, 0f, ref pivot, Main.ScreenMultiplier, SpriteEffects.FlipHorizontally);
+		}
+		else
+		{
+			SpriteSheet<_sheetSprites>.DrawRotatedTL(455, num - (int)(7f * Main.ScreenMultiplier), num2 + (int)(25f * Main.ScreenMultiplier), white, -0.785f, Main.ScreenMultiplier);
+			SpriteSheet<_sheetSprites>.DrawRotatedTL(455, num + (int)(11f * Main.ScreenMultiplier), num2 + (int)(25f * Main.ScreenMultiplier), white, -0.785f, Main.ScreenMultiplier);
+		}
+		int num3 = num + (int)(123f * Main.ScreenMultiplier);
+		for (int i = 0; i < 5; i++)
+		{
+			white = Main.TeamColors[i];
+			if (i == teamSelected)
+			{
+				white.A = MouseTextBrightness;
+			}
+			else
+			{
+				white.R >>= 1;
+				white.G >>= 1;
+				white.B >>= 1;
+				white.A >>= 1;
+			}
+			int num4 = num3;
+			int num5 = num2 + (int)(3f * Main.ScreenMultiplier);
+			switch (i)
+			{
+			case 0:
+				num4 -= (int)(32f * Main.ScreenMultiplier);
+				num5 += (int)(16f * Main.ScreenMultiplier);
+				break;
+			case 2:
+				num4 += (int)(32f * Main.ScreenMultiplier);
+				break;
+			case 3:
+				num5 += (int)(32f * Main.ScreenMultiplier);
+				break;
+			default:
+				num4 += (int)(32f * Main.ScreenMultiplier);
+				num5 += (int)(32f * Main.ScreenMultiplier);
+				break;
+			case 1:
+				break;
+			}
+			num4 -= 8;
+			num5 -= 8;
+			if ((i == 0 && mapScreenCursorX == 1) || (i == 1 && mapScreenCursorX == 2 && mapScreenCursorY == 0) || (i == 2 && mapScreenCursorX == 3 && mapScreenCursorY == 0) || (i == 3 && mapScreenCursorX == 2 && mapScreenCursorY == 1) || (i == 4 && mapScreenCursorX == 3 && mapScreenCursorY == 1))
+			{
+				DrawInventoryCursor(num4, num5, 8f * Main.ScreenMultiplier / 13f);
+			}
+			else
+			{
+				SpriteSheet<_sheetSprites>.DrawScaledTL(451, num4, num5, Color.White, 8f * Main.ScreenMultiplier / 13f);
+			}
+			num4 += (int)(8f * Main.ScreenMultiplier);
+			num5 += (int)(8f * Main.ScreenMultiplier);
+			if (Main.ScreenHeightPtr == ScreenHeights.HD)
+			{
+				num4++;
+				num5++;
+			}
+			SpriteSheet<_sheetSprites>.DrawTL(1481, num4, num5, white, Main.ScreenMultiplier);
+		}
+		int num6 = safeAreaOffsetLeft;
+		int num7 = (int)(98f * Main.ScreenMultiplier) + safeAreaOffsetTop;
+		for (int num8 = 8; num8 > 0; num8--)
+		{
+			int num9 = num7 + (int)(44f * Main.ScreenMultiplier) * (num8 - 1);
+			if (mapScreenCursorY - 1 == num8)
+			{
+				DrawInventoryCursor(num6 - (int)(2f * Main.ScreenMultiplier), num9 - (int)(2f * Main.ScreenMultiplier), 12f * Main.ScreenMultiplier / 13f);
+			}
+			else
+			{
+				SpriteSheet<_sheetSprites>.DrawScaledTL(451, num6 + (int)(2f * Main.ScreenMultiplier), num9 + (int)(2f * Main.ScreenMultiplier), Color.White, 10.5f * Main.ScreenMultiplier / 13f);
+			}
+		}
+		Main.SpriteBatch.End();
+		GamerCollection<NetworkGamer> allGamers = Netplay.Session.AllGamers;
+		for (int j = 0; j < allGamers.Count; j++)
+		{
+			if (allGamers[j].Tag is Player player)
+			{
+				DrawPlayerIcon(player, new Vector2(num6 + (int)(8f * Main.ScreenMultiplier), num7 + (int)(8f * Main.ScreenMultiplier) + j * (int)(44f * Main.ScreenMultiplier)), 1.5f * Main.ScreenMultiplier);
+			}
+		}
+		miniMap.DrawMap(CurrentView);
+		DrawStringCC(SmallFont, Lang.MenuText[81], num + (int)(26f * Main.ScreenMultiplier), num2 + (int)(69f * Main.ScreenMultiplier), Color.White);
+		DrawStringCC(SmallFont, Lang.MenuText[82], num3 + (int)(16f * Main.ScreenMultiplier), num2 + (int)(69f * Main.ScreenMultiplier), Color.White);
+		for (int k = 0; k < allGamers.Count; k++)
+		{
+			if (allGamers[k].Tag is Player player2)
+			{
+				int y = num7 + 8 + 88 * k;
+				DrawStringLT(BoldSmallFont, player2.Name, num6 + (int)(52f * Main.ScreenMultiplier), y, Main.TeamColors[player2.team]);
+			}
+		}
+	}
+
+	private bool AccCheck(ref Item newItem, int slot)
+	{
+		if (ActivePlayer.armor[slot].NetID == newItem.NetID)
+		{
+			return false;
+		}
+		for (int i = 3; i < 11; i++)
+		{
+			if (newItem.NetID == ActivePlayer.armor[i].NetID)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private void UpdateToolTipText(string extraInfo)
+	{
+		Main.StrBuilder.Length = 0;
+		string text2;
+		if (toolTip.Type > 0)
+		{
+			switch ((EntityID.RarityID)toolTip.Rarity)
+			{
+			case EntityID.RarityID.GREY:
+				Main.StrBuilder.Append("<f c='#828282'>");
+				break;
+			case EntityID.RarityID.BLUE:
+				Main.StrBuilder.Append("<f c='#9696FF'>");
+				break;
+			case EntityID.RarityID.GREEN:
+				Main.StrBuilder.Append("<f c='#96FF96'>");
+				break;
+			case EntityID.RarityID.ORANGE:
+				Main.StrBuilder.Append("<f c='#FFC896'>");
+				break;
+			case EntityID.RarityID.LIGHT_RED:
+				Main.StrBuilder.Append("<f c='#FF9696'>");
+				break;
+			case EntityID.RarityID.PINK:
+				Main.StrBuilder.Append("<f c='#FF96FF'>");
+				break;
+			case EntityID.RarityID.LIGHT_PURPLE:
+				Main.StrBuilder.Append("<f c='#D2A0FF'>");
+				break;
+			default:
+				Main.StrBuilder.Append("<f c='#FFFFD2'>");
+				break;
+			}
+			Main.StrBuilder.Append(toolTip.AffixName());
+			if (toolTip.Stack > 1)
+			{
+				Main.StrBuilder.Append(toolTip.Stack.ToStackString());
+			}
+			Main.StrBuilder.Append("</f>\n");
+			if (extraInfo != null)
+			{
+				Main.StrBuilder.Append(extraInfo);
+				Main.StrBuilder.Append('\n');
+			}
+			if (npcShop > 0 || (reforge && toolTip.SetPrefix(-3)))
+			{
+				if (toolTip.Value > 0)
+				{
+					int num = toolTip.Value * toolTip.Stack;
+					if (reforge)
+					{
+						Main.StrBuilder.Append(Lang.InterfaceText[46]);
+					}
+					else if (toolTip.CanBuy)
+					{
+						Main.StrBuilder.Append(Lang.TipText[50]);
+					}
+					else
+					{
+						num /= 5;
+						Main.StrBuilder.Append(Lang.TipText[49]);
+					}
+					int num2 = 0;
+					int num3 = 0;
+					int num4 = 0;
+					int num5 = 0;
+					if (num < 1)
+					{
+						num = 1;
+					}
+					if (num >= 1000000)
+					{
+						num2 = num / 1000000;
+						num -= num2 * 1000000;
+					}
+					if (num >= 10000)
+					{
+						num3 = num / 10000;
+						num -= num3 * 10000;
+					}
+					if (num >= 100)
+					{
+						num4 = num / 100;
+						num -= num4 * 100;
+					}
+					if (num >= 1)
+					{
+						num5 = num;
+					}
+					if (num2 > 0)
+					{
+						Main.StrBuilder.Append("<f c='#DCDCC6'>");
+						Main.StrBuilder.Append(num2.ToStringLookup());
+						Main.StrBuilder.Append(Lang.InterfaceText[15]);
+						Main.StrBuilder.Append("</f>");
+					}
+					if (num3 > 0)
+					{
+						Main.StrBuilder.Append("<f c='#E0C95C'>");
+						Main.StrBuilder.Append(num3.ToStringLookup());
+						Main.StrBuilder.Append(Lang.InterfaceText[16]);
+						Main.StrBuilder.Append("</f>");
+					}
+					if (num4 > 0)
+					{
+						Main.StrBuilder.Append("<f c='#B5C0C1'>");
+						Main.StrBuilder.Append(num4.ToStringLookup());
+						Main.StrBuilder.Append(Lang.InterfaceText[17]);
+						Main.StrBuilder.Append("</f>");
+					}
+					if (num5 > 0)
+					{
+						Main.StrBuilder.Append("<f c='#F68A60'>");
+						Main.StrBuilder.Append(num5.ToStringLookup());
+						Main.StrBuilder.Append(Lang.InterfaceText[18]);
+						Main.StrBuilder.Append("</f>");
+					}
+					Main.StrBuilder.Append('\n');
+				}
+				else
+				{
+					Main.StrBuilder.Append("<f c='#787878'>");
+					Main.StrBuilder.Append(Lang.TipText[51]);
+					Main.StrBuilder.Append("</f>\n");
+				}
+			}
+			if (toolTip.IsMaterial)
+			{
+				Main.StrBuilder.Append("¤ ");
+				Main.StrBuilder.Append(Lang.TipText[36]);
+				Main.StrBuilder.Append('\n');
+			}
+			if (toolTip.CreateWall > 0 || toolTip.CreateTile >= 0)
+			{
+				if (toolTip.Type != 213)
+				{
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append(Lang.TipText[33]);
+					Main.StrBuilder.Append('\n');
+				}
+			}
+			else if (toolTip.Ammo > 0)
+			{
+				Main.StrBuilder.Append("¤ ");
+				Main.StrBuilder.Append(Lang.TipText[34]);
+				Main.StrBuilder.Append('\n');
+			}
+			else if (toolTip.IsConsumable)
+			{
+				Main.StrBuilder.Append("¤ ");
+				Main.StrBuilder.Append(Lang.TipText[35]);
+				Main.StrBuilder.Append('\n');
+			}
+			if (toolTip.IsSocial)
+			{
+				Main.StrBuilder.Append(Lang.TipText[0]);
+				Main.StrBuilder.Append('\n');
+				Main.StrBuilder.Append(Lang.TipText[1]);
+				Main.StrBuilder.Append('\n');
+			}
+			else
+			{
+				if (toolTip.Damage > 0)
+				{
+					int damage = toolTip.Damage;
+					int num6 = 0;
+					if (toolTip.IsMelee)
+					{
+						Main.StrBuilder.Append("¤ ");
+						Main.StrBuilder.Append(((int)(ActivePlayer.meleeDamage * (float)damage)).ToStringLookup());
+						Main.StrBuilder.Append(Lang.TipText[2]);
+						num6 = ActivePlayer.meleeCrit;
+					}
+					else if (toolTip.IsRanged)
+					{
+						Main.StrBuilder.Append("¤ ");
+						Main.StrBuilder.Append(((int)(ActivePlayer.rangedDamage * (float)damage)).ToStringLookup());
+						Main.StrBuilder.Append(Lang.TipText[3]);
+						num6 = ActivePlayer.rangedCrit;
+					}
+					else if (toolTip.IsMagic)
+					{
+						Main.StrBuilder.Append("¤ ");
+						Main.StrBuilder.Append(((int)(ActivePlayer.magicDamage * (float)damage)).ToStringLookup());
+						Main.StrBuilder.Append(Lang.TipText[4]);
+						num6 = ActivePlayer.magicCrit;
+					}
+					num6 -= ActivePlayer.Inventory[ActivePlayer.SelectedItem].Crit;
+					num6 += toolTip.Crit;
+					Main.StrBuilder.Append("\n¤ ");
+					Main.StrBuilder.Append(num6.ToStringLookup());
+					Main.StrBuilder.Append(Lang.TipText[5]);
+					Main.StrBuilder.Append('\n');
+					if (toolTip.UseStyle > 0)
+					{
+						int num7 = 13;
+						if (toolTip.UseAnimation <= 8)
+						{
+							num7 = 6;
+						}
+						else if (toolTip.UseAnimation <= 20)
+						{
+							num7 = 7;
+						}
+						else if (toolTip.UseAnimation <= 25)
+						{
+							num7 = 8;
+						}
+						else if (toolTip.UseAnimation <= 30)
+						{
+							num7 = 9;
+						}
+						else if (toolTip.UseAnimation <= 35)
+						{
+							num7 = 10;
+						}
+						else if (toolTip.UseAnimation <= 45)
+						{
+							num7 = 11;
+						}
+						else if (toolTip.UseAnimation <= 55)
+						{
+							num7 = 12;
+						}
+						Main.StrBuilder.Append("¤ ");
+						Main.StrBuilder.Append(Lang.TipText[num7]);
+						Main.StrBuilder.Append('\n');
+					}
+					int num8 = 22;
+					double num9 = toolTip.Knockback;
+					if (ActivePlayer.kbGlove)
+					{
+						num9 *= 1.7;
+					}
+					if (num9 == 0.0)
+					{
+						num8 = 14;
+					}
+					else if (num9 <= 1.5)
+					{
+						num8 = 15;
+					}
+					else if (num9 <= 3.0)
+					{
+						num8 = 16;
+					}
+					else if (num9 <= 4.0)
+					{
+						num8 = 17;
+					}
+					else if (num9 <= 6.0)
+					{
+						num8 = 18;
+					}
+					else if (num9 <= 7.0)
+					{
+						num8 = 19;
+					}
+					else if (num9 <= 9.0)
+					{
+						num8 = 20;
+					}
+					else if (num9 <= 11.0)
+					{
+						num8 = 21;
+					}
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append(Lang.TipText[num8]);
+					Main.StrBuilder.Append('\n');
+				}
+				if (toolTip.IsEquipable())
+				{
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append(Lang.TipText[23]);
+					Main.StrBuilder.Append('\n');
+				}
+				if (toolTip.IsVanity)
+				{
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append(Lang.TipText[24]);
+					Main.StrBuilder.Append('\n');
+				}
+				if (toolTip.Defense > 0)
+				{
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append(toolTip.Defense.ToStringLookup());
+					Main.StrBuilder.Append(Lang.TipText[25]);
+					Main.StrBuilder.Append('\n');
+				}
+				if (toolTip.PickPower > 0)
+				{
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append(((int)toolTip.PickPower).ToStringLookup());
+					Main.StrBuilder.Append(Lang.TipText[26]);
+					Main.StrBuilder.Append('\n');
+				}
+				if (toolTip.AxePower > 0)
+				{
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append((toolTip.AxePower * 5).ToStringLookup());
+					Main.StrBuilder.Append(Lang.TipText[27]);
+					Main.StrBuilder.Append('\n');
+				}
+				if (toolTip.HammerPower > 0)
+				{
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append(((int)toolTip.HammerPower).ToStringLookup());
+					Main.StrBuilder.Append(Lang.TipText[28]);
+					Main.StrBuilder.Append('\n');
+				}
+				if (toolTip.HealLife > 0)
+				{
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append(Lang.TipText[29]);
+					Main.StrBuilder.Append(toolTip.HealLife.ToStringLookup());
+					Main.StrBuilder.Append(Lang.TipText[30]);
+					Main.StrBuilder.Append('\n');
+				}
+				if (toolTip.HealMana > 0)
+				{
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append(Lang.TipText[29]);
+					Main.StrBuilder.Append(toolTip.HealMana.ToStringLookup());
+					Main.StrBuilder.Append(Lang.TipText[31]);
+					Main.StrBuilder.Append('\n');
+				}
+				if (toolTip.Mana > 0 && (toolTip.Type != 127 || !ActivePlayer.spaceGun))
+				{
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append(Lang.TipText[32]);
+					Main.StrBuilder.Append(((int)((float)(int)toolTip.Mana * ActivePlayer.manaCost)).ToStringLookup());
+					Main.StrBuilder.Append(Lang.TipText[31]);
+					Main.StrBuilder.Append('\n');
+				}
+				string text = Lang.ToolTip(toolTip.NetID);
+				if (text != null)
+				{
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append(text);
+					Main.StrBuilder.Append('\n');
+				}
+				text = Lang.ToolTip2(toolTip.NetID);
+				if (text != null)
+				{
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append(text);
+					Main.StrBuilder.Append('\n');
+				}
+				if (toolTip.BuffTime > 0)
+				{
+					Main.StrBuilder.Append("¤ ");
+					if (toolTip.BuffTime / 60 >= 60)
+					{
+						Main.StrBuilder.Append(((int)Math.Round((double)(toolTip.BuffTime / 60) / 60.0)).ToStringLookup());
+						Main.StrBuilder.Append(Lang.TipText[37]);
+					}
+					else
+					{
+						Main.StrBuilder.Append(((int)Math.Round((double)(int)toolTip.BuffTime / 60.0)).ToStringLookup());
+						Main.StrBuilder.Append(Lang.TipText[38]);
+					}
+					Main.StrBuilder.Append('\n');
+				}
+				if (toolTip.PrefixType > 0)
+				{
+					if (cpItem.NetID != toolTip.NetID)
+					{
+						cpItem.NetDefaults(toolTip.NetID);
+					}
+					if (cpItem.Damage != toolTip.Damage)
+					{
+						int num10 = toolTip.Damage - cpItem.Damage;
+						num10 = (int)Math.Round((double)num10 * 100.0 / (double)cpItem.Damage);
+						if (num10 > 0)
+						{
+							Main.StrBuilder.Append("¤ <f c='#78BE78'>+");
+						}
+						else
+						{
+							Main.StrBuilder.Append("¤ <f c='#BE7878'>");
+						}
+						Main.StrBuilder.Append(num10.ToStringLookup());
+						Main.StrBuilder.Append(Lang.TipText[39]);
+						Main.StrBuilder.Append("</f>\n");
+					}
+					if (cpItem.UseAnimation != toolTip.UseAnimation)
+					{
+						int num11 = toolTip.UseAnimation - cpItem.UseAnimation;
+						num11 = (int)Math.Round((double)num11 * -100.0 / (double)(int)cpItem.UseAnimation);
+						if (num11 > 0)
+						{
+							Main.StrBuilder.Append("¤ <f c='#78BE78'>+");
+						}
+						else
+						{
+							Main.StrBuilder.Append("¤ <f c='#BE7878'>");
+						}
+						Main.StrBuilder.Append(num11.ToStringLookup());
+						Main.StrBuilder.Append(Lang.TipText[40]);
+						Main.StrBuilder.Append("</f>\n");
+					}
+					if (cpItem.Crit != toolTip.Crit)
+					{
+						int num12 = toolTip.Crit - cpItem.Crit;
+						if (num12 > 0)
+						{
+							Main.StrBuilder.Append("¤ <f c='#78BE78'>+");
+						}
+						else
+						{
+							Main.StrBuilder.Append("¤ <f c='#BE7878'>");
+						}
+						Main.StrBuilder.Append(num12.ToStringLookup());
+						Main.StrBuilder.Append(Lang.TipText[41]);
+						Main.StrBuilder.Append("</f>\n");
+					}
+					if (cpItem.Mana != toolTip.Mana)
+					{
+						int num13 = toolTip.Mana - cpItem.Mana;
+						num13 = (int)Math.Round((double)num13 * 100.0 / (double)(int)cpItem.Mana);
+						if (num13 > 0)
+						{
+							Main.StrBuilder.Append("¤ <f c='#78BE78'>+");
+						}
+						else
+						{
+							Main.StrBuilder.Append("¤ <f c='#BE7878'>");
+						}
+						Main.StrBuilder.Append(num13.ToStringLookup());
+						Main.StrBuilder.Append(Lang.TipText[42]);
+						Main.StrBuilder.Append("</f>\n");
+					}
+					if (cpItem.Scale != toolTip.Scale)
+					{
+						int num14 = (int)Math.Round((double)(toolTip.Scale - cpItem.Scale) * 100.0 / (double)cpItem.Scale);
+						if (num14 > 0)
+						{
+							Main.StrBuilder.Append("¤ <f c='#78BE78'>+");
+						}
+						else
+						{
+							Main.StrBuilder.Append("¤ <f c='#BE7878'>");
+						}
+						Main.StrBuilder.Append(num14.ToStringLookup());
+						Main.StrBuilder.Append(Lang.TipText[43]);
+						Main.StrBuilder.Append("</f>\n");
+					}
+					if (cpItem.ShootSpeed != toolTip.ShootSpeed)
+					{
+						int num15 = (int)Math.Round((double)(toolTip.ShootSpeed - cpItem.ShootSpeed) * 100.0 / (double)cpItem.ShootSpeed);
+						if (num15 > 0)
+						{
+							Main.StrBuilder.Append("¤ <f c='#78BE78'>+");
+						}
+						else
+						{
+							Main.StrBuilder.Append("¤ <f c='#BE7878'>");
+						}
+						Main.StrBuilder.Append(num15.ToStringLookup());
+						Main.StrBuilder.Append(Lang.TipText[44]);
+						Main.StrBuilder.Append("</f>\n");
+					}
+					if (cpItem.Knockback != toolTip.Knockback)
+					{
+						int num16 = (int)Math.Round((double)(toolTip.Knockback - cpItem.Knockback) * 100.0 / (double)cpItem.Knockback);
+						if (num16 > 0)
+						{
+							Main.StrBuilder.Append("¤ <f c='#78BE78'>+");
+						}
+						else
+						{
+							Main.StrBuilder.Append("¤ <f c='#BE7878'>");
+						}
+						Main.StrBuilder.Append(num16.ToStringLookup());
+						Main.StrBuilder.Append(Lang.TipText[45]);
+						Main.StrBuilder.Append("</f>\n");
+					}
+					switch ((EntityID.PrefixID)toolTip.PrefixType)
+					{
+					case EntityID.PrefixID.HARD:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+1");
+						Main.StrBuilder.Append(Lang.TipText[25]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.GUARDING:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+2");
+						Main.StrBuilder.Append(Lang.TipText[25]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.ARMORED:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+3");
+						Main.StrBuilder.Append(Lang.TipText[25]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.WARDING:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+4");
+						Main.StrBuilder.Append(Lang.TipText[25]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.ARCANE:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+20");
+						Main.StrBuilder.Append(Lang.TipText[31]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.PRECISE:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+1");
+						Main.StrBuilder.Append(Lang.TipText[5]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.LUCKY:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+2");
+						Main.StrBuilder.Append(Lang.TipText[5]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.JAGGED:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+1");
+						Main.StrBuilder.Append(Lang.TipText[39]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.SPIKED:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+2");
+						Main.StrBuilder.Append(Lang.TipText[39]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.ANGRY:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+3");
+						Main.StrBuilder.Append(Lang.TipText[39]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.MENACING:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+4");
+						Main.StrBuilder.Append(Lang.TipText[39]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.BRISK:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+1");
+						Main.StrBuilder.Append(Lang.TipText[46]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.FLEETING:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+2");
+						Main.StrBuilder.Append(Lang.TipText[46]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.HASTY2:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+3");
+						Main.StrBuilder.Append(Lang.TipText[46]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.QUICK2:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+4");
+						Main.StrBuilder.Append(Lang.TipText[46]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.WILD:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+1");
+						Main.StrBuilder.Append(Lang.TipText[47]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.RASH:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+2");
+						Main.StrBuilder.Append(Lang.TipText[47]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.INTREPID:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+3");
+						Main.StrBuilder.Append(Lang.TipText[47]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					case EntityID.PrefixID.VIOLENT:
+						Main.StrBuilder.Append("¤ <f c='#78BE78'>+4");
+						Main.StrBuilder.Append(Lang.TipText[47]);
+						Main.StrBuilder.Append("</f>\n");
+						break;
+					}
+				}
+				if (toolTip.WornArmor && ActivePlayer.setBonus != null)
+				{
+					Main.StrBuilder.Append("¤ ");
+					Main.StrBuilder.Append(Lang.TipText[48]);
+					Main.StrBuilder.Append(ActivePlayer.setBonus);
+					Main.StrBuilder.Append('\n');
+				}
+			}
+			text2 = Main.StrBuilder.ToString();
+		}
+		else
+		{
+			text2 = extraInfo;
+			if (text2 == null)
+			{
+				text2 = "";
+			}
+		}
+		if (text2 != toolTipText)
+		{
+			toolTipText = text2;
+			compiledToolTipText = new CompiledText(text2, TOOLTIP_W, BoldSmallTextStyle);
+		}
+	}
+
+	private void DrawToolTip(int TOOLTIP_X, int TOOLTIP_Y, int TOOLTIP_H)
+	{
+		Rectangle rectangle = new Rectangle(TOOLTIP_X, TOOLTIP_Y, TOOLTIP_W, TOOLTIP_H);
+		Main.DrawRect(451, rectangle, 255);
+		compiledToolTipText.Draw(Main.SpriteBatch, rectangle, new Color(255, 255, 255, 255), new Color(255, 212, 64, 255));
+	}
+
+	public void OpenInventory()
+	{
+		InventoryMode = 1;
+		oldMouseX = MouseX;
+		oldMouseY = MouseY;
+		ClearButtonTriggers();
+		if (worldFadeTarget > 0.5f)
+		{
+			worldFadeTarget = 0.5f;
+		}
+		CraftingRecipeX = 0;
+		CraftingRecipeY = 0;
+		ActivePlayer.AdjTiles();
+		if (npcShop > 0)
+		{
+			restoreOldInventorySection = true;
+			oldInventorySection = ActiveInvSection;
+			ActiveInvSection = InventorySection.CHEST;
+			inventoryChestX = 0;
+			inventoryChestY = 0;
+		}
+		else if (ActivePlayer.PlayerChest != -1)
+		{
+			restoreOldInventorySection = true;
+			oldInventorySection = ActiveInvSection;
+			ActiveInvSection = InventorySection.CHEST;
+			inventoryChestX = -1;
+			inventoryChestY = 1;
+		}
+		else if (reforge || CraftGuide)
+		{
+			restoreOldInventorySection = true;
+			oldInventorySection = ActiveInvSection;
+			ActiveInvSection = InventorySection.ITEMS;
+		}
+		else if (ActiveInvSection == InventorySection.CRAFTING)
+		{
+			Recipe.FindRecipes(this, craftingCategory, craftingShowCraftable);
+		}
+	}
+
+	public void CloseInventory()
+	{
+		if (InventoryMode > 0)
+		{
+			if (restoreOldInventorySection)
+			{
+				restoreOldInventorySection = false;
+				ActiveInvSection = oldInventorySection;
+			}
+			InventoryMode = 0;
+			ActivePlayer.PlayerChest = -1;
+			ActivePlayer.TalkNPC = -1;
+			npcShop = 0;
+			reforge = false;
+			CraftGuide = false;
+			MouseX = oldMouseX;
+			MouseY = oldMouseY;
+			toolTip.Init();
+			ClearButtonTriggers();
+			if (worldFadeTarget == 0.5f)
+			{
+				worldFadeTarget = 1f;
+			}
+			hotbarItemNameTime = 210;
+		}
+	}
+
+	private bool IsInventorySectionAvailable(InventorySection section)
+	{
+		bool result = ActivePlayer.PlayerChest < -1 || (ActivePlayer.PlayerChest >= 0 && Main.ChestSet[ActivePlayer.PlayerChest] != null) || npcShop > 0;
+		switch (section)
+		{
+		case InventorySection.CHEST:
+			return result;
+		case InventorySection.HOUSING:
+			if (mouseItem.Type == 0 && !reforge)
+			{
+				return !CraftGuide;
+			}
+			return false;
+		case InventorySection.CRAFTING:
+			if (mouseItem.Type == 0 && !reforge)
+			{
+				if (CraftGuide)
+				{
+					return GuideItem.Type > 0;
+				}
+				return true;
+			}
+			return false;
+		case InventorySection.EQUIP:
+			if (mouseItem.Type != 0)
+			{
+				return mouseItem.IsEquipable();
+			}
+			return true;
+		default:
+			return true;
+		}
+	}
+
+	private void UpdateInventoryMenu()
+	{
+		int num = (int)ActiveInvSection;
+		bool flag = true;
+		bool flag2 = IsButtonTriggered(Buttons.RightShoulder);
+		bool flag3 = IsButtonTriggered(Buttons.LeftShoulder);
+		do
+		{
+			if (flag2)
+			{
+				if (++num == 5)
+				{
+					num = 0;
+				}
+			}
+			else if (flag3)
+			{
+				if (--num < 0)
+				{
+					num = 4;
+				}
+			}
+			else if (!flag)
+			{
+				num = 1;
+			}
+			flag = IsInventorySectionAvailable((InventorySection)num);
+		}
+		while (!flag);
+		ActiveInvSection = (InventorySection)num;
+		if (flag3 | flag2)
+		{
+			toolTip.Init();
+			if (ActiveInvSection == InventorySection.CRAFTING)
+			{
+				Recipe.FindRecipes(this, craftingCategory, craftingShowCraftable);
+			}
+		}
+		if (PadState.IsButtonUp(Buttons.RightTrigger) && PadState.IsButtonUp(Buttons.A))
+		{
+			stackSplit = 0;
+		}
+		else if (stackSplit > 0)
+		{
+			stackSplit--;
+		}
+		if (stackSplit == 0)
+		{
+			stackCounter = 0;
+			stackDelay = 7;
+		}
+		else if (++stackCounter >= 30)
+		{
+			stackCounter = 0;
+			if (--stackDelay < 2)
+			{
+				stackDelay = 2;
+			}
+		}
+	}
+
+	public void PositionInventoryCursor(int dx, int dy)
+	{
+		while (true)
+		{
+			switch (ActiveInvSection)
+			{
+			case InventorySection.ITEMS:
+				inventoryItemX += (sbyte)dx;
+				if (inventoryItemX < 0)
+				{
+					inventoryItemX += 10;
+				}
+				else if (inventoryItemX >= 10)
+				{
+					inventoryItemX -= 10;
+				}
+				inventoryItemY += (sbyte)dy;
+				if (inventoryItemY < 0)
+				{
+					inventoryItemY += 7;
+				}
+				else if (inventoryItemY >= 7)
+				{
+					inventoryItemY -= 7;
+				}
+				if (inventoryItemY == 4)
+				{
+					if (reforge)
+					{
+						dy |= 1;
+						break;
+					}
+					if (inventoryItemX < 6)
+					{
+						break;
+					}
+				}
+				else if (inventoryItemY == 5)
+				{
+					if (reforge)
+					{
+						dy |= 1;
+						break;
+					}
+					if (inventoryItemX < 6)
+					{
+						break;
+					}
+				}
+				else if (inventoryItemY == 6 && inventoryItemX < 9)
+				{
+					break;
+				}
+				UpdateInventory();
+				return;
+			case InventorySection.CHEST:
+				inventoryChestX += (sbyte)dx;
+				if (inventoryChestX < -1)
+				{
+					inventoryChestX += 6;
+				}
+				else if (inventoryChestX >= 5)
+				{
+					inventoryChestX -= 6;
+				}
+				inventoryChestY += (sbyte)dy;
+				if (inventoryChestY < 0)
+				{
+					inventoryChestY += 4;
+				}
+				else if (inventoryChestY >= 4)
+				{
+					inventoryChestY -= 4;
+				}
+				if (inventoryChestX < 0)
+				{
+					if (npcShop > 0 || mouseItem.Type > 0)
+					{
+						if (dx == 0)
+						{
+							inventoryChestX = 0;
+						}
+						break;
+					}
+					if (inventoryChestY == 0)
+					{
+						inventoryChestY = 1;
+					}
+				}
+				if (npcShop > 0)
+				{
+					UpdateShop();
+				}
+				else
+				{
+					UpdateStorage();
+				}
+				return;
+			case InventorySection.EQUIP:
+				inventoryEquipY += (sbyte)dy;
+				if (inventoryEquipY < 0)
+				{
+					inventoryEquipY += 5;
+				}
+				else if (inventoryEquipY >= 5)
+				{
+					inventoryEquipY -= 5;
+				}
+				inventoryEquipX += (sbyte)dx;
+				if (inventoryEquipX < 0)
+				{
+					if (inventoryEquipY == 0)
+					{
+						inventoryEquipX = 0;
+						if (--inventoryBuffX < 0)
+						{
+							inventoryBuffX = 0;
+						}
+					}
+					else
+					{
+						inventoryEquipX += 5;
+					}
+				}
+				else if (inventoryEquipX >= 5)
+				{
+					if (inventoryEquipY == 0)
+					{
+						inventoryEquipX = 4;
+						if (++inventoryBuffX > 5)
+						{
+							inventoryBuffX = 5;
+						}
+					}
+					else
+					{
+						inventoryEquipX -= 5;
+					}
+				}
+				if (inventoryEquipX < 1 || inventoryEquipX > 3 || inventoryEquipY < 1 || inventoryEquipY > 3)
+				{
+					UpdateEquip();
+					return;
+				}
+				break;
+			case InventorySection.HOUSING:
+				if (dx != 0)
+				{
+					inventoryHousingX ^= 1;
+				}
+				inventoryHousingY += (sbyte)dy;
+				if (inventoryHousingY < 0)
+				{
+					inventoryHousingY += 6;
+				}
+				else if (inventoryHousingY >= 6)
+				{
+					inventoryHousingY -= 6;
+				}
+				if (inventoryHousingX != 1 || inventoryHousingY != 5)
+				{
+					UpdateHousing();
+					return;
+				}
+				break;
+			}
+		}
+	}
+
+	private bool UpdateCraftButtonInput(Recipe r)
+	{
+		if (stackSplit <= 1 && PadState.IsButtonDown(Buttons.A) && ActivePlayer.CanCraftRecipe(r))
+		{
+			short type = mouseItem.Type;
+			short stack = mouseItem.Stack;
+			mouseItem = r.CraftedItem;
+			mouseItem.SetPrefix(-1);
+			mouseItem.Stack += stack;
+			mouseItem.Position.X = ActivePlayer.XYWH.X + 10 - (mouseItem.Width >> 1);
+			mouseItem.Position.Y = ActivePlayer.XYWH.Y + 21 - (mouseItem.Height >> 1);
+			mouseItemSrcSection = InventorySection.CRAFTING;
+			mouseItemSrcX = -1;
+			mouseItemSrcY = -1;
+			r.Create(this);
+			if (mouseItem.Type > 0 || r.CraftedItem.Type > 0)
+			{
+				Main.PlaySound(7);
+			}
+			if (type == 0)
+			{
+				if (stackSplit == 0)
+				{
+					stackSplit = 15;
+				}
+				else
+				{
+					stackSplit = stackDelay;
+				}
+				ActivePlayer.GetItem(ref mouseItem);
+			}
+			return true;
+		}
+		return false;
+	}
+
+	private void PrevCraftingCategory()
+	{
+		int num = (int)craftingCategory;
+		if (--num < 0)
+		{
+			num = 5;
+		}
+		Recipe.FindRecipes(this, (Recipe.Category)num, craftingShowCraftable);
+		craftingCategory = (Recipe.Category)num;
+		CraftingRecipeX = 0;
+		CraftingRecipeY = 0;
+		craftingRecipeScrollX = 0f;
+		craftingRecipeScrollY = 0f;
+	}
+
+	private void NextCraftingCategory()
+	{
+		int num = (int)craftingCategory;
+		if (++num == 6)
+		{
+			num = 0;
+		}
+		Recipe.FindRecipes(this, (Recipe.Category)num, craftingShowCraftable);
+		craftingCategory = (Recipe.Category)num;
+		CraftingRecipeX = 0;
+		CraftingRecipeY = 0;
+		craftingRecipeScrollX = 0f;
+		craftingRecipeScrollY = 0f;
+	}
+
+	public void PositionCraftingCursor(int dx, int dy)
+	{
+		if (IsButtonUntriggered(Buttons.X) && mouseItem.Type == 0)
+		{
+			craftingShowCraftable = !craftingShowCraftable;
+			CraftingRecipeX = 0;
+			craftingRecipeScrollX = 0f;
+			craftingRecipeScrollY = 0f;
+			Recipe.FindRecipes(this, craftingCategory, craftingShowCraftable);
+		}
+		else if (IsButtonUntriggered(Buttons.A))
+		{
+			Recipe.FindRecipes(this, craftingCategory, craftingShowCraftable);
+		}
+		else
+		{
+			if (UpdateCraftButtonInput(CraftingRecipe))
+			{
+				return;
+			}
+			if (IsButtonTriggered(Buttons.Y))
+			{
+				craftingSection ^= CraftingSection.INGREDIENTS;
+			}
+			else if (IsButtonTriggered(Buttons.LeftTrigger))
+			{
+				PrevCraftingCategory();
+			}
+			else if (IsButtonTriggered(Buttons.RightTrigger))
+			{
+				NextCraftingCategory();
+			}
+			else if (dx != 0 || dy != 0)
+			{
+				if (craftingRecipeScrollMul >= 0.325f)
+				{
+					craftingRecipeScrollMul -= 0.075f;
+				}
+				if (craftingSection == CraftingSection.RECIPES)
+				{
+					if (dx != 0)
+					{
+						if (craftingRecipeScrollX != 0f || craftingRecipeScrollY != 0f || CurrentRecipeCategory.Count == 0)
+						{
+							return;
+						}
+						int count = CurrentRecipeCategory[CraftingRecipeY].RecipeList.Count;
+						if (count != 1)
+						{
+							int num = CraftingRecipeX + dx;
+							if (num < 0)
+							{
+								num += count;
+							}
+							else if (num >= count)
+							{
+								num -= count;
+							}
+							CraftingRecipeX = (sbyte)num;
+							craftingRecipeScrollX = dx;
+						}
+					}
+					else if (craftingRecipeScrollX == 0f && craftingRecipeScrollY == 0f)
+					{
+						CraftingRecipeX = 0;
+						int num2 = CraftingRecipeY + dy;
+						int count2 = CurrentRecipeCategory.Count;
+						if (num2 < 0)
+						{
+							num2 += count2;
+						}
+						else if (num2 >= count2)
+						{
+							num2 -= count2;
+						}
+						else
+						{
+							craftingRecipeScrollY = dy;
+						}
+						CraftingRecipeY = (sbyte)num2;
+					}
+				}
+				else
+				{
+					int num3 = craftingIngredientX;
+					num3 += dx;
+					if (num3 < 0)
+					{
+						num3 += 4;
+					}
+					else if (num3 >= 4)
+					{
+						num3 -= 4;
+					}
+					craftingIngredientX = (sbyte)num3;
+					int num4 = craftingIngredientY;
+					num4 += dy;
+					if (num4 < 0)
+					{
+						num4 += 3;
+					}
+					else if (num4 >= 3)
+					{
+						num4 -= 3;
+					}
+					craftingIngredientY = (sbyte)num4;
+				}
+			}
+			else
+			{
+				craftingRecipeScrollMul = 0.8125f;
+			}
+		}
+	}
+
+	public void PositionMapScreenCursor(int dx, int dy)
+	{
+		if (IsButtonTriggered(Buttons.A))
+		{
+			Main.PlaySound(10);
+			if (mapScreenCursorX == 0)
+			{
+				if (mapScreenCursorY < 2)
+				{
+					pvpCooldown = 180;
+					pvpSelected = !pvpSelected;
+				}
+				else if (CanViewGamerCard() && Netplay.Session != null)
+				{
+					GamerCollection<NetworkGamer> allGamers = Netplay.Session.AllGamers;
+					int num = mapScreenCursorY - 2;
+					if (num < allGamers.Count)
+					{
+						NetworkGamer gamer = allGamers[num];
+						ShowGamerCard(gamer);
+					}
+				}
+			}
+			else
+			{
+				teamCooldown = 180;
+				if (mapScreenCursorY == 0)
+				{
+					teamSelected = (byte)(mapScreenCursorX - 1);
+				}
+				else
+				{
+					teamSelected = (byte)((mapScreenCursorX != 1) ? ((uint)(mapScreenCursorX + 1)) : 0u);
+				}
+			}
+			return;
+		}
+		if (IsButtonTriggered(Buttons.X) && CanCommunicate())
+		{
+			if (Main.NetMode <= 0 || Netplay.gamer == null || Guide.IsVisible)
+			{
+				return;
+			}
+			Main.PlaySound(10);
+			bool flag;
+			do
+			{
+				flag = false;
+				try
+				{
+					Guide.ShowGameInvite(controller, null);
+				}
+				catch (GuideAlreadyVisibleException)
+				{
+					Thread.Sleep(32);
+					flag = true;
+				}
+			}
+			while (flag);
+			return;
+		}
+		if (IsButtonTriggered(Buttons.Y))
+		{
+			if (SignedInGamer.PartySize > 1 && Main.NetMode > 0 && Netplay.gamer != null && localGamer != null)
+			{
+				localGamer.SendPartyInvites();
+			}
+			return;
+		}
+		if (dy != 0)
+		{
+			do
+			{
+				mapScreenCursorY += dy;
+			}
+			while (mapScreenCursorX == 0 && mapScreenCursorY == 1);
+			dy = ((mapScreenCursorX > 0) ? 2 : 10);
+			if (mapScreenCursorY < 0)
+			{
+				mapScreenCursorY += dy;
+			}
+			else if (mapScreenCursorY >= dy)
+			{
+				mapScreenCursorY -= dy;
+			}
+		}
+		if (mapScreenCursorY < 2)
+		{
+			mapScreenCursorX += dx;
+			if (mapScreenCursorX < 0)
+			{
+				mapScreenCursorX += 4;
+			}
+			else if (mapScreenCursorX >= 4)
+			{
+				mapScreenCursorX -= 4;
+			}
+		}
+	}
+
+	public void FoundPotentialArmor(int itemType)
+	{
+		if (!TriggerCheckEnabled(Trigger.CollectedAllArmor))
+		{
+			return;
+		}
+		armorFound.Set(itemType, value: true);
+		bool flag = true;
+		EntityID.ItemID[] armorIDs = Item.ArmorIDs;
+		EntityID.ItemID[] array = armorIDs;
+		foreach (EntityID.ItemID index in array)
+		{
+			if (!armorFound.Get((int)index))
+			{
+				flag = false;
+				break;
+			}
+		}
+		if (flag)
+		{
+			SetTriggerState(Trigger.CollectedAllArmor);
+		}
+	}
+
+	private void UpdateAlternateGrappleControls()
+	{
+		if (alternateGrappleControls)
+		{
+			BTN_JUMP2 = Buttons.LeftTrigger;
+			BTN_GRAPPLE = Buttons.LeftStick;
+		}
+		else
+		{
+			BTN_JUMP2 = Buttons.LeftStick;
+			BTN_GRAPPLE = Buttons.LeftTrigger;
+		}
+	}
+
+	public bool IsJumpButtonDown()
+	{
+		if (!PadState.IsButtonDown(Buttons.A))
+		{
+			return PadState.IsButtonDown(BTN_JUMP2);
+		}
+		return true;
+	}
+
+	public bool WasJumpButtonUp()
+	{
+		if (gpPrevState.IsButtonUp(Buttons.A))
+		{
+			return gpPrevState.IsButtonUp(BTN_JUMP2);
+		}
+		return false;
+	}
+
+	public void ShowGamerCard(Gamer gamer)
+	{
+		if (gamer == null || Guide.IsVisible)
+		{
+			return;
+		}
+		bool flag;
+		do
+		{
+			flag = false;
+			try
+			{
+				Guide.ShowGamerCard(controller, gamer);
+			}
+			catch (GuideAlreadyVisibleException)
+			{
+				Thread.Sleep(32);
+				flag = true;
+			}
+			catch (ObjectDisposedException)
+			{
+				gamer = Gamer.GetFromGamertag(gamer.Gamertag);
+				flag = true;
+			}
+			catch (Exception)
+			{
+			}
+		}
+		while (flag);
+	}
+
+	public void SignOut()
+	{
+		if (SignedInGamer == null)
+		{
+			return;
+		}
+		SignedInGamer signedInGamer = SignedInGamer;
+		SignedInGamer = null;
+		foreach (SignedInGamer signedInGamer3 in Gamer.SignedInGamers)
+		{
+			if (signedInGamer3.PlayerIndex == controller && signedInGamer3.Gamertag == signedInGamer.Gamertag)
+			{
+				SignedInGamer = signedInGamer3;
+			}
+		}
+		if (SignedInGamer != null)
+		{
+			if (Main.NetMode > 0 && !HasOnline())
+			{
+				Error(Lang.MenuText[5], Lang.InterfaceText[36]);
+				MainUI.ExitGame();
+			}
+			else
+			{
+				if (!Main.IsGameStarted)
+				{
+					return;
+				}
+				wasRemovedFromSessionWithoutOurConsent = true;
+				if (this == MainUI)
+				{
+					for (int i = 0; i < Netplay.Session.LocalGamers.Count; i++)
+					{
+						SignedInGamer signedInGamer2 = Netplay.Session.LocalGamers[i].SignedInGamer;
+						Main.UIInstance[(int)signedInGamer2.PlayerIndex].wasRemovedFromSessionWithoutOurConsent = true;
+					}
+				}
+			}
+			return;
+		}
+		wasRemovedFromSessionWithoutOurConsent = false;
+		MessageBox.RemoveMessagesFor(controller);
+		CancelInvite(signedInGamer);
+		blacklist.Clear();
+		if (this == MainUI)
+		{
+			Netplay.StopFindingSessions();
+			if (Main.WorldGenThread != null)
+			{
+				Main.WorldGenThread.Abort();
+				Main.WorldGenThread = null;
+				WorldGen.Gen = false;
+			}
+			if (playerStorage != null)
+			{
+				theGame.Components.Remove(playerStorage);
+				playerStorage.Dispose();
+				playerStorage = null;
+			}
+			if (NumActiveViews == 1 || Main.IsGameStarted)
+			{
+				if (Main.IsGameStarted)
+				{
+					ExitGame();
+				}
+				SetMenu(MenuMode.WELCOME, rememberPrevious: false, reset: true);
+				return;
+			}
+		}
+		Exit();
+	}
+
+	public bool TestStorageSpace(string container, string destinationPath, int writeSize)
+	{
+		using (StorageContainer storageContainer = OpenPlayerStorage(container))
+		{
+			long num = storageContainer.StorageDevice.FreeSpace;
+			if (num >= writeSize)
+			{
+				return true;
+			}
+			if (storageContainer.FileExists(destinationPath))
+			{
+				using (Stream stream = storageContainer.OpenFile(destinationPath, FileMode.Open, FileAccess.Read))
+				{
+					num += stream.Length;
+				}
+				if (num >= writeSize)
+				{
+					storageContainer.DeleteFile(destinationPath);
+					return true;
+				}
+			}
+		}
+		MessageBox.Show(controller, Lang.MenuText[5], Lang.InterfaceText[70], new string[1] { Lang.MenuText[90] });
+		return false;
+	}
+
+	public void WriteError()
+	{
+		MessageBox.Show(controller, Lang.MenuText[5], Lang.WorldGenText[54], new string[1] { Lang.MenuText[90] });
+	}
+
+	public void ReadError()
+	{
+		MessageBox.Show(controller, Lang.MenuText[9], Lang.WorldGenText[53], new string[1] { Lang.MenuText[90] });
+	}
+
+	public void CheckHDTV()
+	{
+		if (!Main.IsHDTV)
+		{
+			Main.IsHDTV = true;
+			MessageBox.Show(controller, Lang.MenuText[3], Lang.InterfaceText[71], new string[1] { Lang.MenuText[90] });
+		}
+	}
+
+	public bool CheckBlacklist()
+	{
+		ulong worldId = Main.GetWorldId();
+		for (int num = blacklist.Count - 1; num >= 0; num--)
+		{
+			if (blacklist[num] == worldId)
+			{
+				if (CurMenuType != MenuType.MAIN)
+				{
+					CurMenuType = MenuType.PAUSE;
+				}
+				string[] array = new string[2];
+				if (CurMenuType == MenuType.MAIN)
+				{
+					array[0] = Lang.MenuText[15];
+				}
+				else
+				{
+					array[0] = Lang.MenuText[100];
+				}
+				array[1] = Lang.InterfaceText[75];
+				MessageBox.Show(controller, Lang.MenuText[3], Lang.InterfaceText[74], array, ShouldAutoUpdate: false);
+				SetMenu(MenuMode.BLACKLIST_REMOVE);
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public void CheckUserGeneratedContent()
+	{
+		if (!IsUserGeneratedContentAllowed())
+		{
+			CurMenuType = MenuType.PAUSE;
+			string[] boxOptions = ((!autoSave && IsStorageEnabledForAnyPlayer()) ? new string[2]
+			{
+				Lang.InterfaceText[2],
+				Lang.InterfaceText[1]
+			} : new string[1] { Lang.MenuText[15] });
+			MessageBox.Show(controller, Lang.MenuText[3], Lang.InterfaceText[79], boxOptions, ShouldAutoUpdate: false);
+			SetMenu(MenuMode.EXIT_UGC_BLOCKED);
+		}
+	}
+}
