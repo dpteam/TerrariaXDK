@@ -1547,37 +1547,39 @@ public sealed class Main : Game
 		DrawLoadingBar();
 	}
 
-	/// <summary>Progress bar shown while content is still being loaded.</summary>
+	/// <summary>
+	/// Progress bar shown while content is still being loaded.
+	/// Visual: blue fill on a dark track, white outline and a drop shadow offset by 6px -
+	/// kept exactly as designed. Only the animation maths changed, so the fill reaches 100%.
+	/// </summary>
 	private void DrawLoadingBar()
 	{
-		// Ease towards the target but snap once close enough, so 100% is actually reached.
 		_displayProgress = LoadingProgress.Step(_displayProgress, _loadingProgress);
 		if (_pixelTexture == null)
 		{
 			_pixelTexture = new Texture2D(GraphicsDevice, 1, 1);
 			_pixelTexture.SetData(new Color[1] { Color.White });
 		}
-		int num2 = 320;
-		int num3 = 14;
-		int num4 = (ResolutionWidth - num2) / 2;
-		int num5 = ResolutionHeight - 56;
-		Color color = new Color(30, 30, 30, 200);
-		Color color2 = new Color(70, 70, 70, 255);
-		Color color3 = new Color(0, 136, 255);
-		Color color4 = new Color(120, 200, 255);
-		int num6 = num4 - 1;
-		int num7 = num5 - 1;
-		int width = num2 + 2;
-		int height = num3 + 2;
+		int num = 300;
+		int num2 = 16;
+		int num3 = (ResolutionWidth - num) / 2;
+		int num4 = ResolutionHeight - 60;
+		Color color = new Color(0, 136, 255);
+		Color color2 = new Color(40, 40, 40, 255);
+		Color color3 = new Color(20, 20, 20);
+		int num5 = num3 - 2;
+		int num6 = num4 - 2;
+		int width = num + 4;
+		int height = num2 + 4;
 		SpriteBatch.Begin();
-		// Frame, then track, then fill with a brighter top edge.
-		SpriteBatch.Draw(_pixelTexture, new Rectangle(num6, num7, width, height), color2);
-		SpriteBatch.Draw(_pixelTexture, new Rectangle(num4, num5, num2, num3), color);
-		int num8 = (int)((float)num2 * _displayProgress);
-		if (num8 > 0)
+		// Drop shadow, then white outline, then the dark track.
+		SpriteBatch.Draw(_pixelTexture, new Rectangle(num5 + 6, num6 + 6, width, height), color2);
+		SpriteBatch.Draw(_pixelTexture, new Rectangle(num5, num6, width, height), Color.White);
+		SpriteBatch.Draw(_pixelTexture, new Rectangle(num3, num4, num, num2), color3);
+		int num7 = (int)((float)num * _displayProgress);
+		if (num7 > 0)
 		{
-			SpriteBatch.Draw(_pixelTexture, new Rectangle(num4, num5, num8, num3), color3);
-			SpriteBatch.Draw(_pixelTexture, new Rectangle(num4, num5, num8, 2), color4);
+			SpriteBatch.Draw(_pixelTexture, new Rectangle(num3, num4, num7, num2), color);
 		}
 		SpriteBatch.End();
 	}
