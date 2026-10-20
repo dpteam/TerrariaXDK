@@ -107,7 +107,7 @@ dotnet build TerrariaXDK.csproj -v q --nologo     # 0 ошибок
 | Моды | `Storage/Mods/<Mod>/<Mod>.dll` | `ModLoader` |
 | Отладочный лог | `Storage/Logs/terraria-debug.log` | `Program` |
 | Крашлог | `Storage/Logs/client-crashlog.txt` | `Program` |
-| Резервные копии | `Storage/Backups/` | (задел) |
+| Резервные копии | `Storage/Backups/<мир>_<дата>.wld` | `WorldBackups` |
 | Кэш | `Storage/Cache/` | (задел) |
 
 - **Никогда не хардкодьте пути.** Единственный источник — `Terraria/Storage/AppPaths.cs`.

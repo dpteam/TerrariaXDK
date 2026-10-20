@@ -48,6 +48,7 @@ internal static class SelfTest
 		RunCheck("virtual keyboard", CheckVirtualKeyboard);
 		RunCheck("display settings", CheckDisplaySettings);
 		RunCheck("direct connect", CheckDirectConnect);
+		RunCheck("world backups", CheckWorldBackups);
 		ReportMemory();
 		Console.WriteLine();
 		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
@@ -1498,6 +1499,109 @@ internal static class SelfTest
 			return Fail("unresolvable host produced no explanation");
 		}
 		return true;
+	}
+
+	// --- World backups ------------------------------------------------------
+
+	/// <summary>
+	/// The backup folder used to be an empty placeholder: the only copy of a world was the
+	/// single .wld.bak that every save overwrote. These checks pin down that a backup is
+	/// actually written, that content matches, that pruning respects the limit and that the
+	/// switch turns it off.
+	/// </summary>
+	private static bool CheckWorldBackups()
+	{
+		string text = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-world.wld");
+		const string worldName = "selftest_backups";
+		bool enabled = Terraria.WorldBackups.Enabled;
+		int keep = Terraria.WorldBackups.Keep;
+		int minMinutes = Terraria.WorldBackups.MinMinutes;
+		try
+		{
+			byte[] worldBytes = new byte[64];
+			worldBytes[0] = 1;
+			worldBytes[7] = 8;
+			System.IO.File.WriteAllBytes(text, worldBytes);
+			CleanupBackups(worldName);
+			Terraria.WorldBackups.Enabled = true;
+			Terraria.WorldBackups.Keep = 10;
+			Terraria.WorldBackups.MinMinutes = 0;
+			Terraria.WorldBackups.Backup(text, worldName);
+			string[] files = System.IO.Directory.GetFiles(Terraria.WorldBackups.Folder, worldName + "_*.wld");
+			if (files.Length != 1)
+			{
+				return Fail("a save did not produce exactly one backup");
+			}
+			byte[] bytes = System.IO.File.ReadAllBytes(files[0]);
+			if (bytes.Length != 64 || bytes[0] != 1 || bytes[7] != 8)
+			{
+				return Fail("the backup does not match the world file");
+			}
+			// Two saves in the same second must not overwrite each other.
+			Terraria.WorldBackups.Backup(text, worldName);
+			if (System.IO.Directory.GetFiles(Terraria.WorldBackups.Folder, worldName + "_*.wld").Length != 2)
+			{
+				return Fail("a second save overwrote the first backup");
+			}
+			// Pruning keeps the newest N and drops the rest.
+			Terraria.WorldBackups.Keep = 3;
+			for (int i = 0; i < 5; i++)
+			{
+				Terraria.WorldBackups.BackupNow(text, worldName);
+			}
+			files = System.IO.Directory.GetFiles(Terraria.WorldBackups.Folder, worldName + "_*.wld");
+			if (files.Length != 3)
+			{
+				return Fail("pruning kept " + files.Length + " backups instead of 3");
+			}
+			// Disabled means no new files.
+			Terraria.WorldBackups.Enabled = false;
+			Terraria.WorldBackups.Backup(text, worldName);
+			if (System.IO.Directory.GetFiles(Terraria.WorldBackups.Folder, worldName + "_*.wld").Length != 3)
+			{
+				return Fail("a backup was written while the feature was off");
+			}
+			Terraria.WorldBackups.Enabled = true;
+			// A missing world file must be ignored, not thrown.
+			Terraria.WorldBackups.BackupNow(System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "does-not-exist.wld"), worldName);
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("world backup check threw: " + ex.Message);
+		}
+		finally
+		{
+			Terraria.WorldBackups.Enabled = enabled;
+			Terraria.WorldBackups.Keep = keep;
+			Terraria.WorldBackups.MinMinutes = minMinutes;
+			CleanupBackups(worldName);
+			try
+			{
+				if (System.IO.File.Exists(text))
+				{
+					System.IO.File.Delete(text);
+				}
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	private static void CleanupBackups(string worldName)
+	{
+		try
+		{
+			string[] files = System.IO.Directory.GetFiles(Terraria.WorldBackups.Folder, worldName + "_*.wld");
+			for (int i = 0; i < files.Length; i++)
+			{
+				System.IO.File.Delete(files[i]);
+			}
+		}
+		catch
+		{
+		}
 	}
 
 	private static bool Fail(string message)

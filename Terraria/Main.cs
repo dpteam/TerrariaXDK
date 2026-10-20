@@ -656,6 +656,10 @@ public sealed class Main : Game
 		// was hard-wired to the 540p preset and a 640x480 backbuffer.
 		Terraria.DisplaySettings.Load(settings);
 		Terraria.DisplaySettings.ApplyRenderScale();
+		settings.Set("Backups", "Enabled", "True", "Keep dated copies of the world in Storage/Backups.");
+		settings.Set("Backups", "Keep", "10", "How many backups to keep per world (0-100).\n; Oldest are removed first; 0 disables automatic backups.");
+		settings.Set("Backups", "MinMinutes", "15", "Minutes between automatic backups of the same world (0 = every save).");
+		Terraria.WorldBackups.Load(settings);
 		ShowFPS = settings.Get("Display", "ShowFPS").ToLower().Equals("true");
 		StartFullscreen = settings.Get("Display", "StartFullscreen").ToLower().Equals("true");
 		ZoomLevel = Convert.ToSingle(settings.Get("Display", "ZoomLevel"));

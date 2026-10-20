@@ -59,7 +59,7 @@ Storage/
   Mods/<Mod>/<Mod>.dll                    моды
   Logs/terraria-debug.log                 отладочный лог
   Logs/client-crashlog.txt                крашлог
-  Backups/                                резервные копии (задел)
+  Backups/world1_20260101_120000.wld    резервные копии миров
   Cache/                                  кэш (задел)
 ```
 
@@ -163,6 +163,11 @@ JoinAddress=            ; "host:port" для быстрого подключен
 [Mods]
 Enabled=True
 RequireMatchingMods=True
+
+[Backups]
+Enabled=True            ; датированные копии мира в Storage/Backups
+Keep=10                 ; сколько копий хранить на мир (0 = выключить)
+MinMinutes=15           ; интервал между копиями (0 = при каждом сохранении)
 ```
 
 ---

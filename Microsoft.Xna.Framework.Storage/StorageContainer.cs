@@ -150,6 +150,17 @@ public class StorageContainer : IDisposable
 		return files;
 	}
 
+	/// <summary>Full path of a file inside this container. For features that need to copy the
+	/// file elsewhere (world backups) without going through the XNA stream API.</summary>
+	internal string FilePath(string file)
+	{
+		if (string.IsNullOrEmpty(file))
+		{
+			throw new ArgumentNullException("Parameter file must contain a value.");
+		}
+		return Path.Combine(storagePath, file);
+	}
+
 	public Stream OpenFile(string file, FileMode fileMode)
 	{
 		return OpenFile(file, fileMode, FileAccess.ReadWrite, FileShare.ReadWrite);

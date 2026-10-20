@@ -206,7 +206,9 @@ TShock в `refs/` — это серверный мод для **ПК**-верс�
 - [ ] **REST API.** `RestManager`, `SecureRest`, токен-аутентификация,
       `EnableTokenEndpointAuthentication` — статус сервера, список игроков,
       выполнение команд снаружи.
-- [ ] **Автобэкапы.** `BackupInterval` — сохранять мир по таймеру в `Backups/`.
+- [x] **Автобэкапы.** `Storage/Backups/<мир>_<дата>.wld` после каждого сохранения,
+      лимит `[Backups] Keep` (10 по умолчанию) и интервал `[Backups] MinMinutes`
+      (15 минут), чтобы автосейв не забивал папку. Старый `.wld.bak` остался как был.
 - [ ] **Конфиг сервера.** `ConfigFile` — у TShock это отдельный файл с десятками
       опций (`InfiniteInvasion`, `DisableHardmode`, `DisableDungeonGuardian`,
       `DisableClownBombs`, `DisableSnowBalls`, `DisableInvisPvP`, `AllowIce`,

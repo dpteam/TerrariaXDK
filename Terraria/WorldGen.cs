@@ -2160,6 +2160,9 @@ internal static class WorldGen
 						stream3.Write(memoryStream.GetBuffer(), 0, (int)memoryStream.Length);
 						stream3.Close();
 						flag = true;
+						// A dated copy in Storage/Backups, so a corrupted save cannot take the
+						// only world with it. Rate-limited inside (see [Backups] MinMinutes).
+						WorldBackups.Backup(storageContainer.FilePath(WorldSelect.worldPathName), Main.WorldName);
 					}
 				}
 				catch (IOException)
