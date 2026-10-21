@@ -14,7 +14,7 @@ namespace Terraria;
 /// </summary>
 internal static class DisplayMenu
 {
-	private const int Rows = 3;
+	private const int Rows = 5;
 
 	private static int _selected;
 
@@ -77,23 +77,47 @@ internal static class DisplayMenu
 		switch (row)
 		{
 		case 0:
+			ApplyProfile(SettingsProfiles.Next(SettingsProfiles.Current, direction));
+			break;
+		case 1:
 			DisplaySettings.NextWindowSize(direction);
 			ApplyWindow();
 			_status = "Window: " + DisplaySettings.Width + "x" + DisplaySettings.Height;
 			break;
-		case 1:
+		case 2:
 			DisplaySettings.Fullscreen = !DisplaySettings.Fullscreen;
 			ApplyWindow();
 			_status = DisplaySettings.Fullscreen ? "Fullscreen" : "Windowed";
 			break;
-		case 2:
+		case 3:
 			DisplaySettings.NextRenderScale(direction);
 			_status = "Render scale: " + (DisplaySettings.RenderScale == ScreenHeights.BASE ? "540p" : ((DisplaySettings.RenderScale == ScreenHeights.HD) ? "720p" : "1080p")) + " - restart required";
+			break;
+		case 4:
+			// Lives here rather than only in Settings.ini: it is the first thing you want to
+			// turn on when measuring the effect of a render scale change.
+			DisplaySettings.ShowFPS = !DisplaySettings.ShowFPS;
+			Main.ShowFPS = DisplaySettings.ShowFPS;
+			_status = DisplaySettings.ShowFPS ? "FPS counter: On" : "FPS counter: Off";
 			break;
 		}
 		_statusTime = 240;
 		Main.PlaySound(12);
 		Persist();
+	}
+
+	/// <summary>
+	/// Applies a preset and pushes the window part immediately. The render scale inside a
+	/// preset needs the same restart as changing it by hand, and the hint below says so.
+	/// </summary>
+	private static void ApplyProfile(string name)
+	{
+		if (!SettingsProfiles.Apply(name))
+		{
+			return;
+		}
+		ApplyWindow();
+		_status = "Profile: " + name + " - render scale applies on the next start";
 	}
 
 	/// <summary>Pushes the window size / fullscreen to the graphics device right now.</summary>
@@ -180,9 +204,11 @@ internal static class DisplayMenu
 		UI.DrawStringCC(UI.BigFont, "Display", rectangle.Center.X, rectangle.Y - (int)(34f * num), Color.White);
 		string[] array = new string[Rows]
 		{
+			"Profile: " + SettingsProfiles.Current,
 			"Window size: " + DisplaySettings.Width + "x" + DisplaySettings.Height,
 			"Fullscreen: " + (DisplaySettings.Fullscreen ? "On" : "Off"),
-			"Render scale: " + ((DisplaySettings.RenderScale == ScreenHeights.BASE) ? "540p" : ((DisplaySettings.RenderScale == ScreenHeights.HD) ? "720p" : "1080p"))
+			"Render scale: " + ((DisplaySettings.RenderScale == ScreenHeights.BASE) ? "540p" : ((DisplaySettings.RenderScale == ScreenHeights.HD) ? "720p" : "1080p")),
+			"FPS counter: " + (DisplaySettings.ShowFPS ? "On" : "Off")
 		};
 		for (int i = 0; i < Rows; i++)
 		{

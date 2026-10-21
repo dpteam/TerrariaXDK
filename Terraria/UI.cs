@@ -2030,6 +2030,7 @@ public sealed class UI
 			statusText = null;
 			return;
 		case MenuMode.WORLD_SELECT:
+			Terraria.Net.ServerListRefresh.Reset();
 			if (Netplay.availableSessions.Count == 0 && !Netplay.IsFindingSessions())
 			{
 				Netplay.FindSessions();

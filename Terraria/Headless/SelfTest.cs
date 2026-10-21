@@ -46,10 +46,12 @@ internal static class SelfTest
 		RunCheck("settings sections", CheckSettingsSections);
 		RunCheck("network stats", CheckNetworkStats);
 		RunCheck("key bindings", CheckKeyBindings);
+		RunCheck("settings persistence", CheckSettingsPersistence);
 		RunCheck("tconfig import", CheckTConfigImport);
 		RunCheck("mod load order", CheckModLoadOrder);
 		RunCheck("virtual keyboard", CheckVirtualKeyboard);
 		RunCheck("display settings", CheckDisplaySettings);
+		RunCheck("display profiles", CheckDisplayProfiles);
 		RunCheck("direct connect", CheckDirectConnect);
 		RunCheck("session record", CheckSessionRecord);
 		RunCheck("json", CheckJson);
@@ -57,6 +59,7 @@ internal static class SelfTest
 		RunCheck("lan discovery", CheckLanDiscovery);
 		RunCheck("mod packets", CheckModPackets);
 		RunCheck("saved servers", CheckSavedServers);
+		RunCheck("auto refresh", CheckAutoRefresh);
 		RunCheck("world backups", CheckWorldBackups);
 		ReportMemory();
 		Console.WriteLine();
@@ -1459,6 +1462,105 @@ internal static class SelfTest
 		}
 	}
 
+	// --- Display profiles ---------------------------------------------------
+
+	/// <summary>
+	/// Presets exist so the three display fields cannot drift into a combination that looks
+	/// wrong. Detection must follow the values (so hand edits show as "Custom"), applying
+	/// must be complete, and cycling must never land on "Custom".
+	/// </summary>
+	private static bool CheckDisplayProfiles()
+	{
+		int width = DisplaySettings.Width;
+		int height = DisplaySettings.Height;
+		bool fullscreen = DisplaySettings.Fullscreen;
+		ScreenHeights scale = DisplaySettings.RenderScale;
+		try
+		{
+			if (!SettingsProfiles.Apply(SettingsProfiles.Tv))
+			{
+				return Fail("the TV preset could not be applied");
+			}
+			if (DisplaySettings.Width != 1920 || DisplaySettings.Height != 1080 || !DisplaySettings.Fullscreen || DisplaySettings.RenderScale != ScreenHeights.HD)
+			{
+				return Fail("the TV preset applied only part of its values");
+			}
+			if (SettingsProfiles.Current != SettingsProfiles.Tv)
+			{
+				return Fail("the TV preset is not detected as current");
+			}
+			if (!SettingsProfiles.Apply(SettingsProfiles.Handheld))
+			{
+				return Fail("the handheld preset could not be applied");
+			}
+			if (DisplaySettings.Width != 1280 || DisplaySettings.Fullscreen || DisplaySettings.RenderScale != ScreenHeights.BASE)
+			{
+				return Fail("the handheld preset applied only part of its values");
+			}
+			// Changing one field by hand must not keep claiming the preset.
+			DisplaySettings.RenderScale = ScreenHeights.FHD;
+			if (SettingsProfiles.Current != SettingsProfiles.Custom)
+			{
+				return Fail("an edited setting still reports a preset");
+			}
+			if (SettingsProfiles.Apply(SettingsProfiles.Custom) || SettingsProfiles.Apply("nonsense"))
+			{
+				return Fail("a non-preset name was applied");
+			}
+			// Cycling wraps and never selects Custom.
+			string next = SettingsProfiles.Next(SettingsProfiles.Default, 1);
+			if (next != SettingsProfiles.Tv)
+			{
+				return Fail("cycling forward from Default gave " + next);
+			}
+			next = SettingsProfiles.Next(SettingsProfiles.Tv, 1);
+			if (next != SettingsProfiles.Handheld)
+			{
+				return Fail("cycling forward from TV gave " + next);
+			}
+			next = SettingsProfiles.Next(SettingsProfiles.Handheld, 1);
+			if (next != SettingsProfiles.Default)
+			{
+				return Fail("cycling forward from Handheld did not wrap to Default");
+			}
+			next = SettingsProfiles.Next(SettingsProfiles.Default, -1);
+			if (next != SettingsProfiles.Handheld)
+			{
+				return Fail("cycling backward from Default gave " + next);
+			}
+			next = SettingsProfiles.Next(SettingsProfiles.Custom, 1);
+			if (next == SettingsProfiles.Custom)
+			{
+				return Fail("cycling from Custom selected Custom");
+			}
+			// Every preset must round-trip: apply, detect, and be a sane configuration.
+			string[] all = new string[3] { SettingsProfiles.Default, SettingsProfiles.Tv, SettingsProfiles.Handheld };
+			for (int i = 0; i < all.Length; i++)
+			{
+				if (!SettingsProfiles.Apply(all[i]) || SettingsProfiles.Current != all[i])
+				{
+					return Fail("preset '" + all[i] + "' does not round-trip");
+				}
+				if (DisplaySettings.Width < 320 || DisplaySettings.Height < 240 || DisplaySettings.Width > 7680)
+				{
+					return Fail("preset '" + all[i] + "' sets an implausible window size");
+				}
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("display profile check threw: " + ex.Message);
+		}
+		finally
+		{
+			DisplaySettings.Width = width;
+			DisplaySettings.Height = height;
+			DisplaySettings.Fullscreen = fullscreen;
+			DisplaySettings.RenderScale = scale;
+		}
+	}
+
 	// --- Display settings ---------------------------------------------------
 
 	/// <summary>
@@ -1468,6 +1570,11 @@ internal static class SelfTest
 	private static bool CheckDisplaySettings()
 	{
 		string text = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-display.ini");
+		int savedWidth = Terraria.DisplaySettings.Width;
+		int savedHeight = Terraria.DisplaySettings.Height;
+		bool savedFullscreen = Terraria.DisplaySettings.Fullscreen;
+		ScreenHeights savedScale = Terraria.DisplaySettings.RenderScale;
+		bool savedFps = Terraria.DisplaySettings.ShowFPS;
 		try
 		{
 			if (System.IO.File.Exists(text))
@@ -1519,6 +1626,33 @@ internal static class SelfTest
 					return Fail("window size cycling left a sane range");
 				}
 			}
+			// Saving must actually write: Settings.Set only seeds missing keys, so an edited
+			// value used to be written back as the old one and the Display screen silently
+			// forgot every change.
+			Terraria.DisplaySettings.Width = 1600;
+			Terraria.DisplaySettings.Height = 900;
+			Terraria.DisplaySettings.Fullscreen = true;
+			Terraria.DisplaySettings.RenderScale = ScreenHeights.HD;
+			Terraria.DisplaySettings.ShowFPS = true;
+			Settings settingsSaved = new Settings(text);
+			Terraria.DisplaySettings.Save(settingsSaved);
+			settingsSaved.Close();
+			Terraria.DisplaySettings.Width = 1280;
+			Terraria.DisplaySettings.Height = 720;
+			Terraria.DisplaySettings.Fullscreen = false;
+			Terraria.DisplaySettings.RenderScale = ScreenHeights.BASE;
+			Terraria.DisplaySettings.ShowFPS = false;
+			Settings settingsReloaded = new Settings(text);
+			Terraria.DisplaySettings.Load(settingsReloaded);
+			settingsReloaded.Close();
+			if (Terraria.DisplaySettings.Width != 1600 || Terraria.DisplaySettings.Height != 900)
+			{
+				return Fail("the window size was not saved");
+			}
+			if (!Terraria.DisplaySettings.Fullscreen || Terraria.DisplaySettings.RenderScale != ScreenHeights.HD || !Terraria.DisplaySettings.ShowFPS)
+			{
+				return Fail("fullscreen, render scale or the FPS flag was not saved");
+			}
 			// Nonsense values in the file fall back to defaults instead of crashing.
 			System.IO.File.WriteAllText(text, "[Display]\r\nWidth=abc\r\nHeight=-5\r\nScreenHeight=99\r\n");
 			Settings settings3 = new Settings(text);
@@ -1540,6 +1674,13 @@ internal static class SelfTest
 		}
 		finally
 		{
+			// The check overwrites the live display state; put it back so the next checks
+			// (and a real run after the self-test) see the player's configuration.
+			Terraria.DisplaySettings.Width = savedWidth;
+			Terraria.DisplaySettings.Height = savedHeight;
+			Terraria.DisplaySettings.Fullscreen = savedFullscreen;
+			Terraria.DisplaySettings.RenderScale = savedScale;
+			Terraria.DisplaySettings.ShowFPS = savedFps;
 			try
 			{
 				if (System.IO.File.Exists(text))
@@ -2374,6 +2515,210 @@ internal static class SelfTest
 				else if (System.IO.File.Exists(ServerFavorites.FilePath))
 				{
 					System.IO.File.Delete(ServerFavorites.FilePath);
+				}
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	// --- Auto refresh -------------------------------------------------------
+
+	/// <summary>
+	/// The list now refreshes itself while it is on screen. The interesting parts are the
+	/// cases where it must NOT fire (screen closed, a search already running, disabled) and
+	/// that a selection made stale by a refresh cannot index past the list.
+	/// </summary>
+	private static bool CheckAutoRefresh()
+	{
+		int interval = ServerListRefresh.IntervalSeconds;
+		try
+		{
+			ServerListRefresh.Enabled = true;
+			ServerListRefresh.IntervalSeconds = 1;
+			ServerListRefresh.Reset();
+			// One second at 60 fps: 59 ticks is not enough, the 60th fires.
+			for (int i = 0; i < 59; i++)
+			{
+				if (ServerListRefresh.Tick(screenOpen: true, alreadySearching: false))
+				{
+					return Fail("the list refreshed too early at tick " + i);
+				}
+			}
+			if (!ServerListRefresh.Tick(screenOpen: true, alreadySearching: false))
+			{
+				return Fail("the list never refreshed");
+			}
+			// The counter restarts, so the next refresh is another full interval away.
+			if (ServerListRefresh.Tick(screenOpen: true, alreadySearching: false))
+			{
+				return Fail("the refresh timer did not restart");
+			}
+			// A closed screen resets the countdown instead of accumulating it in the menus.
+			ServerListRefresh.Tick(screenOpen: false, alreadySearching: false);
+			for (int j = 0; j < 59; j++)
+			{
+				ServerListRefresh.Tick(screenOpen: false, alreadySearching: false);
+			}
+			if (ServerListRefresh.Tick(screenOpen: true, alreadySearching: false))
+			{
+				return Fail("the countdown accumulated while the screen was closed");
+			}
+			// Never restart a search that is already running.
+			ServerListRefresh.Reset();
+			bool fired = false;
+			for (int k = 0; k < 200; k++)
+			{
+				fired |= ServerListRefresh.Tick(screenOpen: true, alreadySearching: true);
+			}
+			if (fired)
+			{
+				return Fail("a refresh fired while a search was already running");
+			}
+			// Zero or a negative interval means "off", not "every frame".
+			ServerListRefresh.IntervalSeconds = 0;
+			ServerListRefresh.Reset();
+			fired = false;
+			for (int l = 0; l < 200; l++)
+			{
+				fired |= ServerListRefresh.Tick(screenOpen: true, alreadySearching: false);
+			}
+			if (fired)
+			{
+				return Fail("an interval of 0 fired a refresh");
+			}
+			ServerListRefresh.Enabled = false;
+			ServerListRefresh.IntervalSeconds = 1;
+			ServerListRefresh.Reset();
+			fired = false;
+			for (int m = 0; m < 200; m++)
+			{
+				fired |= ServerListRefresh.Tick(screenOpen: true, alreadySearching: false);
+			}
+			if (fired)
+			{
+				return Fail("a disabled auto refresh still fired");
+			}
+			// A refresh can shrink the list; the remembered index must not point past it.
+			if (ServerListRefresh.ClampIndex(5, 2) != 1)
+			{
+				return Fail("a stale selection was not clamped to the list");
+			}
+			if (ServerListRefresh.ClampIndex(3, 0) != 0 || ServerListRefresh.ClampIndex(-4, 3) != 0)
+			{
+				return Fail("clamping an empty or negative selection failed");
+			}
+			if (ServerListRefresh.ClampIndex(1, 4) != 1)
+			{
+				return Fail("clamping moved a valid selection");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("auto refresh check threw: " + ex.Message);
+		}
+		finally
+		{
+			ServerListRefresh.IntervalSeconds = interval;
+			ServerListRefresh.Enabled = interval > 0;
+			ServerListRefresh.Reset();
+		}
+	}
+
+	// --- Settings persistence -----------------------------------------------
+
+	/// <summary>
+	/// Every "save" path used to be a no-op: <c>Settings.Set</c> only creates missing keys, so
+	/// writing an existing key did nothing and Close() wrote the old value back. Rebinding a
+	/// key, toggling cheats or changing the window size all looked like they worked and then
+	/// reverted on restart. This pins the contract: Set seeds, Update overwrites.
+	/// </summary>
+	private static bool CheckSettingsPersistence()
+	{
+		string text = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-settings.ini");
+		try
+		{
+			if (System.IO.File.Exists(text))
+			{
+				System.IO.File.Delete(text);
+			}
+			Settings settings = new Settings(text);
+			settings.Set("A", "Key", "first", "comment");
+			settings.Close();
+			Settings settings2 = new Settings(text);
+			if (settings2.Get("A", "Key") != "first")
+			{
+				return Fail("a seeded value did not survive a round-trip");
+			}
+			// Set() must not overwrite an existing value: that is how defaults are seeded.
+			settings2.Set("A", "Key", "second");
+			if (settings2.Get("A", "Key") != "first")
+			{
+				return Fail("Set overwrote an existing value");
+			}
+			// Update() must overwrite, and must add a key that is not there yet.
+			settings2.Update("A", "Key", "second");
+			settings2.Update("A", "New", "third");
+			settings2.Close();
+			Settings settings3 = new Settings(text);
+			if (settings3.Get("A", "Key") != "second")
+			{
+				return Fail("Update did not overwrite the value on disk");
+			}
+			if (settings3.Get("A", "New") != "third")
+			{
+				return Fail("Update did not add a new key");
+			}
+			settings3.Close();
+			// A key that is empty on disk counts as missing, so seeding still fills it in.
+			System.IO.File.WriteAllText(text, "[A]\r\nEmpty=\r\n");
+			Settings settings4 = new Settings(text);
+			settings4.Set("A", "Empty", "filled");
+			settings4.Close();
+			Settings settings5 = new Settings(text);
+			if (settings5.Get("A", "Empty") != "filled")
+			{
+				return Fail("an empty value was not treated as unset");
+			}
+			settings5.Close();
+			// Key bindings must round-trip: they had the same bug.
+			Keys heal = Terraria.Input.KeyBindings.Get(Terraria.Input.KeyBindings.Action.Heal);
+			try
+			{
+				if (!Terraria.Input.KeyBindings.TrySet(Terraria.Input.KeyBindings.Action.Heal, Keys.F9))
+				{
+					return Fail("a free key could not be bound");
+				}
+				Settings settings6 = new Settings(text);
+				Terraria.Input.KeyBindings.Save(settings6);
+				settings6.Close();
+				Settings settings7 = new Settings(text);
+				Terraria.Input.KeyBindings.Load(settings7);
+				settings7.Close();
+				if (Terraria.Input.KeyBindings.Get(Terraria.Input.KeyBindings.Action.Heal) != Keys.F9)
+				{
+					return Fail("a rebound key did not survive a restart");
+				}
+			}
+			finally
+			{
+				Terraria.Input.KeyBindings.TrySet(Terraria.Input.KeyBindings.Action.Heal, heal);
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("settings persistence check threw: " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				if (System.IO.File.Exists(text))
+				{
+					System.IO.File.Delete(text);
 				}
 			}
 			catch

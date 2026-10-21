@@ -52,6 +52,29 @@ internal class Settings
 		Comments.Add(Comment);
 	}
 
+	/// <summary>
+	/// Writes a value even when the key already exists. <see cref="Set"/> deliberately only
+	/// creates missing keys - that is how defaults are seeded without clobbering the file -
+	/// but it also made saving an edited setting a silent no-op: the Display screen put the
+	/// new window size into memory, and Close() wrote the old value straight back.
+	/// </summary>
+	internal void Update(string Subsection, string Key, string Value, string Comment = "")
+	{
+		for (int i = 0; i < Keys.Count; i++)
+		{
+			if (Keys[i].Equals(Key) && Subsections[i].Equals(Subsection))
+			{
+				Values[i] = Value;
+				Comments[i] = Comment;
+				return;
+			}
+		}
+		Subsections.Add(Subsection);
+		Keys.Add(Key);
+		Values.Add(Value);
+		Comments.Add(Comment);
+	}
+
 	internal string Get(string Subsection, string Key)
 	{
 		for (int i = 0; i < Keys.Count; i++)

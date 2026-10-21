@@ -50,6 +50,14 @@ public static class WorldSelect
 	private static int MouseSessionEnd;
 
 	/// <summary>
+	/// Address of the row the player had selected when an automatic refresh started. The
+	/// finder clears and refills the list, so the index alone cannot be trusted afterwards.
+	/// </summary>
+	private static string _selectionAddress;
+
+	private static bool _wasSearching;
+
+	/// <summary>
 	/// Pointer support for the world list. Hovering a row selects it, clicking a world loads
 	/// it, clicking a session row joins it. Returns true when the click was consumed, so the
 	/// caller can skip the gamepad branch and avoid acting twice on one click.
@@ -107,6 +115,24 @@ public static class WorldSelect
 		{
 			return;
 		}
+		// The list also refreshes itself while it is on screen: a friend who starts hosting
+		// while you are watching the screen should show up without pressing anything.
+		bool searching = Netplay.IsFindingSessions();
+		if (searching)
+		{
+			_wasSearching = true;
+		}
+		else if (_wasSearching)
+		{
+			// The finder just finished: put the cursor back on the row it was on.
+			_wasSearching = false;
+			RestoreSelection();
+		}
+		selectedSession = (byte)Terraria.Net.ServerListRefresh.ClampIndex(selectedSession, Netplay.availableSessions.Count);
+		if (Terraria.Net.ServerListRefresh.Tick(screenOpen: true, alreadySearching: searching))
+		{
+			RefreshSessions();
+		}
 		if (WorldCap != 11 && Main.ScreenHeightPtr == ScreenHeights.HD)
 		{
 			WorldCap = 11;
@@ -152,8 +178,7 @@ public static class WorldSelect
 		{
 			// Refresh the list. The backoff is cleared too: a manual refresh is the user
 			// saying "try again now", and waiting out the timer would look broken.
-			Terraria.Net.MasterServerClient.ResetBackoff();
-			Netplay.FindSessions();
+			RefreshSessions();
 		}
 		else if (Terraria.Input.KeyboardMouseInput.KeyPressed(Microsoft.Xna.Framework.Input.Keys.F))
 		{
@@ -545,6 +570,51 @@ public static class WorldSelect
 		}
 		Main.HideSaveIcon();
 		worldNames[selectedWorld] = null;
+	}
+
+	/// <summary>
+	/// Starts a fresh search and remembers which row the player was on, so the list does not
+	/// jump back to the top when a refresh replaces the sessions.
+	/// </summary>
+	private static void RefreshSessions()
+	{
+		_selectionAddress = SelectedAddress();
+		Terraria.Net.ServerListRefresh.Reset();
+		// A manual refresh must not wait out the master server's backoff.
+		Terraria.Net.MasterServerClient.ResetBackoff();
+		Netplay.FindSessions();
+	}
+
+	/// <summary>Address of the highlighted server, or null when nothing is selected.</summary>
+	private static string SelectedAddress()
+	{
+		if (cursorX != 1 || selectedSession >= Netplay.availableSessions.Count)
+		{
+			return null;
+		}
+		return Terraria.Net.ServerFavorites.AddressOf(Netplay.availableSessions[selectedSession].AvailableSession.EndPoint);
+	}
+
+	/// <summary>Puts the cursor back on the remembered address, if it came back in the list.</summary>
+	private static void RestoreSelection()
+	{
+		if (string.IsNullOrEmpty(_selectionAddress))
+		{
+			return;
+		}
+		lock (Netplay.availableSessions)
+		{
+			for (int i = 0; i < Netplay.availableSessions.Count; i++)
+			{
+				if (Terraria.Net.ServerFavorites.AddressOf(Netplay.availableSessions[i].AvailableSession.EndPoint) == _selectionAddress)
+				{
+					selectedSession = (byte)i;
+					cursorX = 1;
+					return;
+				}
+			}
+		}
+		_selectionAddress = null;
 	}
 
 	/// <summary>

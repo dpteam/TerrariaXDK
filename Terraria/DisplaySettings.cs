@@ -36,6 +36,9 @@ internal static class DisplaySettings
 	/// <summary>Internal render resolution preset (0 = base, 1 = HD, 2 = full HD).</summary>
 	public static ScreenHeights RenderScale = ScreenHeights.BASE;
 
+	/// <summary>FPS / memory readout in the corner.</summary>
+	public static bool ShowFPS;
+
 	public static string Label
 	{
 		get
@@ -50,6 +53,7 @@ internal static class DisplaySettings
 		Width = ParseInt(settings.Get("Display", "Width"), 1280);
 		Height = ParseInt(settings.Get("Display", "Height"), 720);
 		Fullscreen = settings.Get("Display", "StartFullscreen").ToLower().Equals("true");
+		ShowFPS = settings.Get("Display", "ShowFPS").ToLower().Equals("true");
 		int num = ParseInt(settings.Get("Display", "ScreenHeight"), 0);
 		if (num < 0 || num > 2)
 		{
@@ -66,10 +70,11 @@ internal static class DisplaySettings
 
 	public static void Save(Settings settings)
 	{
-		settings.Set("Display", "Width", Width.ToString(), "Window width in pixels.");
-		settings.Set("Display", "Height", Height.ToString(), "Window height in pixels.");
-		settings.Set("Display", "ScreenHeight", ((int)RenderScale).ToString(), "Internal render resolution: 0 = 540p, 1 = 720p, 2 = 1080p.\n; Higher values look sharper and cost more.");
-		settings.Set("Display", "StartFullscreen", Fullscreen ? "True" : "False", "Start in fullscreen mode.");
+		settings.Update("Display", "Width", Width.ToString(), "Window width in pixels.");
+		settings.Update("Display", "Height", Height.ToString(), "Window height in pixels.");
+		settings.Update("Display", "ScreenHeight", ((int)RenderScale).ToString(), "Internal render resolution: 0 = 540p, 1 = 720p, 2 = 1080p.\n; Higher values look sharper and cost more.");
+		settings.Update("Display", "StartFullscreen", Fullscreen ? "True" : "False", "Start in fullscreen mode.");
+		settings.Update("Display", "ShowFPS", ShowFPS ? "True" : "False", "Shows the frame rate in the corner.");
 	}
 
 	/// <summary>Cycles the window presets.</summary>

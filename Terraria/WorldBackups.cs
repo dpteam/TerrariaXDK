@@ -44,9 +44,9 @@ internal static class WorldBackups
 
 	public static void Save(Settings settings)
 	{
-		settings.Set("Backups", "Enabled", Enabled ? "True" : "False", "Keep dated copies of the world in Storage/Backups.");
-		settings.Set("Backups", "Keep", Keep.ToString(), "How many backups to keep per world (0-100).\n; Oldest are removed first; 0 disables automatic backups.");
-		settings.Set("Backups", "MinMinutes", MinMinutes.ToString(), "Minutes between automatic backups of the same world (0 = every save).");
+		settings.Update("Backups", "Enabled", Enabled ? "True" : "False", "Keep dated copies of the world in Storage/Backups.");
+		settings.Update("Backups", "Keep", Keep.ToString(), "How many backups to keep per world (0-100).\n; Oldest are removed first; 0 disables automatic backups.");
+		settings.Update("Backups", "MinMinutes", MinMinutes.ToString(), "Minutes between automatic backups of the same world (0 = every save).");
 	}
 
 	/// <summary>

@@ -199,7 +199,7 @@ internal static class KeyBindings
 		Action[] all = All;
 		for (int i = 0; i < all.Length; i++)
 		{
-			settings.Set("Keys", ConfigKey(all[i]), Get(all[i]).ToString(), Label(all[i]));
+			settings.Update("Keys", ConfigKey(all[i]), Get(all[i]).ToString(), Label(all[i]));
 		}
 	}
 

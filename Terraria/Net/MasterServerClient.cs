@@ -121,9 +121,9 @@ internal static class MasterServerClient
 
 	public static void Save(Settings settings)
 	{
-		settings.Set("Network", "MasterServer", string.Join(",", endpoints.ToArray()), "Master server 'host:port'; a comma-separated list adds fallbacks.");
-		settings.Set("Network", "MasterServerPort", NetworkConfig.MasterServerPort.ToString(CultureInfo.InvariantCulture), "Dummy port used when MasterServer has no explicit port.");
-		settings.Set("Network", "PublishToMaster", Publish ? "True" : "False", "List this world on the master server while hosting.\n; Off by default: publishing your address is a choice.");
+		settings.Update("Network", "MasterServer", string.Join(",", endpoints.ToArray()), "Master server 'host:port'; a comma-separated list adds fallbacks.");
+		settings.Update("Network", "MasterServerPort", NetworkConfig.MasterServerPort.ToString(CultureInfo.InvariantCulture), "Dummy port used when MasterServer has no explicit port.");
+		settings.Update("Network", "PublishToMaster", Publish ? "True" : "False", "List this world on the master server while hosting.\n; Off by default: publishing your address is a choice.");
 	}
 
 	// --- Backoff ------------------------------------------------------------
