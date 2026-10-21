@@ -16,6 +16,7 @@ internal static class CheatConsole
 	{
 		public readonly string Name;
 		public readonly string Args;
+		/// <summary>Key into <see cref="Texts"/>, not the text: the help list is translated too.</summary>
 		public readonly string Help;
 		public readonly Action<string[]> Run;
 
@@ -34,28 +35,28 @@ internal static class CheatConsole
 	{
 		return new List<Command>
 		{
-			new Command("god", "[on|off]", "toggle god mode", delegate(string[] a) { CheatState.GodMode = Toggle(a, CheatState.GodMode); Echo("god mode", CheatState.GodMode); }),
-			new Command("noclip", "[on|off]", "toggle no-clip", delegate(string[] a) { CheatState.NoClip = Toggle(a, CheatState.NoClip); Echo("no-clip", CheatState.NoClip); }),
-			new Command("infmana", "[on|off]", "infinite mana", delegate(string[] a) { CheatState.InfiniteMana = Toggle(a, CheatState.InfiniteMana); Echo("infinite mana", CheatState.InfiniteMana); }),
-			new Command("infbuff", "[on|off]", "infinite buffs", delegate(string[] a) { CheatState.InfiniteBuffs = Toggle(a, CheatState.InfiniteBuffs); Echo("infinite buffs", CheatState.InfiniteBuffs); }),
-			new Command("heal", "", "restore health and mana", delegate(string[] a)
+			new Command("god", "[on|off]", "chat.cheats.help.god", delegate(string[] a) { CheatState.GodMode = Toggle(a, CheatState.GodMode); Echo(Texts.Get("chat.cheats.god"), CheatState.GodMode); }),
+			new Command("noclip", "[on|off]", "chat.cheats.help.noclip", delegate(string[] a) { CheatState.NoClip = Toggle(a, CheatState.NoClip); Echo(Texts.Get("chat.cheats.noclip"), CheatState.NoClip); }),
+			new Command("infmana", "[on|off]", "chat.cheats.help.mana", delegate(string[] a) { CheatState.InfiniteMana = Toggle(a, CheatState.InfiniteMana); Echo(Texts.Get("chat.cheats.mana"), CheatState.InfiniteMana); }),
+			new Command("infbuff", "[on|off]", "chat.cheats.help.buffs", delegate(string[] a) { CheatState.InfiniteBuffs = Toggle(a, CheatState.InfiniteBuffs); Echo(Texts.Get("chat.cheats.buffs"), CheatState.InfiniteBuffs); }),
+			new Command("heal", "", "chat.cheats.help.heal", delegate(string[] a)
 			{
 				Player player = UI.MainUI.ActivePlayer;
 				player.statLife = player.StatLifeMax;
 				player.statMana = player.statManaMax2;
-				Echo("healed", value: true);
+				Echo(Texts.Get("chat.cheats.healed"), value: true);
 			}),
-			new Command("time", "<dawn|noon|dusk|midnight>", "set the time of day", SetTime),
-			new Command("bloodmoon", "[on|off]", "toggle the blood moon", delegate(string[] a)
+			new Command("time", "<dawn|noon|dusk|midnight>", "chat.cheats.help.time", SetTime),
+			new Command("bloodmoon", "[on|off]", "chat.cheats.help.bloodmoon", delegate(string[] a)
 			{
 				Main.GameTime.IsBloodMoon = Toggle(a, Main.GameTime.IsBloodMoon);
-				Echo("blood moon", Main.GameTime.IsBloodMoon);
+				Echo(Texts.Get("chat.cheats.bloodmoon"), Main.GameTime.IsBloodMoon);
 			}),
-			new Command("give", "<item> [count]", "add an item to the inventory", Give),
-			new Command("tp", "<x> <y>", "teleport to tile coordinates", Teleport),
-			new Command("spawn", "<npcId>", "spawn an NPC at your position", Spawn),
-			new Command("meteor", "", "drop a meteor", delegate(string[] a) { WorldGen.ToSpawnMeteor = true; Echo("meteor incoming", value: true); }),
-			new Command("killall", "", "remove all enemies", delegate(string[] a)
+			new Command("give", "<item> [count]", "chat.cheats.help.give", Give),
+			new Command("tp", "<x> <y>", "chat.cheats.help.tp", Teleport),
+			new Command("spawn", "<npcId>", "chat.cheats.help.spawn", Spawn),
+			new Command("meteor", "", "chat.cheats.help.meteor", delegate(string[] a) { WorldGen.ToSpawnMeteor = true; Echo(Texts.Get("chat.cheats.meteor"), value: true); }),
+			new Command("killall", "", "chat.cheats.help.killall", delegate(string[] a)
 			{
 				int num = 0;
 				for (int i = Main.NPCSet.Length - 1; i >= 0; i--)
@@ -68,15 +69,15 @@ internal static class CheatConsole
 						num++;
 					}
 				}
-				Echo("removed " + num + " enemies", value: true);
+				Echo(Texts.Format("chat.cheats.killall", num), value: true);
 			}),
-			new Command("help", "", "list commands", delegate(string[] a)
+			new Command("help", "", "chat.cheats.help.help", delegate(string[] a)
 			{
-				Echo("cheat commands (!cmd):", value: true);
+				Echo(Texts.Get("chat.cheats.list"), value: true);
 				for (int i = 0; i < Commands.Count; i++)
 				{
 					Command command = Commands[i];
-					Echo("  !" + command.Name + " " + command.Args + " - " + command.Help, value: true);
+					Echo("  !" + command.Name + " " + command.Args + " - " + Texts.Get(command.Help), value: true);
 				}
 			})
 		};
@@ -114,8 +115,8 @@ internal static class CheatConsole
 			// Reported as "handled": this is a local command, so it must never be broadcast
 			// as chat, and the player has to see why nothing happened.
 			error = CheatState.Enabled
-				? "Cheats only work in single player (you are connected as " + (Main.NetMode == 2 ? "host" : "client") + ")."
-				: "Cheats are disabled in Settings.ini ([Cheats] Enabled=False).";
+				? Texts.Format("chat.cheats.unavailable.connected", Main.NetMode == 2 ? "host" : "client")
+				: Texts.Get("chat.cheats.unavailable.disabled");
 			Main.NewText(error, 255, 200, 120);
 			return true;
 		}
@@ -137,13 +138,13 @@ internal static class CheatConsole
 				}
 				catch (Exception ex)
 				{
-					error = "Command failed: " + ex.Message;
+					error = Texts.Format("chat.cheats.failed", ex.Message);
 					Main.NewText(error, 255, 120, 120);
 				}
 				return true;
 			}
 		}
-		error = "Unknown command '!" + text2 + "'. Type !help.";
+		error = Texts.Format("chat.cheats.unknown", text2);
 		Main.NewText(error, 255, 120, 120);
 		return false;
 	}
@@ -173,14 +174,14 @@ internal static class CheatConsole
 
 	private static void Echo(string what, bool value)
 	{
-		Main.NewText("Cheats: " + what + " " + (value ? "on" : "off"), 50, 255, 130);
+		Main.NewText(Texts.Format("chat.cheats.state", what, Texts.Get(value ? "chat.cheats.on" : "chat.cheats.off")), 50, 255, 130);
 	}
 
 	private static void SetTime(string[] args)
 	{
 		if (args.Length == 0)
 		{
-			Main.NewText("Usage: !time <dawn|noon|dusk|midnight>", 255, 200, 120);
+			Main.NewText(Texts.Get("chat.cheats.usage.time"), 255, 200, 120);
 			return;
 		}
 		switch (args[0].ToLowerInvariant())
@@ -202,17 +203,17 @@ internal static class CheatConsole
 			Main.GameTime.WorldTime = 0f;
 			break;
 		default:
-			Main.NewText("Usage: !time <dawn|noon|dusk|midnight>", 255, 200, 120);
+			Main.NewText(Texts.Get("chat.cheats.usage.time"), 255, 200, 120);
 			return;
 		}
-		Echo("time set to " + args[0].ToLowerInvariant(), value: true);
+		Echo(Texts.Format("chat.cheats.time", args[0].ToLowerInvariant()), value: true);
 	}
 
 	private static void Give(string[] args)
 	{
 		if (args.Length == 0)
 		{
-			Main.NewText("Usage: !give <item> [count]", 255, 200, 120);
+			Main.NewText(Texts.Get("chat.cheats.usage.give"), 255, 200, 120);
 			return;
 		}
 		int num = 1;
@@ -233,16 +234,16 @@ internal static class CheatConsole
 				item.SetDefaults(text);
 				if (item.Type <= 0)
 				{
-					Main.NewText("Unknown item: " + text, 255, 120, 120);
+					Main.NewText(Texts.Format("chat.cheats.no.item", text), 255, 120, 120);
 					return;
 				}
 				item.Stack = (short)Math.Min(num, (int)item.MaxStack);
 				activePlayer.Inventory[i] = item;
-				Echo("gave " + text + " x" + item.Stack, value: true);
+				Echo(Texts.Format("chat.cheats.gave", text, item.Stack), value: true);
 				return;
 			}
 		}
-		Main.NewText("Inventory is full", 255, 120, 120);
+		Main.NewText(Texts.Get("chat.cheats.full"), 255, 120, 120);
 	}
 
 	private static void Teleport(string[] args)
@@ -251,14 +252,14 @@ internal static class CheatConsole
 		int result2;
 		if (args.Length < 2 || !int.TryParse(args[0], out result) || !int.TryParse(args[1], out result2))
 		{
-			Main.NewText("Usage: !tp <x> <y>  (tile coordinates)", 255, 200, 120);
+			Main.NewText(Texts.Get("chat.cheats.usage.tp"), 255, 200, 120);
 			return;
 		}
 		Player activePlayer = UI.MainUI.ActivePlayer;
 		activePlayer.Position.X = result * 16;
 		activePlayer.Position.Y = result2 * 16;
 		activePlayer.velocity = default;
-		Echo("teleported to " + result + "," + result2, value: true);
+		Echo(Texts.Format("chat.cheats.teleported", result, result2), value: true);
 	}
 
 	private static void Spawn(string[] args)
@@ -266,10 +267,10 @@ internal static class CheatConsole
 		int result;
 		if (args.Length < 1 || !int.TryParse(args[0], out result))
 		{
-			Main.NewText("Usage: !spawn <npcId>", 255, 200, 120);
+			Main.NewText(Texts.Get("chat.cheats.usage.spawn"), 255, 200, 120);
 			return;
 		}
 		NPC.SpawnOnPlayer(UI.MainUI.ActivePlayer, result);
-		Echo("spawned npc " + result, value: true);
+		Echo(Texts.Format("chat.cheats.spawned", result), value: true);
 	}
 }

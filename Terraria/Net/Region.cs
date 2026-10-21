@@ -68,12 +68,12 @@ internal sealed class Region
 
 	public override string ToString()
 	{
-		return Name + " (" + X1 + "," + Y1 + ")-(" + X2 + "," + Y2 + ")" + (string.IsNullOrEmpty(Group) ? ", host only" : (", group " + Group));
+		return Texts.Format("chat.host.region.bounds", Name, X1, Y1, X2, Y2, string.IsNullOrEmpty(Group) ? Texts.Get("chat.host.region.group.host") : Texts.Format("chat.host.region.group.named", Group));
 	}
 
 	/// <summary>Short form for the region list.</summary>
 	public string Describe()
 	{
-		return Name + ": " + Width + "x" + Height + " at (" + X1 + "," + Y1 + "), " + (string.IsNullOrEmpty(Group) ? "host only" : (Group + " may build"));
+		return Texts.Format("chat.host.region.describe", Name, Width, Height, X1, Y1, string.IsNullOrEmpty(Group) ? Texts.Get("chat.host.region.group.host") : Texts.Format("chat.host.region.group.build", Group));
 	}
 }

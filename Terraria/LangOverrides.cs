@@ -44,6 +44,12 @@ internal static class LangOverrides
 
 	private static readonly List<string> _problems = new List<string>();
 
+	/// <summary>
+	/// Section holding this port's own text, keyed by name instead of by index. Same file as
+	/// the game's strings: one file per language, everything a translator touches in one place.
+	/// </summary>
+	public const string TextsSection = "Texts";
+
 	private static readonly string[] Sections = new string[6]
 	{
 		"MiscText",
@@ -135,6 +141,10 @@ internal static class LangOverrides
 			_problems.Clear();
 		}
 		string path = FileFor(Lang.LangOption);
+		// Translations of this port's own text start from a clean slate on every language
+		// change, exactly like the built-in tables SetLang refills. Without this, switching
+		// from German to French would leave the German chat replies in place.
+		Texts.ClearOverrides();
 		try
 		{
 			if (!File.Exists(path))
@@ -150,7 +160,7 @@ internal static class LangOverrides
 				for (int k = 0; k < list.Count; k++)
 				{
 					string text = list[k];
-					if (text.Length == 0 || Array.IndexOf(Sections, text) >= 0)
+					if (text.Length == 0 || Array.IndexOf(Sections, text) >= 0 || text == TextsSection)
 					{
 						continue;
 					}
@@ -160,6 +170,7 @@ internal static class LangOverrides
 				{
 					ApplySection(settings, Sections[i]);
 				}
+				ApplyTexts(settings);
 				if (AppliedCount > 0)
 				{
 					Program.LogInfo("Lang", "applied " + AppliedCount + " override(s) from " + Path.GetFileName(path));
@@ -272,7 +283,57 @@ internal static class LangOverrides
 		}
 	}
 
-	/// <summary>Turns the two-character escapes into real characters. Unknown escapes are kept.</summary>
+	/// <summary>
+	/// Looks a named entry up, ignoring the spaces around the key.
+	///
+	/// The settings parser keeps everything left of the first '=' verbatim, so a hand-written
+	/// line <c>chat.host.help = ...</c> produces the key <c>"chat.host.help "</c> with a trailing
+	/// space. Numeric keys survived that by being parsed as numbers; named ones did not, and
+	/// every entry came back as "unknown key". Trimming here keeps the file readable.
+	/// </summary>
+	private static string NamedValue(Settings settings, string section, string key)
+	{
+		List<string> list = settings.KeysIn(section);
+		for (int i = 0; i < list.Count; i++)
+		{
+			if (list[i].Trim().Equals(key, StringComparison.OrdinalIgnoreCase))
+			{
+				return Value(settings, section, list[i]);
+			}
+		}
+		return null;
+	}
+
+	/// <summary>
+	/// Applies the <c>[Texts]</c> section: named keys instead of indices, because these are
+	/// strings this port invented and their indices would mean nothing to a translator.
+	/// </summary>
+	private static void ApplyTexts(Settings settings)
+	{
+		List<string> list = settings.KeysIn(TextsSection);
+		for (int i = 0; i < list.Count; i++)
+		{
+			string text = list[i].Trim();
+			string text2 = Value(settings, TextsSection, list[i]);
+			if (string.IsNullOrEmpty(text2))
+			{
+				Problem(TextsSection + ": '" + text + "' has an empty value, ignored");
+				continue;
+			}
+			if (!Texts.SetOverride(text, text2))
+			{
+				// A typo here is invisible in the game: the English text simply stays. Naming the
+				// key is the only way the translator finds it.
+				Problem(TextsSection + ": unknown key '" + text + "'");
+				continue;
+			}
+			AppliedCount++;
+		}
+	}
+
+	/// <summary>
+	/// Turns the two-character escapes into real characters. Unknown escapes are kept.
+	/// </summary>
 	internal static string Unescape(string text)
 	{
 		if (string.IsNullOrEmpty(text) || text.IndexOf('\\') < 0)
@@ -348,6 +409,26 @@ internal static class LangOverrides
 		return stringBuilder.ToString();
 	}
 
+	/// <summary>Reads the file a refresh is about to overwrite, or null when there is none.</summary>
+	private static Settings ReadExisting(string path)
+	{
+		try
+		{
+			if (!File.Exists(path))
+			{
+				return null;
+			}
+			return new Settings(path);
+		}
+		catch (Exception ex)
+		{
+			// A file we cannot read is a reason to fall back to built-in text, not to refuse
+			// the export: that would leave the translator with nothing.
+			Program.LogWarn("Lang", "could not read the existing " + Path.GetFileName(path) + ": " + ex.Message);
+			return null;
+		}
+	}
+
 	/// <summary>
 	/// Writes the current strings of a language as an editable template, so a translator starts
 	/// from real text instead of from an index list. Returns the path, or null with a reason.
@@ -383,23 +464,58 @@ internal static class LangOverrides
 				return null;
 			}
 			StringBuilder stringBuilder = new StringBuilder();
-			stringBuilder.AppendLine("; Translation overrides for " + Code(languageOption)
-				+ ". Keys are indices into the game's string tables.");
+			stringBuilder.AppendLine("; Translation overrides for " + Code(languageOption) + ".");
 			stringBuilder.AppendLine("; Only listed entries are replaced; delete a line to fall back to the built-in text.");
 			stringBuilder.AppendLine("; Escapes: \\n newline, \\t tab, \\\\ backslash.");
-			for (int i = 0; i < Sections.Length; i++)
+			stringBuilder.AppendLine("; To keep a line you already translated, leave it as it is - exporting again");
+			stringBuilder.AppendLine("; preserves whatever this file already had.");
+			// Read the existing file first. Export is a refresh, not a reset: overwriting a
+			// translator's work with built-in English because they wanted a new key added would
+			// make the tool dangerous to use twice.
+			Settings existing = ReadExisting(path);
+			try
 			{
-				string[] array = Table(Sections[i]);
-				stringBuilder.AppendLine();
-				stringBuilder.Append('[').Append(Sections[i]).AppendLine("]");
-				for (int j = 0; j < array.Length; j++)
+				for (int i = 0; i < Sections.Length; i++)
 				{
-					string text = array[j];
-					if (string.IsNullOrEmpty(text))
+					string[] array = Table(Sections[i]);
+					stringBuilder.AppendLine();
+					stringBuilder.Append('[').Append(Sections[i]).AppendLine("]");
+					for (int j = 0; j < array.Length; j++)
 					{
-						continue;
+						string text = array[j];
+						string text2 = ((existing != null && existing.HasKey(Sections[i], j.ToString()))
+							? Unescape(existing.Get(Sections[i], j.ToString()))
+							: text);
+						if (string.IsNullOrEmpty(text2) && string.IsNullOrEmpty(text))
+						{
+							continue;
+						}
+						stringBuilder.Append(j).Append(" = ").AppendLine(Escape(text2));
 					}
-					stringBuilder.Append(j).Append(" = ").AppendLine(Escape(text));
+				}
+				stringBuilder.AppendLine();
+				stringBuilder.Append('[').Append(TextsSection).AppendLine("]");
+				stringBuilder.AppendLine("; Chat replies of this port: cheats and host commands.");
+				stringBuilder.AppendLine("; {0}, {1}... are filled by the game; keep them in your translation.");
+				IList<string> keys = Texts.Keys;
+				for (int k = 0; k < keys.Count; k++)
+				{
+					string text3 = keys[k];
+					// The existing file wins, so a refresh keeps what was already translated;
+					// the built-in English is only the starting point for a new entry.
+					string text4 = (existing != null) ? NamedValue(existing, TextsSection, text3) : null;
+					if (string.IsNullOrEmpty(text4))
+					{
+						text4 = Texts.Get(text3);
+					}
+					stringBuilder.Append(text3).Append(" = ").AppendLine(Escape(text4));
+				}
+			}
+			finally
+			{
+				if (existing != null)
+				{
+					existing.Discard();
 				}
 			}
 			Directory.CreateDirectory(Terraria.Storage.AppPaths.Lang);

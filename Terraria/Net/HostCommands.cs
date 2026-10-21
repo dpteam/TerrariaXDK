@@ -50,7 +50,7 @@ internal static class HostCommands
 		"!help"
 	};
 
-	private const string HelpText = "!kick <player> [reason], !ban/!unban <player|ip>, !bans, !who, !mute/!unmute <player>, !whisper <player> <text>, !motd/!rules [text], !say <text>, !op/!deop <player> [group], !groups, !region list|add|remove|group, !additem/!delitem <id>, !items, !stats, !world, !help";
+	private const string HelpText = "chat.host.help";
 
 	/// <summary>
 	/// Permission each command needs. Anything not listed here (only <c>!help</c>) is open to
@@ -146,7 +146,7 @@ internal static class HostCommands
 		{
 			// Not hosting: the caller's chat should still be delivered normally, so this is
 			// reported as an error but not as "handled".
-			error = "Commands only work while hosting a multiplayer world.";
+			error = Texts.Get("chat.host.not.hosting");
 			return true;
 		}
 		string word = FirstWord(text).ToLowerInvariant();
@@ -156,14 +156,14 @@ internal static class HostCommands
 		Permission permission = RequiredFor(word);
 		if (permission != Permission.None && !Permissions.Allows(actor, permission, isLocalHost))
 		{
-			error = (actor ?? "You") + " may not use " + word + ".";
+			error = Texts.Format("chat.host.forbidden", actor ?? Texts.Get("chat.host.you"), word);
 			return true;
 		}
 		string rest = text.Substring(word.Length).Trim();
 		switch (word)
 		{
 		case "!help":
-			Say(HelpText, 255, 220, 120);
+			Say(Texts.Get(HelpText), 255, 220, 120);
 			return true;
 		case "!who":
 			DoWho();
@@ -183,10 +183,10 @@ internal static class HostCommands
 		case "!say":
 			if (rest.Length == 0)
 			{
-				error = "Usage: !say <text>";
+				error = Texts.Get("chat.host.usage.say");
 				return true;
 			}
-			Say("[Server] " + rest, 255, 255, 160);
+			Say(Texts.Format("chat.host.server.prefix", rest), 255, 255, 160);
 			return true;
 		case "!mute":
 			DoMute(rest, out error);
@@ -248,23 +248,25 @@ internal static class HostCommands
 		if (rest.Length == 0 || rest.Equals("show", StringComparison.OrdinalIgnoreCase))
 		{
 			Say(ServerConfig.Describe(), 200, 220, 255);
-			Say("Port " + NetworkConfig.Port + ", max " + NetworkConfig.MaxPlayers + ", password " + (string.IsNullOrEmpty(NetworkConfig.Password) ? "off" : "on")
-				+ ", publish " + (MasterServerClient.Publish ? "on" : "off") + ", spawn protection " + WorldProtection.SpawnRadius
-				+ ", building " + (WorldProtection.DisableBuild ? "disabled" : "allowed"), 200, 220, 255);
-			Say("!serverconfig create writes these values to " + ServerConfig.FileName + ".", 170, 180, 200);
+			Say(Texts.Format("chat.host.serverconfig.summary", NetworkConfig.Port, NetworkConfig.MaxPlayers,
+				Texts.Get(string.IsNullOrEmpty(NetworkConfig.Password) ? "chat.host.off" : "chat.host.on"),
+				Texts.Get(MasterServerClient.Publish ? "chat.host.on" : "chat.host.off"),
+				WorldProtection.SpawnRadius,
+				Texts.Get(WorldProtection.DisableBuild ? "chat.host.disabled" : "chat.host.allowed")), 200, 220, 255);
+			Say(Texts.Format("chat.host.serverconfig.hint", ServerConfig.FileName), 170, 180, 200);
 			return;
 		}
 		if (!rest.Equals("create", StringComparison.OrdinalIgnoreCase))
 		{
-			error = "Usage: !serverconfig [show|create]";
+			error = Texts.Get("chat.host.usage.serverconfig");
 			return;
 		}
 		if (!ServerConfig.Create(out error))
 		{
-			error = "Could not write " + ServerConfig.FileName + ": " + error;
+			error = Texts.Format("chat.host.serverconfig.failed", ServerConfig.FileName, error);
 			return;
 		}
-		Say("Wrote " + ServerConfig.FileName + "; it now overrides Settings.ini for hosting.", 180, 230, 180);
+		Say(Texts.Format("chat.host.serverconfig.wrote", ServerConfig.FileName), 180, 230, 180);
 	}
 
 	private static void DoAddItem(string rest, out string error)
@@ -277,10 +279,10 @@ internal static class HostCommands
 		}
 		if (!ItemRestrictions.Add(netId))
 		{
-			error = "Item " + netId + " is already banned.";
+			error = Texts.Format("chat.host.item.already", netId);
 			return;
 		}
-		Say("Banned item " + netId + ".", 255, 190, 160);
+		Say(Texts.Format("chat.host.item.banned", netId), 255, 190, 160);
 	}
 
 	private static void DoDelItem(string rest, out string error)
@@ -293,10 +295,10 @@ internal static class HostCommands
 		}
 		if (!ItemRestrictions.Remove(netId))
 		{
-			error = "Item " + netId + " is not banned.";
+			error = Texts.Format("chat.host.item.not", netId);
 			return;
 		}
-		Say("Unbanned item " + netId + ".", 180, 230, 180);
+		Say(Texts.Format("chat.host.item.unbanned", netId), 180, 230, 180);
 	}
 
 	private static void DoItems()
@@ -304,18 +306,17 @@ internal static class HostCommands
 		List<int> list = ItemRestrictions.All;
 		if (list.Count == 0)
 		{
-			Say("No items are banned.", 200, 200, 210);
+			Say(Texts.Get("chat.host.items.none"), 200, 200, 210);
 			return;
 		}
-		Say(list.Count + " banned: " + string.Join(", ", list.ConvertAll(delegate(int id) { return id.ToString(); }).ToArray()), 255, 190, 160);
+		Say(Texts.Format("chat.host.items.list", list.Count, string.Join(", ", list.ConvertAll(delegate(int id) { return id.ToString(); }).ToArray())), 255, 190, 160);
 	}
 
 	private static void DoStats()
 	{
-		string text = "Players " + ((TcpPeer.CurrentHost == null) ? 0 : (TcpPeer.CurrentHost.ConnectedCount + 1)) + "/" + (NetworkConfig.MaxPlayers + 1);
-		Say(text, 200, 220, 255);
-		Say("Traffic: " + NetworkStats.Describe(), 200, 220, 255);
-		Say("Uptime " + FormatDuration(HostUptimeSeconds()), 200, 220, 255);
+		Say(Texts.Format("chat.host.stats.players", (TcpPeer.CurrentHost == null) ? 0 : (TcpPeer.CurrentHost.ConnectedCount + 1), NetworkConfig.MaxPlayers + 1), 200, 220, 255);
+		Say(Texts.Format("chat.host.stats.traffic", NetworkStats.Describe()), 200, 220, 255);
+		Say(Texts.Format("chat.host.stats.uptime", FormatDuration(HostUptimeSeconds())), 200, 220, 255);
 	}
 
 	/// <summary>
@@ -339,9 +340,24 @@ internal static class HostCommands
 
 	private static void DoWorld()
 	{
-		Say("World: " + (string.IsNullOrEmpty(Main.WorldName) ? "(unnamed)" : Main.WorldName) + ", " + Main.MaxTilesX + "x" + Main.MaxTilesY + " tiles", 200, 220, 255);
-		Say("Spawn: (" + Main.SpawnTileX + ", " + Main.SpawnTileY + "), surface " + Main.WorldSurface + ", rock layer " + Main.RockLayer, 200, 220, 255);
-		Say("Bosses downed: " + (NPC.HasDownedBoss1 ? "eye " : "") + (NPC.HasDownedBoss2 ? "eater " : "") + (NPC.HasDownedBoss3 ? "skeletron " : "(none reported so far)"), 200, 220, 255);
+		Say(Texts.Format("chat.host.world.name", string.IsNullOrEmpty(Main.WorldName) ? Texts.Get("chat.host.world.unnamed") : Main.WorldName, Main.MaxTilesX, Main.MaxTilesY), 200, 220, 255);
+		Say(Texts.Format("chat.host.world.spawn", Main.SpawnTileX, Main.SpawnTileY, Main.WorldSurface, Main.RockLayer), 200, 220, 255);
+		// Names joined with ", " rather than concatenated with trailing spaces: a translator
+		// moving the list around should not have to preserve a space that ends an English word.
+		List<string> list = new List<string>();
+		if (NPC.HasDownedBoss1)
+		{
+			list.Add(Texts.Get("chat.host.boss.eye"));
+		}
+		if (NPC.HasDownedBoss2)
+		{
+			list.Add(Texts.Get("chat.host.boss.eater"));
+		}
+		if (NPC.HasDownedBoss3)
+		{
+			list.Add(Texts.Get("chat.host.boss.skeletron"));
+		}
+		Say(Texts.Format("chat.host.world.bosses", (list.Count == 0) ? Texts.Get("chat.host.boss.none") : string.Join(", ", list.ToArray())), 200, 220, 255);
 	}
 
 	/// <summary>"1h 02m 03s" - readable in one chat line.</summary>
@@ -384,7 +400,7 @@ internal static class HostCommands
 		}
 		if (!Permissions.Allows(actor, Permission.Manage, isLocalHost))
 		{
-			error = "Changing regions needs the 'manage' permission.";
+			error = Texts.Get("chat.host.region.need.manage");
 			return;
 		}
 		switch (text)
@@ -399,7 +415,7 @@ internal static class HostCommands
 			DoRegionGroup(text2, out error);
 			return;
 		default:
-			error = "Usage: !region list | add <name> [radius] | remove <name> | group <name> [group]";
+			error = Texts.Get("chat.host.region.usage");
 			break;
 		}
 	}
@@ -409,7 +425,7 @@ internal static class HostCommands
 		List<Region> list = Regions.All;
 		if (list.Count == 0)
 		{
-			Say("No regions. !region add <name> [radius] protects the area around you.", 200, 200, 210);
+			Say(Texts.Get("chat.host.region.none"), 200, 200, 210);
 			return;
 		}
 		for (int i = 0; i < list.Count; i++)
@@ -419,7 +435,7 @@ internal static class HostCommands
 		IList<string> loadProblems = Regions.LoadProblems;
 		for (int j = 0; j < loadProblems.Count; j++)
 		{
-			Say("regions.txt: " + loadProblems[j], 255, 170, 140);
+			Say(Texts.Format("chat.host.region.file", loadProblems[j]), 255, 170, 140);
 		}
 	}
 
@@ -436,20 +452,20 @@ internal static class HostCommands
 		SplitTarget(rest, out text, out text2);
 		if (text.Length == 0)
 		{
-			error = "Usage: !region add <name> [radius]";
+			error = Texts.Get("chat.host.region.usage.add");
 			return;
 		}
 		int result = 24;
 		if (text2.Length != 0 && (!int.TryParse(text2, out result) || result < 1 || result > 500))
 		{
-			error = "Radius must be 1-500 tiles.";
+			error = Texts.Get("chat.host.region.radius");
 			return;
 		}
 		int x = 0;
 		int y = 0;
 		if (!TryGetHostTile(out x, out y))
 		{
-			error = "Stand in the world first: the region is created around you.";
+			error = Texts.Get("chat.host.region.no.world");
 			return;
 		}
 		Region region = new Region();
@@ -463,8 +479,7 @@ internal static class HostCommands
 		{
 			return;
 		}
-		Say("Created region '" + text + "' around you (" + region.Width + "x" + region.Height + "), host only. "
-			+ "Use !region group " + text + " <group> to let a group build.", 180, 230, 180);
+		Say(Texts.Format("chat.host.region.created", text, region.Width, region.Height), 180, 230, 180);
 	}
 
 	private static void DoRegionRemove(string name, out string error)
@@ -472,15 +487,15 @@ internal static class HostCommands
 		error = null;
 		if (name.Length == 0)
 		{
-			error = "Usage: !region remove <name>";
+			error = Texts.Get("chat.host.region.usage.remove");
 			return;
 		}
 		if (!Regions.Remove(name))
 		{
-			error = "No region called '" + name + "'.";
+			error = Texts.Format("chat.host.region.missing", name);
 			return;
 		}
-		Say("Removed region '" + name + "'.", 255, 190, 160);
+		Say(Texts.Format("chat.host.region.removed", name), 255, 190, 160);
 	}
 
 	private static void DoRegionGroup(string rest, out string error)
@@ -491,14 +506,16 @@ internal static class HostCommands
 		SplitTarget(rest, out text, out text2);
 		if (text.Length == 0)
 		{
-			error = "Usage: !region group <name> [group]";
+			error = Texts.Get("chat.host.region.usage.group");
 			return;
 		}
 		if (!Regions.SetGroup(text, text2, out error))
 		{
 			return;
 		}
-		Say(string.IsNullOrEmpty(text2) ? ("Region '" + text + "' is now host only.") : ("Region '" + text + "' is now buildable by group '" + text2 + "'."), 180, 230, 180);
+		Say(string.IsNullOrEmpty(text2)
+			? Texts.Format("chat.host.region.host.only", text)
+			: Texts.Format("chat.host.region.group.set", text, text2), 180, 230, 180);
 	}
 
 	/// <summary>The host's own tile position, or false when there is no world running.</summary>
@@ -533,7 +550,7 @@ internal static class HostCommands
 		SplitTarget(rest, out target, out group);
 		if (target.Length == 0)
 		{
-			error = "Usage: !op <player> [group]";
+			error = Texts.Get("chat.host.usage.op");
 			return;
 		}
 		// Default to "mod": promoting someone should not silently hand out !op as well.
@@ -545,7 +562,7 @@ internal static class HostCommands
 		{
 			return;
 		}
-		Say(target + " is now in group '" + group + "' (" + Permissions.Describe(Permissions.PermissionsOf(group)) + ").", 180, 230, 180);
+		Say(Texts.Format("chat.host.op.done", target, group, Permissions.Describe(Permissions.PermissionsOf(group))), 180, 230, 180);
 	}
 
 	private static void DoDeop(string rest, out string error)
@@ -553,15 +570,15 @@ internal static class HostCommands
 		error = null;
 		if (rest.Length == 0)
 		{
-			error = "Usage: !deop <player>";
+			error = Texts.Get("chat.host.usage.deop");
 			return;
 		}
 		if (!Permissions.Revoke(rest))
 		{
-			error = "'" + rest + "' had no group.";
+			error = Texts.Format("chat.host.deop.none", rest);
 			return;
 		}
-		Say(rest + " lost their group.", 255, 190, 160);
+		Say(Texts.Format("chat.host.deop.done", rest), 255, 190, 160);
 	}
 
 	private static void DoGroups()
@@ -569,7 +586,7 @@ internal static class HostCommands
 		List<string> list = Permissions.GroupNames();
 		if (list.Count == 0)
 		{
-			Say("No groups defined.", 200, 200, 210);
+			Say(Texts.Get("chat.host.groups.none"), 200, 200, 210);
 			return;
 		}
 		for (int i = 0; i < list.Count; i++)
@@ -579,7 +596,7 @@ internal static class HostCommands
 		List<KeyValuePair<string, string>> list2 = Permissions.UserList();
 		if (list2.Count == 0)
 		{
-			Say("Nobody has a group yet (the host is always the owner).", 200, 200, 210);
+			Say(Texts.Get("chat.host.groups.nobody"), 200, 200, 210);
 			return;
 		}
 		string text = string.Empty;
@@ -596,7 +613,7 @@ internal static class HostCommands
 		IList<string> loadProblems = Permissions.LoadProblems;
 		for (int k = 0; k < loadProblems.Count; k++)
 		{
-			Say("permissions.ini: " + loadProblems[k], 255, 170, 140);
+			Say(Texts.Format("chat.host.groups.file", loadProblems[k]), 255, 170, 140);
 		}
 	}
 
@@ -608,7 +625,7 @@ internal static class HostCommands
 		SplitTarget(rest, out target, out reason);
 		if (target.Length == 0)
 		{
-			error = "Usage: !mute <player>";
+			error = Texts.Get("chat.host.usage.mute");
 			return;
 		}
 		// Resolve to the name the host actually has, so the mute is not keyed to a prefix.
@@ -624,10 +641,10 @@ internal static class HostCommands
 		}
 		if (!HostModeration.Mute(text))
 		{
-			error = "'" + text + "' is already muted.";
+			error = Texts.Format("chat.host.mute.already", text);
 			return;
 		}
-		Say("Muted " + text + ".", 255, 190, 160);
+		Say(Texts.Format("chat.host.mute.done", text), 255, 190, 160);
 	}
 
 	private static void DoUnmute(string rest, out string error)
@@ -635,15 +652,15 @@ internal static class HostCommands
 		error = null;
 		if (rest.Length == 0)
 		{
-			error = "Usage: !unmute <player>";
+			error = Texts.Get("chat.host.usage.unmute");
 			return;
 		}
 		if (!HostModeration.Unmute(rest))
 		{
-			error = "'" + rest + "' is not muted.";
+			error = Texts.Format("chat.host.unmute.not", rest);
 			return;
 		}
-		Say("Unmuted " + rest + ".", 180, 230, 180);
+		Say(Texts.Format("chat.host.unmute.done", rest), 180, 230, 180);
 	}
 
 	private static void DoWhisper(string rest, out string error)
@@ -654,42 +671,42 @@ internal static class HostCommands
 		SplitTarget(rest, out target, out message);
 		if (target.Length == 0 || message.Length == 0)
 		{
-			error = "Usage: !whisper <player> <text>";
+			error = Texts.Get("chat.host.usage.whisper");
 			return;
 		}
 		string sent;
 		if (!TcpPeer.CurrentHost.SendTextTo(target, "-> " + message, out sent))
 		{
-			error = "No single player matching '" + target + "'.";
+			error = Texts.Format("chat.host.whisper.missing", target);
 			return;
 		}
 		// The host sees what it sent, otherwise a whisper looks like nothing happened.
-		Say("-> " + sent + ": " + message, 170, 190, 220);
+		Say(Texts.Format("chat.host.whisper.sent", sent, message), 170, 190, 220);
 	}
 
 	private static void DoMotd(string rest)
 	{
 		if (rest.Length == 0)
 		{
-			Say(string.IsNullOrEmpty(HostModeration.Motd) ? "No MOTD set." : ("MOTD: " + HostModeration.Motd), 255, 235, 150);
+			Say(string.IsNullOrEmpty(HostModeration.Motd) ? Texts.Get("chat.host.motd.none") : Texts.Format("chat.host.motd.show", HostModeration.Motd), 255, 235, 150);
 			return;
 		}
 		HostModeration.Motd = rest;
 		Persist();
 		// New joiners get it from the handshake; the current players get it now.
-		Broadcast("[Server] " + rest, 255, 235, 150);
+		Broadcast(Texts.Format("chat.host.server.prefix", rest), 255, 235, 150);
 	}
 
 	private static void DoRules(string rest)
 	{
 		if (rest.Length == 0)
 		{
-			Say(string.IsNullOrEmpty(HostModeration.Rules) ? "No rules set." : ("Rules: " + HostModeration.Rules), 255, 235, 150);
+			Say(string.IsNullOrEmpty(HostModeration.Rules) ? Texts.Get("chat.host.rules.none") : Texts.Format("chat.host.rules.show", HostModeration.Rules), 255, 235, 150);
 			return;
 		}
 		HostModeration.Rules = rest;
 		Persist();
-		Broadcast("[Server] Rules: " + rest, 255, 235, 150);
+		Broadcast(Texts.Format("chat.host.server.rules", rest), 255, 235, 150);
 	}
 
 	/// <summary>Writes the MOTD and rules to whichever config file is in charge.</summary>
@@ -724,16 +741,16 @@ internal static class HostCommands
 		TcpPeer host = TcpPeer.CurrentHost;
 		if (host == null)
 		{
-			Say("Nobody is connected.", 200, 200, 210);
+			Say(Texts.Get("chat.host.nobody"), 200, 200, 210);
 			return;
 		}
 		List<string> list = host.ConnectedNames();
 		if (list.Count == 0)
 		{
-			Say("Nobody is connected.", 200, 200, 210);
+			Say(Texts.Get("chat.host.nobody"), 200, 200, 210);
 			return;
 		}
-		Say(list.Count + " connected: " + string.Join(", ", list.ToArray()), 200, 220, 255);
+		Say(Texts.Format("chat.host.who", list.Count, string.Join(", ", list.ToArray())), 200, 220, 255);
 	}
 
 	private static void DoBans()
@@ -741,10 +758,10 @@ internal static class HostCommands
 		List<string> list = BanList.All;
 		if (list.Count == 0)
 		{
-			Say("The ban list is empty.", 200, 200, 210);
+			Say(Texts.Get("chat.host.bans.empty"), 200, 200, 210);
 			return;
 		}
-		Say(list.Count + " banned: " + string.Join(", ", list.ToArray()), 255, 190, 160);
+		Say(Texts.Format("chat.host.bans.list", list.Count, string.Join(", ", list.ToArray())), 255, 190, 160);
 	}
 
 	private static void DoKick(string rest, out string error)
@@ -755,20 +772,20 @@ internal static class HostCommands
 		SplitTarget(rest, out target, out reason);
 		if (target.Length == 0)
 		{
-			error = "Usage: !kick <player> [reason]";
+			error = Texts.Get("chat.host.usage.kick");
 			return;
 		}
 		if (reason.Length == 0)
 		{
-			reason = "Kicked by the host.";
+			reason = Texts.Get("chat.host.kick.default.reason");
 		}
 		string kicked;
 		if (!TcpPeer.CurrentHost.Kick(target, reason, out kicked))
 		{
-			error = "No player matching '" + target + "'.";
+			error = Texts.Format("chat.host.kick.missing", target);
 			return;
 		}
-		Say("Kicked " + kicked + ".", 255, 190, 160);
+		Say(Texts.Format("chat.host.kick.done", kicked), 255, 190, 160);
 	}
 
 	private static void DoBan(string rest, out string error)
@@ -779,7 +796,7 @@ internal static class HostCommands
 		SplitTarget(rest, out target, out reason);
 		if (target.Length == 0)
 		{
-			error = "Usage: !ban <player|ip>";
+			error = Texts.Get("chat.host.usage.ban");
 			return;
 		}
 		// Ban first, then kick: the other order would let the player reconnect in between.
@@ -787,14 +804,18 @@ internal static class HostCommands
 		string kicked = null;
 		if (TcpPeer.CurrentHost != null)
 		{
-			TcpPeer.CurrentHost.Kick(target, (reason.Length == 0) ? "Banned by the host." : reason, out kicked);
+			TcpPeer.CurrentHost.Kick(target, (reason.Length == 0) ? Texts.Get("chat.host.ban.default.reason") : reason, out kicked);
 		}
 		if (!added && kicked == null)
 		{
-			error = "Nothing to do: '" + target + "' is not connected and not on the ban list.";
+			error = Texts.Format("chat.host.ban.nothing", target);
 			return;
 		}
-		Say(added ? ("Banned " + target + (kicked != null ? (" and kicked " + kicked) : "") + ".") : ("'" + target + "' was already banned; kicked " + kicked + "."), 255, 160, 140);
+		Say(added
+			? ((kicked != null)
+				? Texts.Format("chat.host.ban.done.kicked", target, kicked)
+				: Texts.Format("chat.host.ban.done", target))
+			: Texts.Format("chat.host.ban.already", target, kicked), 255, 160, 140);
 	}
 
 	private static void DoUnban(string rest, out string error)
@@ -802,15 +823,15 @@ internal static class HostCommands
 		error = null;
 		if (rest.Length == 0)
 		{
-			error = "Usage: !unban <player|ip>";
+			error = Texts.Get("chat.host.usage.unban");
 			return;
 		}
 		if (!BanList.Remove(rest))
 		{
-			error = "'" + rest + "' is not on the ban list.";
+			error = Texts.Format("chat.host.unban.not", rest);
 			return;
 		}
-		Say("Unbanned " + rest + ".", 180, 230, 180);
+		Say(Texts.Format("chat.host.unban.done", rest), 180, 230, 180);
 	}
 
 	/// <summary>Splits "name reason words" into the target and the optional reason.</summary>

@@ -27,8 +27,11 @@ internal static class ItemRestrictions
 
 	private static bool _loaded;
 
-	/// <summary>Message shown to a player whose inventory was refused. Set by the host.</summary>
-	public static string Notice = "That item is not allowed on this server.";
+	/// <summary>
+	/// Message shown to a player whose inventory was refused. Resolved on read so it follows
+	/// the chosen language instead of freezing the text at startup.
+	/// </summary>
+	public static string Notice => Texts.Get("chat.mod.item.blocked");
 
 	public static string FilePath => Path.Combine(Terraria.Storage.AppPaths.Config, "items.txt");
 
@@ -116,20 +119,20 @@ internal static class ItemRestrictions
 		error = null;
 		if (string.IsNullOrWhiteSpace(text))
 		{
-			error = "Give an item id (number).";
+			error = Texts.Get("chat.host.item.need.id");
 			return false;
 		}
 		if (int.TryParse(text.Trim(), out netId))
 		{
 			if (netId <= 0 || netId > 32767)
 			{
-				error = "Item id must be 1-32767.";
+				error = Texts.Get("chat.host.item.id.range");
 				netId = 0;
 				return false;
 			}
 			return true;
 		}
-		error = "'" + text.Trim() + "' is not an item id. This port has no name-to-id table, so use the number.";
+		error = Texts.Format("chat.host.item.id.nan", text.Trim());
 		netId = 0;
 		return false;
 	}

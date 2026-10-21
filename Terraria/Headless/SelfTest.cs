@@ -85,6 +85,7 @@ internal static class SelfTest
 		RunCheck("display profiles", CheckDisplayProfiles);
 		RunCheck("language", CheckLanguage);
 		RunCheck("language overrides", CheckLangOverrides);
+		RunCheck("feature text", CheckFeatureTexts);
 		RunCheck("hud settings", CheckHudSettings);
 		RunCheck("direct connect", CheckDirectConnect);
 		RunCheck("session record", CheckSessionRecord);
@@ -6405,7 +6406,7 @@ internal static class SelfTest
 			}
 			if (LangOverrides.Problems.Count != 0)
 			{
-				return Fail("the template reported " + LangOverrides.Problems.Count + " problem(s)");
+				return Fail("the template reported " + LangOverrides.Problems.Count + " problem(s), first: " + LangOverrides.Problems[0]);
 			}
 			return true;
 		}
@@ -6431,6 +6432,159 @@ internal static class SelfTest
 			}
 			// Restore both the strings and the language state the rest of the suite expects.
 			// Last, because Restore re-applies the player's real override file (if any).
+			Language.Restore(savedChoice, savedOption);
+		}
+	}
+
+	// --- Feature text -------------------------------------------------------
+
+	/// <summary>
+	/// The text this port added itself: chat replies from cheats and host commands.
+	///
+	/// Two kinds of failure matter here. A misplaced placeholder turns a sentence into
+	/// "Kicked ." and looks like a logic bug; a translation file that silently loses its
+	/// contents makes the translator's work vanish the next time they export. Both are checked
+	/// against the real loader, not against a mock.
+	/// </summary>
+	private static bool CheckFeatureTexts()
+	{
+		int savedOption = Lang.LangOption;
+		int savedChoice = Language.Choice;
+		string path = LangOverrides.FileFor(savedOption);
+		string backup = File.Exists(path) ? File.ReadAllText(path) : null;
+		try
+		{
+			// The built-in table must be complete, and it is the reference every translation
+			// falls back to.
+			string problem;
+			if (!Texts.Verify(out problem))
+			{
+				return Fail("the built-in text table is broken: " + problem);
+			}
+			if (Texts.Keys.Count < 50)
+			{
+				return Fail("only " + Texts.Keys.Count + " text keys are registered - the table is not being filled");
+			}
+			if (Texts.Format("chat.cheats.gave", 3, 5) != "gave 3 x5")
+			{
+				return Fail("placeholders were not filled: '" + Texts.Format("chat.cheats.gave", 3, 5) + "'");
+			}
+			// Too few arguments must leave the placeholder visible. "Kicked ." reads like a bug
+			// in the command; "Kicked {0}." points straight at the broken translation.
+			if (Texts.Format("chat.cheats.gave", 3) != "gave 3 x{1}")
+			{
+				return Fail("a missing argument was not left visible: '" + Texts.Format("chat.cheats.gave", 3) + "'");
+			}
+			// Braces that are not placeholders must survive: string.Format would throw here, and
+			// the text comes from a file a player edits.
+			if (Texts.Fill("a { b } c", new object[1] { 1 }) != "a { b } c")
+			{
+				return Fail("a stray brace was mangled");
+			}
+			if (Texts.Fill("{x}", new object[1] { 1 }) != "{x}")
+			{
+				return Fail("a non-numeric placeholder was replaced");
+			}
+			if (Texts.Get("chat.does.not.exist") != "<chat.does.not.exist>" || Texts.Has("chat.does.not.exist"))
+			{
+				return Fail("an unknown key did not stand out");
+			}
+
+			// A file translating two of them, plus a typo that must be reported by name.
+			Directory.CreateDirectory(Terraria.Storage.AppPaths.Lang);
+			File.WriteAllText(path,
+				"[Texts]\r\nchat.cheats.god = Gott-Modus\r\nchat.mod.muted = Du bist stummgeschaltet.\\r\\nKein Grund zur Panik.\r\nchat.cheats.gdo = Tippfehler\r\n",
+				Encoding.UTF8);
+			LangOverrides.Apply();
+			if (Texts.Get("chat.cheats.god") != "Gott-Modus")
+			{
+				return Fail("a translated key was not applied: '" + Texts.Get("chat.cheats.god") + "'");
+			}
+			if (HostModeration.MuteNotice != "Du bist stummgeschaltet.\r\nKein Grund zur Panik.")
+			{
+				return Fail("a mutable notice did not follow the translation: '" + HostModeration.MuteNotice.Replace("\r\n", "<CRLF>") + "'");
+			}
+			if (Texts.OverrideCount != 2 || LangOverrides.AppliedCount != 2)
+			{
+				return Fail("expected 2 translated keys, got " + Texts.OverrideCount + " in the table and " + LangOverrides.AppliedCount + " counted");
+			}
+			// Everything else stays English rather than disappearing.
+			if (Texts.Get("chat.cheats.healed") != "healed")
+			{
+				return Fail("an untranslated key lost its English text");
+			}
+			bool sawTypo = false;
+			IList<string> problems = LangOverrides.Problems;
+			for (int i = 0; i < problems.Count; i++)
+			{
+				if (problems[i].IndexOf("chat.cheats.gdo", StringComparison.Ordinal) >= 0)
+				{
+					sawTypo = true;
+				}
+			}
+			if (!sawTypo)
+			{
+				return Fail("a mistyped key was not reported by name");
+			}
+
+			// An empty value must not blank a message.
+			File.WriteAllText(path, "[Texts]\r\nchat.cheats.god =\r\n", Encoding.UTF8);
+			LangOverrides.Apply();
+			if (Texts.Get("chat.cheats.god") != "god mode")
+			{
+				return Fail("an empty value blanked a message: '" + Texts.Get("chat.cheats.god") + "'");
+			}
+
+			// No file at all: back to English, no leftovers from the previous language.
+			File.Delete(path);
+			LangOverrides.Apply();
+			if (Texts.OverrideCount != 0)
+			{
+				return Fail("translations survived a language change");
+			}
+
+			// Export must be a refresh, not a reset: a file with a translation goes in, and the
+			// translation is still there afterwards.
+			File.WriteAllText(path, "[Texts]\r\nchat.cheats.god = Mein Gott-Modus\r\n", Encoding.UTF8);
+			string error;
+			if (LangOverrides.WriteTemplate(savedOption, out error) == null)
+			{
+				return Fail("the template could not be refreshed: " + error);
+			}
+			string refreshed = File.ReadAllText(path);
+			if (refreshed.IndexOf("chat.cheats.god = Mein Gott-Modus", StringComparison.Ordinal) < 0)
+			{
+				return Fail("refreshing the template overwrote an existing translation");
+			}
+			// ...and it must also contain keys added since the file was written, so a translator
+			// who exported early still learns about new text.
+			if (refreshed.IndexOf("[Texts]", StringComparison.Ordinal) < 0
+				|| refreshed.IndexOf("chat.host.help", StringComparison.Ordinal) < 0)
+			{
+				return Fail("the refreshed template is missing keys");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("feature text check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				if (backup != null)
+				{
+					File.WriteAllText(path, backup, Encoding.UTF8);
+				}
+				else if (File.Exists(path))
+				{
+					File.Delete(path);
+				}
+			}
+			catch
+			{
+			}
 			Language.Restore(savedChoice, savedOption);
 		}
 	}

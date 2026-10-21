@@ -22,8 +22,12 @@ internal static class HostModeration
 
 	private static readonly object Sync = new object();
 
-	/// <summary>Message sent to a muted player instead of their message being delivered.</summary>
-	public static string MuteNotice = "You are muted by the host.";
+	/// <summary>
+	/// Message sent to a muted player instead of their message being delivered. Translated on
+	/// read rather than stored, so changing the language also changes a notice that is already
+	/// configured.
+	/// </summary>
+	public static string MuteNotice => Texts.Get("chat.mod.muted");
 
 	/// <summary>Message of the day, shown to every joining player. Empty disables it.</summary>
 	public static string Motd = string.Empty;
@@ -138,7 +142,7 @@ internal static class HostModeration
 		}
 		if (!string.IsNullOrEmpty(Rules))
 		{
-			list.Add("Rules: " + Rules);
+			list.Add(Texts.Format("chat.mod.rules", Rules));
 		}
 		return list;
 	}

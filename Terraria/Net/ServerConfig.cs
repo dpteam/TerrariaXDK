@@ -193,7 +193,9 @@ internal static class ServerConfig
 	/// <summary>One-line status for <c>!serverconfig</c> and the log.</summary>
 	public static string Describe()
 	{
-		return IsActive ? ("Using " + FileName + " (overrides Settings.ini)") : ("Using Settings.ini (no " + FileName + ")");
+		return IsActive
+			? Texts.Format("chat.host.serverconfig.using.profile", FileName)
+			: Texts.Format("chat.host.serverconfig.using.settings", FileName);
 	}
 
 	private static bool Has(Settings settings, string key)
