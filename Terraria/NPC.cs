@@ -6575,13 +6575,10 @@ public sealed class NPC
 		if (Main.NetMode != 1 && IsTownNPC && !IsHomeless && (num != HomeTileX || num2 != j) && (!Main.GameTime.DayTime || Main.TileDungeon[Main.TileSet[num, num2].Type]))
 		{
 			bool flag2 = true;
-			Rectangle rectangle = new Rectangle
-			{
-				X = XYWH.X + (Width >> 1) - 960 - 62,
-				Y = XYWH.Y + (Height >> 1) - 540 - 34,
-				Width = 2044,
-				Height = 1148
-			};
+			// Derived from the real render resolution: these were written for the 1080p preset, so
+			// at 540p a monster spawn or teleport check covered more than twice the screen. The
+			// rectangle is moved to the NPC's home further down, so only the size matters here.
+			Rectangle rectangle = Main.ScreenAreaAround(XYWH.X + (Width >> 1), XYWH.Y + (Height >> 1));
 			for (int k = 0; k < 8; k++)
 			{
 				if (Main.PlayerSet[k].Active != 0 && rectangle.Intersects(Main.PlayerSet[k].XYWH))
@@ -6592,8 +6589,8 @@ public sealed class NPC
 			}
 			if (flag2)
 			{
-				rectangle.X = HomeTileX * 16 + 8 - 960 - 62;
-				rectangle.Y = j * 16 + 8 - 540 - 34;
+				rectangle.X = HomeTileX * 16 + 8 - Main.ScreenHalfWidth - Main.ScreenMargin;
+				rectangle.Y = j * 16 + 8 - Main.ScreenHalfHeight - Main.ScreenMargin;
 				for (int l = 0; l < 8; l++)
 				{
 					if (Main.PlayerSet[l].Active != 0 && rectangle.Intersects(Main.PlayerSet[l].XYWH))
@@ -14862,7 +14859,8 @@ public sealed class NPC
 		}
 		bool flag = false;
 		Rectangle rectangle2 = new Rectangle(XYWH.X + (Width >> 1) - 3264, XYWH.Y + (Height >> 1) - 1836, 6528, 3672);
-		Rectangle rectangle3 = new Rectangle(XYWH.X + (Width >> 1) - 960 - Width, XYWH.Y + (Height >> 1) - 540 - Height, 1920 + Width * 2, 1080 + Height * 2);
+		Rectangle rectangle3 = Main.ScreenAreaAround(XYWH.X + (Width >> 1), XYWH.Y + (Height >> 1));
+			rectangle3.Inflate(Width, Height);
 		for (int j = 0; j < 8; j++)
 		{
 			if (Main.PlayerSet[j].Active == 0)
@@ -15221,7 +15219,7 @@ public sealed class NPC
 				{
 					if (Main.PlayerSet[num21].Active != 0)
 					{
-						Rectangle value = new Rectangle(Main.PlayerSet[num21].XYWH.X + Main.PlayerSet[num21].XYWH.Width / 2 - 960 - 62, Main.PlayerSet[num21].XYWH.Y + Main.PlayerSet[num21].XYWH.Height / 2 - 540 - 34, 2044, 1148);
+						Rectangle value = Main.ScreenAreaAround(Main.PlayerSet[num21].XYWH.X + Main.PlayerSet[num21].XYWH.Width / 2, Main.PlayerSet[num21].XYWH.Y + Main.PlayerSet[num21].XYWH.Height / 2);
 						if (rectangle.Intersects(value))
 						{
 							flag = false;
@@ -15974,7 +15972,7 @@ public sealed class NPC
 				{
 					if (Main.PlayerSet[n].Active != 0)
 					{
-						Rectangle value = new Rectangle(Main.PlayerSet[n].XYWH.X + Main.PlayerSet[n].XYWH.Width / 2 - 960 - 62, Main.PlayerSet[n].XYWH.Y + Main.PlayerSet[n].XYWH.Height / 2 - 540 - 34, 2044, 1148);
+						Rectangle value = Main.ScreenAreaAround(Main.PlayerSet[n].XYWH.X + Main.PlayerSet[n].XYWH.Width / 2, Main.PlayerSet[n].XYWH.Y + Main.PlayerSet[n].XYWH.Height / 2);
 						if (rectangle.Intersects(value))
 						{
 							flag = false;

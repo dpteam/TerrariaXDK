@@ -1873,7 +1873,15 @@ public sealed class UI
 		Main.PlaySound(11);
 		if (depth < 0)
 		{
-			menuDepth += depth;
+			// Step back past entries that name the screen we are already on. A stale entry used
+			// to make Back a no-op - which is exactly how the settings screens became impossible
+			// to leave: every return re-pushed the screen being left, so the history filled up
+			// with the screen the player was trying to escape.
+			do
+			{
+				menuDepth--;
+			}
+			while (menuDepth >= 0 && prevMenuMode[menuDepth] == CurMenuMode);
 			if (menuDepth >= 0)
 			{
 				SetMenu(prevMenuMode[menuDepth], rememberPrevious: false);
@@ -2862,48 +2870,47 @@ public sealed class UI
 		{
 			if (Terraria.Input.KeyBindScreen.Update(this))
 			{
-				Main.PlaySound(10);
-				SetMenu(MenuMode.SETTINGS);
+				// PrevMenu, not SetMenu(SETTINGS): SetMenu remembers the screen it is leaving, so
+				// returning this way pushed KEYBINDS onto the history every time. Back in SETTINGS
+				// then stepped to KEYBINDS again - the "cannot leave the settings screen" loop.
+				PrevMenu();
 			}
 		}
 		else if (CurMenuMode == MenuMode.MODS)
 		{
 			if (Terraria.Mods.ModMenu.Update())
 			{
-				Main.PlaySound(10);
-				SetMenu(MenuMode.SETTINGS);
+				PrevMenu();
 			}
 		}
 		else if (CurMenuMode == MenuMode.DISPLAY)
 		{
 			if (Terraria.DisplayMenu.Update())
 			{
-				Main.PlaySound(10);
-				SetMenu(MenuMode.SETTINGS);
+				PrevMenu();
 			}
 		}
 		else if (CurMenuMode == MenuMode.NETWORK)
 		{
 			if (Terraria.NetworkMenu.Update())
 			{
-				Main.PlaySound(10);
-				SetMenu(MenuMode.SETTINGS);
+				PrevMenu();
 			}
 		}
 		else if (CurMenuMode == MenuMode.HUD)
 		{
 			if (Terraria.HudMenu.Update())
 			{
-				Main.PlaySound(10);
-				SetMenu(MenuMode.SETTINGS);
+				PrevMenu();
 			}
 		}
 		else if (CurMenuMode == MenuMode.BACKUPS)
 		{
 			if (Terraria.BackupsMenu.Update())
 			{
-				Main.PlaySound(10);
-				SetMenu(MenuMode.WORLD_SELECT);
+				// Same reason as the settings screens: returning through SetMenu would push
+				// BACKUPS onto the history, and Back in the world list would reopen it.
+				PrevMenu();
 			}
 		}
 		else if (CurMenuMode == MenuMode.CHEATS)
@@ -3610,7 +3617,13 @@ public sealed class UI
 		selectedMenu = -1;
 		for (int num3 = 0; num3 < numMenuItems; num3++)
 		{
-			if (menuString[num3] != null && MouseY > menuTop + menuSpace * num3 + menuY[num3] && (float)MouseY < (float)(menuTop + menuSpace * num3 + menuY[num3]) + 50f * menuScale[num3] && Main.HasFocus && !noFocus[num3] && !blockFocus[num3])
+			// Same arithmetic as the drawing code in DrawMenu, including ScreenMultiplier. The row
+			// is drawn at menuTop * mult, so hit-testing at the unscaled menuTop put the clickable
+			// area somewhere else entirely as soon as the render scale was not 540p - which is
+			// exactly the "the mouse still thinks it is 540p" symptom.
+			float num31 = (float)menuTop * Main.ScreenMultiplier + (float)menuSpace * Main.ScreenMultiplier * (float)num3 + (float)menuY[num3];
+			float num32 = 50f * menuScale[num3] * Main.ScreenMultiplier;
+			if (menuString[num3] != null && (float)MouseY > num31 && (float)MouseY < num31 + num32 && Main.HasFocus && !noFocus[num3] && !blockFocus[num3])
 			{
 				focusMenu = (sbyte)num3;
 				if (oldMenu != focusMenu)
@@ -5467,7 +5480,7 @@ public sealed class UI
 			}
 			mouseWasActive = true;
 			ApplyPointerPosition();
-			if (InventoryMode > 0)
+			if (InventoryMode > 0 && !Terraria.Input.VirtualKeyboard.IsOpen)
 			{
 				// Order matters: the section/stack bookkeeping runs first, then the hover
 				// moves the slot cursor, and only then is the click applied - otherwise a
@@ -5805,6 +5818,16 @@ public sealed class UI
 			return;
 		}
 		CurrentUI = this;
+		// The on-screen keyboard owns input while it is open. It is drawn over whatever screen
+		// opened it, and the two overlap: a click on a key also landed on the settings row behind
+		// it, so typing re-opened the prompt and reset the text. Nothing else may read the mouse
+		// or the pad until the keyboard closes.
+		if (Terraria.Input.VirtualKeyboard.IsOpen)
+		{
+			// The pointer is still tracked, or the drawn cursor stays where it was.
+			UpdateMouse();
+			return;
+		}
 		// Keyboard users need an explicit way out of the inventory: the console build only
 		// exposes "close" through Buttons.B/Y, and neither is reliably reachable from a
 		// keyboard once the inventory is open. Escape and Tab (map) close it here.

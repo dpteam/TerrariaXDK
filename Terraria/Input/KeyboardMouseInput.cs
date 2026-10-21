@@ -104,10 +104,63 @@ internal static class KeyboardMouseInput
 	/// </summary>
 	public static bool SuppressGameInput { get; set; }
 
-	/// <summary>Absolute mouse position in backbuffer pixels.</summary>
+	/// <summary>Absolute mouse position in internal-resolution pixels (see <see cref="SetViewport"/>).</summary>
 	public static int MouseX { get; private set; }
 
 	public static int MouseY { get; private set; }
+
+	// The mapping from window pixels to internal resolution. Set once per frame by Main.
+	private static int _bufferWidth;
+
+	private static int _bufferHeight;
+
+	private static int _viewWidth;
+
+	private static int _viewHeight;
+
+	/// <summary>
+	/// Tells the input layer how window pixels map onto the game's internal resolution.
+	///
+	/// The game renders into a RenderTarget of <c>ResolutionWidth x ResolutionHeight</c> and then
+	/// stretches it to the backbuffer, so a pointer reported by the OS at window coordinates is
+	/// only correct when the two happen to be the same size. At 1080p in a 720p window the pointer
+	/// covered two thirds of the screen; at 540p the right third was unreachable. Every hit-test in
+	/// the game compares against resolution-space rectangles, so the conversion belongs here, once,
+	/// instead of in each of them.
+	///
+	/// Zeroes mean "no mapping yet": coordinates are then used as they come, which keeps the
+	/// headless tests and the first frames working.
+	/// </summary>
+	public static void SetViewport(int bufferWidth, int bufferHeight, int viewWidth, int viewHeight)
+	{
+		_bufferWidth = bufferWidth;
+		_bufferHeight = bufferHeight;
+		_viewWidth = viewWidth;
+		_viewHeight = viewHeight;
+	}
+
+	/// <summary>
+	/// Maps one axis from buffer pixels to view pixels, clamped into the view. Pure, so the
+	/// arithmetic is testable without a window.
+	/// </summary>
+	internal static int MapAxis(int value, int from, int to)
+	{
+		if (from <= 0 || to <= 0)
+		{
+			return value;
+		}
+		if (from == to)
+		{
+			return (value < 0) ? 0 : ((value >= to) ? (to - 1) : value);
+		}
+		// 64-bit on purpose: a 4K buffer times a large value overflows int.
+		int num = (int)((long)value * to / from);
+		if (num < 0)
+		{
+			return 0;
+		}
+		return (num >= to) ? (to - 1) : num;
+	}
 
 	public static int ScrollDelta { get; private set; }
 
@@ -142,8 +195,8 @@ internal static class KeyboardMouseInput
 			// Windowing backend not ready yet (splash screens, shutdown).
 			return;
 		}
-		MouseX = _mouse.X;
-		MouseY = _mouse.Y;
+		MouseX = MapAxis(_mouse.X, _bufferWidth, _viewWidth);
+		MouseY = MapAxis(_mouse.Y, _bufferHeight, _viewHeight);
 		ScrollDelta = _mouse.ScrollWheelValue - _prevMouse.ScrollWheelValue;
 		// Wheel movement is exposed as discrete steps, not as a shoulder-button press: the
 		// wheel means "scroll the thing under my focus" (hotbar in game, recipes in the

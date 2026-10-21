@@ -558,6 +558,40 @@ public sealed class Main : Game
 
 	public static float ScreenMultiplier;
 
+	/// <summary>
+	/// Half of the internal render resolution, in pixels.
+	///
+	/// The game's logic builds "the area the screen covers, plus a margin" rectangles in several
+	/// places (monster spawn range, town-NPC teleport checks, meteor placement). Those were written
+	/// as <c>1920x1080</c>, which is the FHD preset: at 540p the area was more than twice the
+	/// screen, so behaviour depended on the render-scale setting. Deriving the numbers keeps them
+	/// honest at every preset.
+	/// </summary>
+	public static int ScreenHalfWidth => ResolutionWidth >> 1;
+
+	public static int ScreenHalfHeight => ResolutionHeight >> 1;
+
+	/// <summary>
+	/// The area a player can see, as a world-space rectangle around a point, with a small margin.
+	///
+	/// Used for the "is anything on screen?" checks: monster spawn range, town-NPC teleport, meteor
+	/// placement. Those were written against the 1080p preset (<c>1920x1080</c> as constants), so
+	/// at 540p they covered more than twice the visible area and at any other preset the numbers
+	/// were simply wrong. One function, so the seven callers cannot drift apart again, and so the
+	/// geometry is testable without a world.
+	/// </summary>
+	public static Rectangle ScreenAreaAround(int centerX, int centerY)
+	{
+		return new Rectangle(
+			centerX - ScreenHalfWidth - ScreenMargin,
+			centerY - ScreenHalfHeight - ScreenMargin,
+			ResolutionWidth + ScreenMargin * 2,
+			ResolutionHeight + ScreenMargin * 2);
+	}
+
+	/// <summary>Margin around the visible area, in pixels. Two tiles.</summary>
+	public const int ScreenMargin = 34;
+
 	public static bool HardmodeAlert;
 
 	private bool SoundResponse;
@@ -1146,6 +1180,32 @@ public sealed class Main : Game
 		ContentThread.Start();
 		Program.Log("[MAIN.LoadContent()] ✅ ContentThread started - GPU phases will run on the main thread");
 		Program.Log("[MAIN.LoadContent()] ⬆\ufe0f === LOAD CONTENT COMPLETE ===");
+	}
+
+	/// <summary>
+	/// Tells the input layer the current window/render sizes. Wrapped because
+	/// <see cref="Game.GraphicsDevice"/> throws before the device exists, and a failure here must
+	/// not take down the update loop: the pointer then keeps its previous mapping.
+	/// </summary>
+	private void UpdateInputViewport()
+	{
+		try
+		{
+			PresentationParameters presentationParameters = GraphicsDevice.PresentationParameters;
+			Terraria.Input.KeyboardMouseInput.SetViewport(
+				presentationParameters.BackBufferWidth,
+				presentationParameters.BackBufferHeight,
+				ResolutionWidth,
+				ResolutionHeight);
+		}
+		catch
+		{
+			// No device yet (loading, shutdown): DisplaySettings still knows the window we asked
+			// for, which is the right mapping for the frames that do have a device.
+			Terraria.Input.KeyboardMouseInput.SetViewport(
+				Terraria.DisplaySettings.Width, Terraria.DisplaySettings.Height,
+				ResolutionWidth, ResolutionHeight);
+		}
 	}
 
 	/// <summary>Queue of GPU loading steps, executed one per frame.</summary>
@@ -1870,15 +1930,24 @@ public sealed class Main : Game
 		// Focus must be current before input is read; it used to be assigned further down,
 		// so the first frame after focusing the window dropped all input.
 		HasFocus = IsActive;
+		// Window pixels -> internal resolution, before anything reads the pointer. The game draws
+		// into a RenderTarget of ResolutionWidth x ResolutionHeight and stretches it to the
+		// backbuffer; without this the pointer only reached part of the screen at other render
+		// scales (1080p pointed at two thirds, 540p could not reach the right edge).
+		UpdateInputViewport();
 		Terraria.Input.KeyboardMouseInput.Update();
-		// Chat runs before anything reads input, so typing never moves the player.
-		Terraria.Input.ChatInput.Update();
-		// On-screen keyboard for gamepad-only setups; swallows input while open.
-		Terraria.Input.VirtualKeyboard.Update();
+		// Pad state is refreshed before anything reads it. Chat and the on-screen keyboard both
+		// look at buttons, and they ran before this loop, so they were reading last frame's
+		// state - one frame of lag on every button press, and a press that could be missed
+		// entirely when a screen changed in between.
 		for (int i = 0; i < UIInstance.Length; i++)
 		{
 			UIInstance[i].UpdateGamePad();
 		}
+		// Chat runs before anything reads input, so typing never moves the player.
+		Terraria.Input.ChatInput.Update();
+		// On-screen keyboard for gamepad-only setups; swallows input while open.
+		Terraria.Input.VirtualKeyboard.Update();
 		if (TutorialState < Tutorial.THE_END)
 		{
 			UpdateTutorial();

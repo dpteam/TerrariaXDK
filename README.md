@@ -326,7 +326,7 @@ Storage/Textures/Atlases/_sheetSprites/ARM_BONE.png
 .\TerrariaXDK.exe --selftest
 ```
 
-Проверяет без графики (62 проверки в Release, 64 в Debug):
+Проверяет без графики (65 проверок в Release, 67 в Debug):
 1. **пути** — что всё пишется в `Storage/` рядом с exe, а не в профиль пользователя;
 2. **манифест контента** — что каждый `Content.Load(...)` путь реально существует;
 3. **осиротевшие файлы** — что в `Content/` нет ничего, что игра не грузит;
@@ -416,14 +416,14 @@ Storage/Textures/Atlases/_sheetSprites/ARM_BONE.png
 `png corpus`), пишут `skip` с причиной, а не `FAIL`:
 
 ```
-Passed: 58  Skipped: 4  Failed: 0
+Passed: 61  Skipped: 4  Failed: 0
 ```
 
 Пропуск — это **не** «пройдено»: он виден в итоговой строке и в списке. Как только
 `Content/` появится рядом с exe, три из них начинают работать сами; `png corpus` нужен
 `_RemovedContent/` с настоящими PNG.
 
-В чистом клоне Release-сборка даёт 58 пройденных и 4 пропуска; Debug добавляет ещё две
+В чистом клоне Release-сборка даёт 61 пройденную и 4 пропуска; Debug добавляет ещё две
 свои проверки (`debug kit`, `debug console`) и только их.
 
 ### CI

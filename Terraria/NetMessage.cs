@@ -1840,8 +1840,12 @@ public sealed class NetMessage
 					{
 						if (nPC.IsTownNPC)
 						{
-							int sectionX2 = nPC.XYWH.X / 640;
-							int sectionY2 = nPC.XYWH.X / 640;
+							// Sections are 200 tiles wide (3200 px). The X coordinate must also be
+							// divided by the tile width, and the section size for a 3x3 block is the
+							// third argument - a literal 640 on both lines was the *pixel* size of a
+							// 40-tile block, which is neither.
+							int sectionX2 = nPC.XYWH.X / 3200;
+							int sectionY2 = nPC.XYWH.Y / 3200;
 							SendSectionSquare(sender, sectionX2, sectionY2, 3);
 						}
 						CreateMessage1(23, num32);

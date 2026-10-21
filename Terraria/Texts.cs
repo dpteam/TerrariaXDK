@@ -257,6 +257,7 @@ internal static class Texts
 		Add(dictionary, "ui.net.port.set", "Port: {0} - applies when the next world is hosted");
 		Add(dictionary, "ui.net.port", "Port: {0}");
 		Add(dictionary, "ui.net.password.title", "Password (empty = anyone)");
+		Add(dictionary, "ui.net.password", "Password: {0}");
 		Add(dictionary, "ui.net.password.set", "Password: set - applies when the next world is hosted");
 		Add(dictionary, "ui.net.master.title", "Master server (host:port)");
 		Add(dictionary, "ui.net.master.invalid", "Could not parse '{0}' - use host:port");
@@ -421,6 +422,10 @@ internal static class Texts
 	/// otherwise. An unknown key is returned in angle brackets instead of throwing: a typo in a
 	/// key should show up as <c>&lt;chat.host.typo&gt;</c> on screen, where it is obvious, rather
 	/// than as a crash in the middle of a chat message.
+	///
+	/// The warning is what turns "somebody noticed a bracketed label" into a line in the log with
+	/// the key in it. Logged once per key, because a missing key inside a list row would otherwise
+	/// repeat every frame.
 	/// </summary>
 	public static string Get(string key)
 	{
@@ -433,7 +438,18 @@ internal static class Texts
 		{
 			return text;
 		}
+		WarnMissing(key);
 		return "<" + key + ">";
+	}
+
+	private static readonly HashSet<string> Missing = new HashSet<string>(StringComparer.Ordinal);
+
+	private static void WarnMissing(string key)
+	{
+		if (Missing.Add(key))
+		{
+			Program.LogWarn("Texts", "no text for key '" + key + "' - it will show as <" + key + ">");
+		}
 	}
 
 	/// <summary>

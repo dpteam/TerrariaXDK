@@ -68,8 +68,19 @@ public sealed class MiniMap
 		4286084531u, 4289536803u, 4291363587u, 4291363587u, 4291363587u, 4294901760u, 4278255360u, 4293848831u, 4291611886u, 4294901760u
 	};
 
-	public static void OnStartGame()
+	/// <summary>
+	/// Horizontal space the map leaves on the left, before the safe area.
+	///
+	/// One helper because the map's own pan bounds and its drawing used to disagree: the drawing
+	/// scaled these numbers by <c>ScreenMultiplier</c> and the bounds did not, so at 720p and above
+	/// the map could be scrolled past its own edge.
+	/// </summary>
+	private static int MapLeftInset()
 	{
+		return (int)((UI.NumActiveViews > 1 ? 340f : 290f) * Main.ScreenMultiplier);
+	}
+
+	public static void OnStartGame()	{
 		Width = (short)(Main.MaxTilesX - 68);
 		Height = (short)(Main.MaxTilesY - 68);
 		TexWidth = (short)(Width / 4);
@@ -77,7 +88,7 @@ public sealed class MiniMap
 
 	public void UpdateMap(UI ActiveUI)
 	{
-		int num = ActiveUI.CurrentView.SafeAreaOffsetLeft + ((UI.NumActiveViews > 1) ? 340 : 290);
+		int num = ActiveUI.CurrentView.SafeAreaOffsetLeft + MapLeftInset();
 		int num2 = ActiveUI.CurrentView.ViewWidth - ActiveUI.CurrentView.SafeAreaOffsetRight - num;
 		if (ActiveUI.IsAlternateLeftButtonDown())
 		{
@@ -290,7 +301,7 @@ public sealed class MiniMap
 			}
 			MapTexture[num2].SetData(array);
 		}
-		int num12 = uI.CurrentView.SafeAreaOffsetLeft + ((UI.NumActiveViews > 1) ? 340 : 290);
+		int num12 = uI.CurrentView.SafeAreaOffsetLeft + MapLeftInset();
 		int num13 = uI.CurrentView.ViewWidth - uI.CurrentView.SafeAreaOffsetRight - num12;
 		int num14 = Width - num13;
 		int num15 = Height - MapDestH;
@@ -331,7 +342,7 @@ public sealed class MiniMap
 
 	public void DrawMap(WorldView ActiveView)
 	{
-		int num = ActiveView.SafeAreaOffsetLeft + ((UI.NumActiveViews > 1) ? ((int)(340f * Main.ScreenMultiplier)) : ((int)(290f * Main.ScreenMultiplier)));
+		int num = ActiveView.SafeAreaOffsetLeft + MapLeftInset();
 		int safeAreaOffsetTop = ActiveView.SafeAreaOffsetTop;
 		MapDestH = (short)(Main.ResolutionHeight - ActiveView.SafeAreaOffsetTop - ActiveView.SafeAreaOffsetBottom - (int)(36f * Main.ScreenMultiplier));
 		int num2 = ActiveView.ViewWidth - ActiveView.SafeAreaOffsetRight - num;

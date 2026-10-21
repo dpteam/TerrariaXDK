@@ -143,6 +143,13 @@ internal static class ChatInput
 	/// </summary>
 	public static void Update()
 	{
+		// While the on-screen keyboard is open it owns the keyboard. Without this, Enter opened
+		// the chat prompt on the same frame it was meant to confirm the dialog, and Escape closed
+		// the chat instead of cancelling the dialog.
+		if (VirtualKeyboard.IsOpen)
+		{
+			return;
+		}
 		if (KeyboardMouseInput.KeyPressed(KeyBindings.Get(KeyBindings.Action.Chat)))
 		{
 			if (IsActive)

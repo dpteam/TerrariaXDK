@@ -489,7 +489,7 @@ internal static class WorldGen
 			if (!flag)
 			{
 				flag = true;
-				Rectangle value = new Rectangle(num2 * 16 + 8 - 960 - 62, num3 * 16 + 8 - 540 - 34, 2044, 1148);
+				Rectangle value = Main.ScreenAreaAround(num2 * 16 + 8, num3 * 16 + 8);
 				for (int j = 0; j < 8; j++)
 				{
 					if (Main.PlayerSet[j].Active != 0 && Main.PlayerSet[j].XYWH.Intersects(value))
@@ -530,7 +530,7 @@ internal static class WorldGen
 									break;
 								}
 								flag = true;
-								Rectangle value2 = new Rectangle(num2 * 16 + 8 - 960 - 62, num3 * 16 + 8 - 540 - 34, 2044, 1148);
+								Rectangle value2 = Main.ScreenAreaAround(num2 * 16 + 8, num3 * 16 + 8);
 								for (int n = 0; n < 8; n++)
 								{
 									if (Main.PlayerSet[n].Active != 0 && Main.PlayerSet[n].XYWH.Intersects(value2))
@@ -1129,7 +1129,7 @@ internal static class WorldGen
 		{
 			if (Main.PlayerSet[k].Active != 0)
 			{
-				Rectangle value = new Rectangle(Main.PlayerSet[k].XYWH.X + Main.PlayerSet[k].XYWH.Width / 2 - 960 - 62, Main.PlayerSet[k].XYWH.Y + Main.PlayerSet[k].XYWH.Height / 2 - 540 - 34, 2044, 1148);
+				Rectangle value = Main.ScreenAreaAround(Main.PlayerSet[k].XYWH.X + Main.PlayerSet[k].XYWH.Width / 2, Main.PlayerSet[k].XYWH.Y + Main.PlayerSet[k].XYWH.Height / 2);
 				if (rectangle.Intersects(value))
 				{
 					return false;

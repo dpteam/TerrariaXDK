@@ -96,6 +96,9 @@ internal static class SelfTest
 		RunCheck("anti-cheat", CheckAntiCheat);
 		RunCheck("menu tables", CheckMenuTables);
 		RunCheck("text entry", CheckTextEntry);
+		RunCheck("pointer scaling", CheckPointerScaling);
+		RunCheck("screen geometry", CheckScreenGeometry);
+		RunCheck("every text key used", CheckTextKeysUsed);
 #if DEBUG
 		RunCheck("debug kit", CheckDebugKit);
 		RunCheck("debug console", CheckDebugConsole);
@@ -8381,6 +8384,220 @@ internal static class SelfTest
 		finally
 		{
 			Terraria.Input.VirtualKeyboard.CancelEXT();
+		}
+	}
+
+	// --- Screen geometry ----------------------------------------------------
+
+	/// <summary>
+	/// The "what the player can see" rectangle, which several gameplay checks depend on.
+	///
+	/// These were authored against the 1080p preset with the numbers written out
+	/// (<c>1920x1080</c>, offsets of 960 and 540), so at 540p the monster-spawn and town-NPC
+	/// teleport ranges covered more than twice the visible screen, and at 720p they were simply
+	/// wrong. Deriving them from <c>ResolutionWidth/Height</c> fixed that; this check keeps them
+	/// derived, and pins the property that matters: the rectangle is centred on the point and
+	/// exactly one screen plus a margin in size, at every preset.
+	/// </summary>
+	private static bool CheckScreenGeometry()
+	{
+		int savedWidth = Main.ResolutionWidth;
+		int savedHeight = Main.ResolutionHeight;
+		float savedMultiplier = Main.ScreenMultiplier;
+		try
+		{
+			// The three presets, as DisplaySettings.ApplyRenderScale sets them.
+			int[][] presets = new int[3][]
+			{
+				new int[2] { 960, 720 },
+				new int[2] { 1280, 960 },
+				new int[2] { 1920, 1440 }
+			};
+			for (int i = 0; i < presets.Length; i++)
+			{
+				Main.ResolutionWidth = presets[i][0];
+				Main.ResolutionHeight = presets[i][1];
+				int num = Main.ScreenHalfWidth;
+				int num2 = Main.ScreenHalfHeight;
+				if (num * 2 != Main.ResolutionWidth || num2 * 2 != Main.ResolutionHeight)
+				{
+					return Fail("ScreenHalfWidth/Height are not half of " + Main.ResolutionWidth + "x" + Main.ResolutionHeight);
+				}
+				Rectangle rectangle = Main.ScreenAreaAround(1000, 2000);
+				if (rectangle.Width != Main.ResolutionWidth + Main.ScreenMargin * 2
+					|| rectangle.Height != Main.ResolutionHeight + Main.ScreenMargin * 2)
+				{
+					return Fail("the screen area is " + rectangle.Width + "x" + rectangle.Height + " at " + Main.ResolutionWidth + "x" + Main.ResolutionHeight);
+				}
+				// Centred: the point must be the middle of the rectangle.
+				if (rectangle.X + (rectangle.Width >> 1) != 1000 || rectangle.Y + (rectangle.Height >> 1) != 2000)
+				{
+					return Fail("the screen area is not centred on the point at " + Main.ResolutionWidth + "x" + Main.ResolutionHeight);
+				}
+				// A point far outside must not overflow the arithmetic.
+				Rectangle far = Main.ScreenAreaAround(-3000000, 3000000);
+				if (far.Width != rectangle.Width || far.Height != rectangle.Height)
+				{
+					return Fail("the screen area changed size far from the origin");
+				}
+			}
+			// The old hardcoded numbers, for the record: at 540p the area must now be smaller than
+			// the 1920x1080 that was written into the code, or the fix did nothing.
+			Main.ResolutionWidth = 960;
+			Main.ResolutionHeight = 720;
+			if (Main.ScreenAreaAround(0, 0).Width >= 1920)
+			{
+				return Fail("the 540p screen area is still as wide as the old hardcoded 1920");
+			}
+			Console.WriteLine("    screen area at 540p: " + Main.ScreenAreaAround(0, 0).Width + "x" + Main.ScreenAreaAround(0, 0).Height
+				+ " (was 1920x1080 before the fix)");
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("screen geometry check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Main.ResolutionWidth = savedWidth;
+			Main.ResolutionHeight = savedHeight;
+			Main.ScreenMultiplier = savedMultiplier;
+		}
+	}
+
+	// --- Pointer scaling ----------------------------------------------------
+
+	/// <summary>
+	/// Window pixels to internal resolution.
+	///
+	/// The game draws into a RenderTarget of <c>ResolutionWidth x ResolutionHeight</c> and stretches
+	/// it to the backbuffer, but the pointer arrives in window pixels. Without the conversion the
+	/// mouse only reached part of the screen - and it was invisible at 540p in a 720p window,
+	/// because "almost right" looks like a slightly-off cursor rather than a bug.
+	/// </summary>
+	private static bool CheckPointerScaling()
+	{
+		try
+		{
+			// Same size: unchanged, and a coordinate on the last pixel stays inside.
+			if (Terraria.Input.KeyboardMouseInput.MapAxis(500, 1280, 1280) != 500)
+			{
+				return Fail("an identity mapping changed the coordinate");
+			}
+			if (Terraria.Input.KeyboardMouseInput.MapAxis(1280, 1280, 1280) != 1279)
+			{
+				return Fail("a coordinate one past the edge was not clamped inside");
+			}
+			// 1080p in a 720p window: 1.5x. The far corner must reach the far corner.
+			if (Terraria.Input.KeyboardMouseInput.MapAxis(640, 1280, 1920) != 960)
+			{
+				return Fail("720p->1080p did not scale: " + Terraria.Input.KeyboardMouseInput.MapAxis(640, 1280, 1920));
+			}
+			if (Terraria.Input.KeyboardMouseInput.MapAxis(1279, 1280, 1920) != 1918)
+			{
+				return Fail("the right edge of a 1080p screen was not reachable: "
+					+ Terraria.Input.KeyboardMouseInput.MapAxis(1279, 1280, 1920));
+			}
+			// 540p in a 720p window: 0.75x, i.e. the whole width is reachable.
+			if (Terraria.Input.KeyboardMouseInput.MapAxis(1279, 1280, 960) != 959)
+			{
+				return Fail("the right edge of a 540p screen was not reachable");
+			}
+			if (Terraria.Input.KeyboardMouseInput.MapAxis(960, 1280, 960) != 720 || Terraria.Input.KeyboardMouseInput.MapAxis(719, 720, 960) != 958)
+			{
+				return Fail("540p scaling is wrong in one axis: "
+					+ Terraria.Input.KeyboardMouseInput.MapAxis(960, 1280, 960) + ", "
+					+ Terraria.Input.KeyboardMouseInput.MapAxis(719, 720, 960));
+			}
+			// Negative and out-of-range input must not produce a negative or huge coordinate:
+			// the OS can report either when the window is partly off-screen.
+			if (Terraria.Input.KeyboardMouseInput.MapAxis(-50, 1280, 1920) != 0)
+			{
+				return Fail("a negative coordinate was not clamped to 0");
+			}
+			if (Terraria.Input.KeyboardMouseInput.MapAxis(5000, 1280, 1920) != 1919)
+			{
+				return Fail("an out-of-range coordinate was not clamped to the last pixel");
+			}
+			// No viewport yet: the value is passed through, which is what the headless tests and
+			// the first frames rely on.
+			if (Terraria.Input.KeyboardMouseInput.MapAxis(321, 0, 0) != 321)
+			{
+				return Fail("an unset viewport did not pass the coordinate through");
+			}
+			// A 4K buffer must not overflow the intermediate multiply.
+			if (Terraria.Input.KeyboardMouseInput.MapAxis(3840, 3840, 960) != 959)
+			{
+				return Fail("4K downscaling overflowed");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("pointer scaling check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	// --- Text keys used by the code -----------------------------------------
+
+	/// <summary>
+	/// Guards against the class of bug that produced a literal <c>&lt;ui.net.password&gt;</c> on
+	/// the network screen: a key referenced from code but never added to the table. The missing
+	/// key still renders as something, so nothing throws and nothing fails - the player just sees
+	/// a placeholder.
+	///
+	/// The keys cannot be read out of the source at runtime, so the check names every key the
+	/// screens in this port ask for. It is a regression guard, not a proof: a new key still has to
+	/// be added here. The safety net for the gap is the warning <see cref="Texts.Get"/> logs.
+	/// </summary>
+	private static bool CheckTextKeysUsed()
+	{
+		try
+		{
+			string[] array = new string[70]
+			{
+				"ui.common.on", "ui.common.off", "ui.common.change.back",
+				"ui.display.title", "ui.display.profile", "ui.display.window", "ui.display.fullscreen",
+				"ui.display.render", "ui.display.fps", "ui.display.vsync", "ui.display.fpslimit",
+				"ui.display.language", "ui.display.hint.restart", "ui.display.status.window",
+				"ui.display.status.restart", "ui.display.status.cap", "ui.display.status.cap.off",
+				"ui.display.status.vsync.capped", "ui.display.status.profile", "ui.display.failed",
+				"ui.display.cap.overridden",
+				"ui.hud.title", "ui.hud.zoom", "ui.hud.zoom.max", "ui.hud.zoom.min", "ui.hud.zoom.reset",
+				"ui.hud.zoom.reset.done", "ui.hud.clock", "ui.hud.depth", "ui.hud.compass",
+				"ui.hud.hardmode", "ui.hud.always", "ui.hud.with.watch", "ui.hud.with.depth",
+				"ui.hud.with.compass", "ui.hud.change.back", "ui.hud.hint.zoom",
+				"ui.net.title", "ui.net.name.title", "ui.net.name.usage", "ui.net.name", "ui.net.name.row",
+				"ui.net.port.title", "ui.net.port.invalid", "ui.net.port.set", "ui.net.port",
+				"ui.net.password.title", "ui.net.password", "ui.net.password.set",
+				"ui.net.master.title", "ui.net.master.invalid", "ui.net.master.set",
+				"ui.net.publish.on", "ui.net.publish.off", "ui.net.publish",
+				"ui.net.spawn.off", "ui.net.spawn", "ui.net.build.disabled", "ui.net.build.allowed",
+				"ui.net.build", "ui.net.refresh.off", "ui.net.refresh", "ui.net.off",
+				"ui.settings.cheats", "ui.settings.keys", "ui.settings.mods", "ui.settings.display",
+				"ui.settings.network", "ui.settings.hud", "ui.menu.cheats"
+			};
+			for (int i = 0; i < array.Length; i++)
+			{
+				if (!Texts.Has(array[i]))
+				{
+					return Fail("the screens ask for '" + array[i] + "', which has no text");
+				}
+			}
+			string text = Texts.Format("ui.net.password", "off");
+			if (text.IndexOf('<') >= 0)
+			{
+				return Fail("the password row still shows a placeholder: '" + text + "'");
+			}
+			if (Texts.Get("ui.definitely.missing") != "<ui.definitely.missing>")
+			{
+				return Fail("an unknown key did not stand out");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("text key check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 
