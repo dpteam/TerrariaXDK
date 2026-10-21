@@ -363,6 +363,9 @@ internal static class KeyboardMouseInput
 		return result;
 	}
 
+	/// <summary>True while either Shift key is held. Shift-click means "quick transfer".</summary>
+	public static bool ShiftDown => _keys.IsKeyDown(Keys.LeftShift) || _keys.IsKeyDown(Keys.RightShift);
+
 	/// <summary>
 	/// Hotbar slot requested by a number key this frame, or -1. The caller applies it so this
 	/// class stays independent of the player and UI types.

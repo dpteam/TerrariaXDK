@@ -99,6 +99,7 @@ internal static class SelfTest
 		RunCheck("pointer scaling", CheckPointerScaling);
 		RunCheck("modal input latch", CheckModalInputLatch);
 		RunCheck("menu hit table", CheckMenuHitTable);
+		RunCheck("inventory transfer", CheckInventoryTransfer);
 		RunCheck("save slots", CheckSaveSlots);
 		RunCheck("map screen mouse", CheckMapScreenMouse);
 		RunCheck("screen geometry", CheckScreenGeometry);
@@ -8602,6 +8603,98 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("save slots check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	private static bool CheckInventoryTransfer()
+	{
+		try
+		{
+			// Shift-click: merge into existing stacks first, then take one empty slot. The cases
+			// that matter are the ones where a naive "swap the two slots" would duplicate or lose
+			// items.
+			Item[] from = new Item[4];
+			Item[] to = new Item[4];
+			for (int i = 0; i < from.Length; i++)
+			{
+				from[i].Init();
+				to[i].Init();
+			}
+			// A whole stack into an empty container.
+			from[0].SetDefaults((int)EntityID.ItemID.DIRT_BLOCK, 250);
+			int num;
+			if (!Terraria.InventoryTransfer.Move(from, 0, to, to.Length, out num) || num != 0)
+			{
+				return Fail("a full stack did not move into an empty slot");
+			}
+			if (from[0].Type != 0 || to[0].Type != (int)EntityID.ItemID.DIRT_BLOCK || to[0].Stack != 250)
+			{
+				return Fail("the stack moved but the counts are wrong");
+			}
+			// Into a half-full stack of the same item, with no free slot: top it up and keep the
+			// remainder in the source. Losing the remainder would be worse than a partial move.
+			from[1].SetDefaults((int)EntityID.ItemID.DIRT_BLOCK, 250);
+			to[0].Stack = 200;
+			to[1].SetDefaults((int)EntityID.ItemID.STONE_BLOCK, 1);
+			to[2].SetDefaults((int)EntityID.ItemID.STONE_BLOCK, 1);
+			to[3].SetDefaults((int)EntityID.ItemID.STONE_BLOCK, 1);
+			if (!Terraria.InventoryTransfer.Move(from, 1, to, to.Length, out num) || num != 0)
+			{
+				return Fail("a stack did not top up an existing one");
+			}
+			if (to[0].Stack != 250 || from[1].Stack != 200)
+			{
+				return Fail("topping up lost or duplicated items: target " + to[0].Stack + ", source " + from[1].Stack);
+			}
+			// The same, but the container has room: the remainder goes to the next free slot.
+			to[3].Init();
+			if (!Terraria.InventoryTransfer.Move(from, 1, to, to.Length, out num) || num != 3)
+			{
+				return Fail("the remainder did not go into the next free slot");
+			}
+			if (from[1].Type != 0 || to[0].Stack != 250 || to[3].Stack != 200)
+			{
+				return Fail("the remainder was placed wrong: source " + from[1].Type + ", target " + to[0].Stack + "/" + to[3].Stack);
+			}
+			// A full container: nothing moves, and nothing is lost.
+			Item[] full = new Item[2];
+			for (int i = 0; i < full.Length; i++)
+			{
+				full[i].Init();
+				full[i].SetDefaults((int)EntityID.ItemID.STONE_BLOCK, 1);
+			}
+			from[2].SetDefaults((int)EntityID.ItemID.IRON_BROADSWORD);
+			if (Terraria.InventoryTransfer.Move(from, 2, full, full.Length, out num))
+			{
+				return Fail("a stack moved into a container with no free slot");
+			}
+			if (from[2].Type != (int)EntityID.ItemID.IRON_BROADSWORD || from[2].Stack != 1)
+			{
+				return Fail("an item was lost when the container was full");
+			}
+			// An empty source is not a move.
+			from[3].Init();
+			if (Terraria.InventoryTransfer.Move(from, 3, to, to.Length, out num))
+			{
+				return Fail("an empty slot reported a transfer");
+			}
+			// Out-of-range slot and null arrays are refused, not thrown: the UI computes the slot
+			// from a cursor that can be on a row the container does not have.
+			if (Terraria.InventoryTransfer.Move(from, 99, to, to.Length, out num)
+				|| Terraria.InventoryTransfer.Move(null, 0, to, to.Length, out num)
+				|| Terraria.InventoryTransfer.Move(from, 0, null, 0, out num))
+			{
+				return Fail("an impossible transfer was accepted");
+			}
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("inventory transfer check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 

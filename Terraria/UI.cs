@@ -8680,6 +8680,14 @@ public sealed class UI
 			num2 = inventoryItemX + inventoryItemY * 10;
 			break;
 		}
+		// Shift-click: move the whole stack to the open container, PC-style. Handled before the
+		// normal click so one action does one thing - the click that transfers must not also pick
+		// the stack up.
+		if (Terraria.Input.KeyboardMouseInput.ShiftDown && mouseItem.Type == 0 && IsButtonTriggered(Buttons.A)
+			&& QuickTransferToContainer(num2))
+		{
+			return;
+		}
 		if (num2 < 40 && mouseItem.Type == 0)
 		{
 			if (IsButtonTriggered(Buttons.DPadUp))
@@ -9219,9 +9227,76 @@ public sealed class UI
 		}
 	}
 
-	private void UpdateStorage()
+	/// <summary>
+	/// Shift-click from the inventory into the open container (chest, piggy bank, safe). Returns
+	/// true when something moved, so the click can be consumed.
+	///
+	/// The container is anything the inventory screen can show on its chest tab, which is why this
+	/// goes through <see cref="ActivePlayer"/>'s fields and not through a tile lookup.
+	/// </summary>
+	private bool QuickTransferToContainer(int Slot)
 	{
-		if (inventoryChestX < 0)
+		int playerChest = ActivePlayer.PlayerChest;
+		if (playerChest == -1 || Slot < 0 || Slot >= ActivePlayer.Inventory.Length)
+		{
+			return false;
+		}
+		Chest chest;
+		switch (playerChest)
+		{
+		case -2:
+			chest = ActivePlayer.bank;
+			break;
+		case -3:
+			chest = ActivePlayer.safe;
+			break;
+		default:
+			chest = ((playerChest >= 0 && playerChest < Main.ChestSet.Length) ? Main.ChestSet[playerChest] : null);
+			break;
+		}
+		if (chest == null)
+		{
+			return false;
+		}
+		int num;
+		if (!InventoryTransfer.Move(ActivePlayer.Inventory, Slot, chest.ItemSet, 20, out num))
+		{
+			return false;
+		}
+		Main.PlaySound(7);
+		if (playerChest >= 0 && num >= 0)
+		{
+			NetMessage.CreateMessage2(32, playerChest, num);
+			NetMessage.SendMessage();
+		}
+		return true;
+	}
+
+	/// <summary>Shift-click from the open container back into the inventory.</summary>
+	private bool QuickTransferFromContainer(Chest Chest, int Slot, int PlayerChest)
+	{
+		if (Chest == null || Slot < 0 || Slot >= 20)
+		{
+			return false;
+		}
+		int num;
+		if (!InventoryTransfer.Move(Chest.ItemSet, Slot, ActivePlayer.Inventory, ActivePlayer.Inventory.Length, out num))
+		{
+			return false;
+		}
+		Main.PlaySound(7);
+		if (PlayerChest >= 0)
+		{
+			// The chest lost items: that is what the server has to hear about. The inventory side
+			// syncs on its own, like every other inventory change in this screen.
+			NetMessage.CreateMessage2(32, PlayerChest, Slot);
+			NetMessage.SendMessage();
+		}
+		return true;
+	}
+
+	private void UpdateStorage()
+	{		if (inventoryChestX < 0)
 		{
 			if (!IsButtonTriggered(Buttons.A))
 			{
@@ -9289,6 +9364,13 @@ public sealed class UI
 		}
 		Chest chest2 = chest;
 		int num = inventoryChestX + inventoryChestY * 5;
+		// Shift-click on a chest slot: pull the stack into the inventory. Same one-action rule as
+		// on the inventory side.
+		if (Terraria.Input.KeyboardMouseInput.ShiftDown && mouseItem.Type == 0 && IsButtonTriggered(Buttons.A)
+			&& QuickTransferFromContainer(chest2, num, playerChest))
+		{
+			return;
+		}
 		if (IsButtonTriggered(Buttons.A))
 		{
 			if (ActivePlayer.SelectedItem == num && ActivePlayer.itemAnimation > 0)
