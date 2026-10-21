@@ -170,6 +170,20 @@ try
 		Fail 'build failed'
 	}
 
+	# The master server is a separate project and ships from the same tree. Building it here is
+	# not cosmetic: a stale binary once answered "--relay-port" with "unknown argument", because
+	# only the Debug copy had been rebuilt, and the failure looked like a broken relay.
+	$masterProject = Join-Path $root 'tools\MasterServer\MasterServer.csproj'
+	if (Test-Path $masterProject)
+	{
+		Write-Host "== build master server ($Configuration)" -ForegroundColor Cyan
+		& dotnet build $masterProject -c $Configuration -v q --nologo
+		if ($LASTEXITCODE -ne 0)
+		{
+			Fail 'master server build failed'
+		}
+	}
+
 	$exe = Join-Path $output 'TerrariaXDK.exe'
 	if (-not (Test-Path $exe))
 	{
