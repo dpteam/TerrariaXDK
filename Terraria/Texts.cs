@@ -198,6 +198,17 @@ internal static class Texts
 		Add(dictionary, "chat.host.usage.unban", "Usage: !unban <player|ip>");
 		Add(dictionary, "chat.host.unban.not", "'{0}' is not on the ban list.");
 		Add(dictionary, "chat.host.unban.done", "Unbanned {0}.");
+		Add(dictionary, "chat.host.usage.whitelist",
+			"Usage: !whitelist [on|off|add <player|ip>|remove <player|ip>|list]");
+		Add(dictionary, "chat.host.whitelist.state", "Whitelist: {0}");
+		Add(dictionary, "chat.host.whitelist.empty.warning",
+			"The whitelist is on and empty - nobody can join until you add somebody.");
+		Add(dictionary, "chat.host.whitelist.added", "Added {0} to the whitelist.");
+		Add(dictionary, "chat.host.whitelist.removed", "Removed {0} from the whitelist.");
+		Add(dictionary, "chat.host.whitelist.already", "'{0}' is already on the whitelist.");
+		Add(dictionary, "chat.host.whitelist.missing", "'{0}' is not on the whitelist.");
+		Add(dictionary, "chat.host.whitelist.none", "The whitelist is empty.");
+		Add(dictionary, "chat.host.whitelist.list", "{0} player(s) allowed:");
 		Add(dictionary, "ui.common.on", "On");
 		Add(dictionary, "ui.common.off", "Off");
 		// The cheat list uses upper case, which some languages write as a separate word form.
@@ -362,7 +373,7 @@ internal static class Texts
 		Add(dictionary, "ui.reject.banned", "you are banned from this server");
 		Add(dictionary, "ui.reject.password", "wrong password");
 		Add(dictionary, "ui.reject.full", "the server is full");
-		Add(dictionary, "ui.reject.kicked", "disconnected by the host");
+		Add(dictionary, "ui.reject.whitelist", "this server allows only whitelisted players");		Add(dictionary, "ui.reject.kicked", "disconnected by the host");
 		Add(dictionary, "ui.reject.kicked.reason", "disconnected by the host: {0}");
 		Add(dictionary, "ui.reject.unknown", "{0}");
 		Add(dictionary, "ui.reject.unknown.empty", "the server gave no reason");

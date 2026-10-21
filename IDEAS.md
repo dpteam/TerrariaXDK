@@ -195,10 +195,15 @@ TShock в `refs/` — это серверный мод для **ПК**-верс�
 - [ ] **Логин/регистрация.** `login`, `register`, `password`, опция `RequireLogin`,
       `DisableLoginBeforeJoin`. Для нашего встроенного хоста это защита от того,
       что кто-то подключится под чужим ником.
-- [ ] **Баны и вайтлист.** `ban/banip/unban/unbanip/clearbans`, `whitelist`,
-      `EnableWhitelist`, `EnableBanOnUsernames`, `immunetoban`, `immunetokick`.
-      У нас уже есть заготовка `banlist.txt` в старом `refs/T104C` — сделать нормально:
-      IP + ник + причина + кто забанил + когда.
+      **Почему отложено:** нужны хранение паролей (хэш + соль + сброс), ещё один шаг в
+      handshake и новая версия протокола; а закрывает это ту же задачу, что вайтлист, только
+      хуже — пароль всё равно передают друг другу. Браться, если понадобится именно «личный
+      пароль», а не «только свои».
+- [x] **Баны и вайтлист (частично).** Баны сделаны (`banlist.txt`: имя или IP, проверка в
+      handshake). Вайтлист сделан: `whitelist.txt`, `[Network] Whitelist`, `!whitelist`,
+      отдельный код отказа. Осталось из списка TShock: `banip`/`unbanip` как отдельные
+      команды, `clearbans`, `immunetoban`/`immunetokick`, `EnableBanOnUsernames`, причина и
+      автор бана в файле.
 - [ ] **Мут и модерация чата.** `mute/unmute`, `whisper/reply`, `me`, `broadcast`,
       `motd`, `rules`. Плюс `DisplayIPToAdmins`.
 - [ ] **Кик и «наказания».** `kick`, `kill`, `slap`, `annoy`, `butcher`,

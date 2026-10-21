@@ -45,6 +45,12 @@ internal static class NetworkConfig
 	public static string Password = string.Empty;
 
 	/// <summary>
+	/// Only listed players may join (<c>Storage/Config/whitelist.txt</c>). Off by default; an
+	/// empty list while enabled refuses everybody, which is what a whitelist means.
+	/// </summary>
+	public static bool Whitelist;
+
+	/// <summary>
 	/// Address advertised to the master server. Empty means "use the address the master
 	/// sees", which is what a home connection behind NAT needs.
 	/// </summary>

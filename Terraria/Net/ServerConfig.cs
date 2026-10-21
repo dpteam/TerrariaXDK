@@ -94,6 +94,13 @@ internal static class ServerConfig
 			{
 				MasterServerClient.Publish = settings.Get("Network", "PublishToMaster").ToLower().Equals("true");
 			}
+			if (Has(settings, "Whitelist"))
+			{
+				NetworkConfig.Whitelist = settings.Get("Network", "Whitelist").ToLower().Equals("true");
+				// The list itself is a separate file, shared by every profile: a server profile
+				// decides whether the list is enforced, not who is on it.
+				Whitelist.Reload();
+			}
 			if (Has(settings, "Motd"))
 			{
 				HostModeration.Motd = (settings.Get("Network", "Motd") ?? string.Empty).Trim();
@@ -156,6 +163,7 @@ internal static class ServerConfig
 			settings.Update("Network", "MaxPlayers", NetworkConfig.MaxPlayers.ToString(), "How many remote players the host accepts (1-255).");
 			settings.Update("Network", "PublicAddress", NetworkConfig.PublicAddress ?? string.Empty, "Address advertised to the master server. Empty lets the master use the address it sees.");
 			settings.Update("Network", "PublishToMaster", MasterServerClient.Publish ? "True" : "False", "List this world publicly while hosting.");
+			settings.Update("Network", "Whitelist", NetworkConfig.Whitelist ? "True" : "False", "Only players listed in whitelist.txt may join.");
 			settings.Update("Network", "Motd", HostModeration.Motd ?? string.Empty, "Message shown to every player who joins.");
 			settings.Update("Network", "Rules", HostModeration.Rules ?? string.Empty, "Rules shown to every player who joins.");
 			settings.Update("Network", "DisableBuild", WorldProtection.DisableBuild ? "True" : "False", "While set, only the host can change the world.");

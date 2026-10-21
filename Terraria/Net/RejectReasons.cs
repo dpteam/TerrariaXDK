@@ -26,14 +26,16 @@ internal enum RejectReason : byte
 	Banned = 3,
 	WrongPassword = 4,
 	ServerFull = 5,
-	Kicked = 6
+	Kicked = 6,
+	/// <summary>The host allows only listed players, and this one is not on the list.</summary>
+	NotWhitelisted = 7
 }
 
 /// <summary>Encoding and decoding of the <c>OpReject</c> payload.</summary>
 internal static class RejectReasons
 {
 	/// <summary>Highest code this build understands; anything above it is <see cref="RejectReason.Unknown"/>.</summary>
-	internal const byte MaxKnown = 6;
+	internal const byte MaxKnown = 7;
 
 	/// <summary>
 	/// Builds the payload: the code, then the fields as .NET binary strings.
@@ -134,6 +136,8 @@ internal static class RejectReasons
 			return "ui.reject.password";
 		case RejectReason.ServerFull:
 			return "ui.reject.full";
+		case RejectReason.NotWhitelisted:
+			return "ui.reject.whitelist";
 		case RejectReason.Kicked:
 			return (fields != null && fields.Length != 0 && !string.IsNullOrEmpty(fields[0]))
 				? "ui.reject.kicked.reason"
@@ -173,6 +177,7 @@ internal static class RejectReasons
 				RejectReason.Banned,
 				RejectReason.WrongPassword,
 				RejectReason.ServerFull,
+				RejectReason.NotWhitelisted,
 				RejectReason.Kicked
 			};
 		}

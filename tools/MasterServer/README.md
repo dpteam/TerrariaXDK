@@ -133,9 +133,27 @@ ACCEPT <ticket>   -> (релей склеивает сокет с ожидающ
 
 ## Файрвол
 
-Для приёма соединений из интернета нужно открыть TCP 17777 (от администратора):
+Для приёма соединений из интернета нужно открыть **оба** порта — список миров и релей. Одной
+командой из повышенной PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ..\firewall.ps1
+```
+
+Или вручную:
 
 ```powershell
 New-NetFirewallRule -DisplayName "TerrariaXDK master server (TCP 17777)" `
   -Direction Inbound -Protocol TCP -LocalPort 17777 -Action Allow -Profile Any
+New-NetFirewallRule -DisplayName "TerrariaXDK relay (TCP 17778)" `
+  -Direction Inbound -Protocol TCP -LocalPort 17778 -Action Allow -Profile Any
 ```
+
+Забыть второй порт легко, и это выглядит обманчиво: список миров работает, а вход в игру через
+релей даёт `timeout`. Windows по умолчанию блокирует входящие на всех профилях, поэтому
+«порт не отвечает» — это чаще правило фаервола, чем проброс.
+
+Проверять надо **снаружи** (не с этой же машины): изнутри проброс виден только если роутер
+умеет hairpin. Быстрая проверка — любой внешний чекер TCP, например
+`https://check-host.net/check-tcp?host=play.dartpower.xyz:17778`.
+

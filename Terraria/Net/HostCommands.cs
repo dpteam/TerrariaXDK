@@ -24,12 +24,13 @@ namespace Terraria.Net;
 internal static class HostCommands
 {
 	/// <summary>Every command name, for chat completion.</summary>
-	public static readonly string[] Names = new string[23]
+	public static readonly string[] Names = new string[24]
 	{
 		"!kick",
 		"!ban",
 		"!unban",
 		"!bans",
+		"!whitelist",
 		"!who",
 		"!say",
 		"!mute",
@@ -64,6 +65,10 @@ internal static class HostCommands
 		case "!who":
 		case "!bans":
 		case "!groups":
+			return Permission.Inspect;
+		case "!whitelist":
+			// Reading the list is harmless; changing who may connect is the same class of decision
+			// as a ban, so it needs the same right. The subcommand decides which, in DoWhitelist.
 			return Permission.Inspect;
 		case "!region":
 			// Listing is harmless; changing the map's rules is not. The subcommand decides,
@@ -175,6 +180,9 @@ internal static class HostCommands
 			return true;
 		case "!bans":
 			DoBans();
+			return true;
+		case "!whitelist":
+			DoWhitelist(rest, actor, isLocalHost, out error);
 			return true;
 		case "!kick":
 			DoKick(rest, out error);
@@ -858,6 +866,89 @@ internal static class HostCommands
 				? Texts.Format("chat.host.ban.done.kicked", target, kicked)
 				: Texts.Format("chat.host.ban.done", target))
 			: Texts.Format("chat.host.ban.already", target, kicked), 255, 160, 140);
+	}
+
+	/// <summary>
+	/// <c>!whitelist [on|off|add &lt;name|ip&gt;|remove &lt;name|ip&gt;|list]</c>.
+	///
+	/// Turning it on or off and editing the list are different decisions: reading the list is
+	/// <see cref="Permission.Inspect"/>, changing it needs <see cref="Permission.Ban"/>. Without
+	/// that split, a moderator who may look at the roster could lock the owner out.
+	/// </summary>
+	private static void DoWhitelist(string rest, string actor, bool isLocalHost, out string error)
+	{
+		error = null;
+		string[] array = rest.Split(new char[1] { ' ' }, 2);
+		string text = array[0].ToLowerInvariant();
+		string text2 = ((array.Length > 1) ? array[1].Trim() : string.Empty);
+		switch (text)
+		{
+		case "":
+		case "list":
+			DoWhitelistList();
+			return;
+		case "on":
+		case "off":
+		{
+			if (!Permissions.Allows(actor, Permission.Ban, isLocalHost))
+			{
+				error = Texts.Format("chat.host.forbidden", actor ?? Texts.Get("chat.host.you"), "!whitelist");
+				return;
+			}
+			bool flag = text == "on";
+			NetworkConfig.Whitelist = flag;
+			Whitelist.Enabled = flag;
+			// Persisted, or the next start would quietly go back to "everyone may join" and the
+			// host would believe the server is closed.
+			UI.MainUI.SettingsDirty = true;
+			if (flag && Whitelist.Count == 0)
+			{
+				Say(Texts.Get("chat.host.whitelist.empty.warning"), 255, 200, 120);
+			}
+			Say(Texts.Format("chat.host.whitelist.state", flag ? Texts.Get("ui.common.on") : Texts.Get("ui.common.off")), 255, 220, 140);
+			return;
+		}
+		case "add":
+		case "remove":
+		{
+			if (!Permissions.Allows(actor, Permission.Ban, isLocalHost))
+			{
+				error = Texts.Format("chat.host.forbidden", actor ?? Texts.Get("chat.host.you"), "!whitelist");
+				return;
+			}
+			if (text2.Length == 0)
+			{
+				error = Texts.Get("chat.host.usage.whitelist");
+				return;
+			}
+			bool flag2 = text == "add" ? Whitelist.Add(text2) : Whitelist.Remove(text2);
+			if (!flag2)
+			{
+				error = Texts.Format(text == "add" ? "chat.host.whitelist.already" : "chat.host.whitelist.missing", text2);
+				return;
+			}
+			Say(Texts.Format(text == "add" ? "chat.host.whitelist.added" : "chat.host.whitelist.removed", text2), 255, 220, 140);
+			return;
+		}
+		default:
+			error = Texts.Get("chat.host.usage.whitelist");
+			return;
+		}
+	}
+
+	private static void DoWhitelistList()
+	{
+		List<string> list = Whitelist.All;
+		if (list.Count == 0)
+		{
+			Say(Texts.Get("chat.host.whitelist.none"), 200, 200, 200);
+			return;
+		}
+		Say(Texts.Format("chat.host.whitelist.list", list.Count), 255, 220, 140);
+		for (int i = 0; i < list.Count; i++)
+		{
+			Say("  " + list[i], 220, 220, 220);
+		}
 	}
 
 	private static void DoUnban(string rest, out string error)

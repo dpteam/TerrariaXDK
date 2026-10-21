@@ -392,6 +392,16 @@ internal sealed class TcpPeer : IPeerTransport
 				Reject(connection, RejectReason.WrongPassword);
 				return;
 			}
+			// Whitelist after the password and before registration: a player who is not on the
+			// list must not learn the roster or the world either. Order matters for the player:
+			// "wrong password" is actionable, "not whitelisted" is not, so the password is asked
+			// first.
+			if (!Terraria.Net.Whitelist.IsAllowed(gamertag, remoteAddress))
+			{
+				ModLoaderLog("Rejected peer " + gamertag + " from " + remoteAddress + ": not on the whitelist");
+				Reject(connection, RejectReason.NotWhitelisted);
+				return;
+			}
 			if (RemoteCount() >= NetworkConfig.MaxPlayers)
 			{
 				Reject(connection, RejectReason.ServerFull);

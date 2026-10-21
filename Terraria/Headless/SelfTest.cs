@@ -102,6 +102,7 @@ internal static class SelfTest
 		RunCheck("creation flow back", CheckCreateFlowBack);
 		RunCheck("typed characters", CheckTypedCharacters);
 		RunCheck("relay client", CheckRelayClient);
+		RunCheck("whitelist", CheckWhitelist);
 		RunCheck("relay live", CheckRelayLive);
 		RunCheck("keyboard grid", CheckKeyboardGrid);
 		RunCheck("inventory transfer", CheckInventoryTransfer);
@@ -4884,11 +4885,12 @@ internal static class SelfTest
 
 			// Every command that changes something must be gated: a command with no permission
 			// is the classic hole, and it is invisible until someone abuses it.
-			string[] gated = new string[12]
+			string[] gated = new string[13]
 			{
 				"!who",
 				"!bans",
 				"!groups",
+				"!whitelist",
 				"!kick",
 				"!ban",
 				"!unban",
@@ -4906,9 +4908,22 @@ internal static class SelfTest
 					return Fail("'" + gated[j] + "' is not a known command");
 				}
 			}
-			if (HostCommands.Names.Length != 23)
+			// The list is what chat completion offers, so it has to match what the dispatcher
+			// knows - in both directions. A hardcoded count here only ever said "somebody added a
+			// command"; these two checks say whether the addition is usable.
+			for (int j = 0; j < HostCommands.Names.Length; j++)
 			{
-				return Fail("the command list has " + HostCommands.Names.Length + " entries, expected 23");
+				if (!HostCommands.IsCommand(HostCommands.Names[j]))
+				{
+					return Fail("'" + HostCommands.Names[j] + "' is offered by completion but not handled");
+				}
+				for (int k = j + 1; k < HostCommands.Names.Length; k++)
+				{
+					if (HostCommands.Names[j] == HostCommands.Names[k])
+					{
+						return Fail("'" + HostCommands.Names[j] + "' is listed twice");
+					}
+				}
 			}
 			// The chat packet helpers: the host recognises a client command by reading the line
 			// back out of the packet, so a round-trip mismatch would silently disable commands.
@@ -6879,6 +6894,48 @@ internal static class SelfTest
 					return Fail("a wrong password produced '" + reason2 + "' instead of a password refusal");
 				}
 			}
+			// The whitelist gate, on the same live host: the password is correct this time, the
+			// name is not on the list, and the refusal has to be its own reason. Checking only the
+			// pure function would leave "is it wired into the handshake" unanswered - and that is
+			// the part that decides whether a stranger gets in.
+			NetworkConfig.Password = string.Empty;
+			Terraria.Net.NetworkConfig.Whitelist = true;
+			Terraria.Net.Whitelist.Enabled = true;
+			string savedList = null;
+			string listPath = Terraria.Net.Whitelist.FilePath;
+			bool listExisted = File.Exists(listPath);
+			if (listExisted)
+			{
+				savedList = File.ReadAllText(listPath);
+			}
+			try
+			{
+				File.WriteAllText(listPath, "SomeoneElse\r\n", Encoding.UTF8);
+				Terraria.Net.Whitelist.Reload();
+				Terraria.Net.RejectReason reason3;
+				if (!TryHandshakeReject(port, "NotOnTheList", string.Empty, out reason3))
+				{
+					return Fail("the host did not answer a handshake while the whitelist was on");
+				}
+				if (reason3 != Terraria.Net.RejectReason.NotWhitelisted)
+				{
+					return Fail("an unlisted player was refused with '" + reason3 + "' instead of a whitelist refusal");
+				}
+			}
+			finally
+			{
+				Terraria.Net.NetworkConfig.Whitelist = false;
+				Terraria.Net.Whitelist.Enabled = false;
+				if (savedList != null)
+				{
+					File.WriteAllText(listPath, savedList, Encoding.UTF8);
+				}
+				else if (File.Exists(listPath))
+				{
+					File.Delete(listPath);
+				}
+				Terraria.Net.Whitelist.Reload();
+			}
 			return true;
 		}
 		catch (Exception ex)
@@ -6901,6 +6958,37 @@ internal static class SelfTest
 			{
 			}
 		}
+	}
+
+	/// <summary>
+	/// Sends one handshake to a live host and returns the refusal reason. False when the host did
+	/// not answer at all, which is a different failure from "answered with the wrong reason".
+	/// </summary>
+	private static bool TryHandshakeReject(int Port, string Gamertag, string Password, out Terraria.Net.RejectReason Reason)
+	{
+		Reason = Terraria.Net.RejectReason.Unknown;
+		using System.Net.Sockets.TcpClient tcpClient = new System.Net.Sockets.TcpClient();
+		tcpClient.NoDelay = true;
+		tcpClient.Connect(System.Net.IPAddress.Loopback, Port);
+		using System.Net.Sockets.NetworkStream stream = tcpClient.GetStream();
+		using MemoryStream memoryStream = new MemoryStream();
+		BinaryWriter binaryWriter = new BinaryWriter(memoryStream, Encoding.UTF8);
+		binaryWriter.Write(Terraria.Net.TcpPeer.OpHello);
+		binaryWriter.Write(Terraria.Net.TcpPeer.ProtocolVersionPublic);
+		binaryWriter.Write(Gamertag);
+		binaryWriter.Write(Terraria.Mods.ModLoader.Signature);
+		binaryWriter.Write(Password ?? string.Empty);
+		binaryWriter.Flush();
+		WireFormat.WriteAll(stream, WireFormat.LengthPrefix(memoryStream.ToArray()));
+		byte[] frame = WireFormat.ReadFrame(stream);
+		if (frame == null || frame[0] != Terraria.Net.TcpPeer.OpReject)
+		{
+			return false;
+		}
+		byte[] payload = new byte[frame.Length - 1];
+		Buffer.BlockCopy(frame, 1, payload, 0, payload.Length);
+		string[] fields;
+		return Terraria.Net.RejectReasons.TryParse(payload, out Reason, out fields);
 	}
 
 	// --- Portability --------------------------------------------------------
@@ -9465,6 +9553,110 @@ internal static class SelfTest
 	private static string TokenForLiveCheck()
 	{
 		return Terraria.Net.RelayLink.CurrentToken;
+	}
+
+	private static bool CheckWhitelist()
+	{
+		string savedPath = null;
+		try
+		{
+			// The list lives next to the real settings; the test writes a temporary file and
+			// restores it, so a run never leaves a whitelist behind.
+			string path = Terraria.Net.Whitelist.FilePath;
+			bool existed = File.Exists(path);
+			if (existed)
+			{
+				savedPath = File.ReadAllText(path);
+			}
+			bool savedEnabled = Terraria.Net.NetworkConfig.Whitelist;
+			bool savedWhitelistEnabled = Terraria.Net.Whitelist.Enabled;
+			try
+			{
+				File.WriteAllText(path, "# comment\r\nAlice\r\n10.0.0.7\r\n\r\n  Bob  \r\n", Encoding.UTF8);
+				Terraria.Net.Whitelist.Reload();
+				Terraria.Net.Whitelist.Enabled = true;
+
+				if (Terraria.Net.Whitelist.Count != 3)
+				{
+					return Fail("comments and blank lines were counted as entries (" + Terraria.Net.Whitelist.Count + ")");
+				}
+				// Whole-string, case-insensitive: "Bob" must match the trimmed entry, "Bobby" must not.
+				if (!Terraria.Net.Whitelist.IsAllowed("Alice", "1.2.3.4")
+					|| !Terraria.Net.Whitelist.IsAllowed("bob", "1.2.3.4")
+					|| !Terraria.Net.Whitelist.IsAllowed("Stranger", "10.0.0.7"))
+				{
+					return Fail("a listed player or address was refused");
+				}
+				if (Terraria.Net.Whitelist.IsAllowed("Bobby", "1.2.3.4")
+					|| Terraria.Net.Whitelist.IsAllowed("Alice2", "1.2.3.4")
+					|| Terraria.Net.Whitelist.IsAllowed("", "10.0.0.70"))
+				{
+					return Fail("a player who is not on the list got in (substring match?)");
+				}
+				// Off means "everyone", which is the whole point of a switch.
+				Terraria.Net.Whitelist.Enabled = false;
+				if (!Terraria.Net.Whitelist.IsAllowed("Stranger", "1.2.3.4"))
+				{
+					return Fail("a disabled whitelist still refused somebody");
+				}
+				// Enabled and empty: nobody gets in, because that is what a whitelist means.
+				File.WriteAllText(path, "# only a comment\r\n", Encoding.UTF8);
+				Terraria.Net.Whitelist.Reload();
+				Terraria.Net.Whitelist.Enabled = true;
+				if (Terraria.Net.Whitelist.IsAllowed("Alice", "1.2.3.4"))
+				{
+					return Fail("an empty whitelist let somebody in (it must refuse everybody)");
+				}
+				// Add/remove round-trip through the file, and duplicates are not created.
+				if (!Terraria.Net.Whitelist.Add("Carol") || Terraria.Net.Whitelist.Add("Carol"))
+				{
+					return Fail("adding an entry did not report 'new, then already there'");
+				}
+				Terraria.Net.Whitelist.Reload();
+				if (!Terraria.Net.Whitelist.IsAllowed("Carol", null))
+				{
+					return Fail("an added entry was not saved to the file");
+				}
+				if (!Terraria.Net.Whitelist.Remove("Carol") || Terraria.Net.Whitelist.Remove("Carol"))
+				{
+					return Fail("removing an entry did not report 'removed, then not found'");
+				}
+				Terraria.Net.Whitelist.Reload();
+				if (Terraria.Net.Whitelist.IsAllowed("Carol", null))
+				{
+					return Fail("a removed entry still lets the player in");
+				}
+				// The saved file is self-documenting, so a host editing it by hand knows the rules.
+				string text = File.ReadAllText(path);
+				if (!text.Contains("#") || !text.Contains("Whitelist=True"))
+				{
+					return Fail("the written file does not explain itself: " + text.Replace("\r", " ").Replace("\n", " "));
+				}
+				return true;
+			}
+			finally
+			{
+				Terraria.Net.Whitelist.Enabled = savedWhitelistEnabled;
+				Terraria.Net.NetworkConfig.Whitelist = savedEnabled;
+				if (savedPath != null)
+				{
+					File.WriteAllText(path, savedPath, Encoding.UTF8);
+				}
+				else if (File.Exists(path))
+				{
+					File.Delete(path);
+				}
+				Terraria.Net.Whitelist.Reload();
+			}
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("whitelist check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
 	}
 
 	private static bool CheckMenuHitTable()
