@@ -83,6 +83,7 @@ internal static class Program
 		Title("TerrariaXDK master server");
 		MasterServerHost host = new MasterServerHost(port, ttl, dataPath);
 		DateTime lastSave = DateTime.MinValue;
+		DateTime lastStatsSave = DateTime.MinValue;
 		host.Log += delegate(string message)
 		{
 			Say(message);
@@ -97,6 +98,18 @@ internal static class Program
 			}
 			lastSave = utcNow;
 			host.Save();
+		};
+		host.StatsChangedEvent += delegate
+		{
+			// Same reasoning, on its own file: statistics are written when they change, and a busy
+			// server should not rewrite the whole population on every report.
+			DateTime utcNow = DateTime.UtcNow;
+			if ((utcNow - lastStatsSave).TotalSeconds < 10.0)
+			{
+				return;
+			}
+			lastStatsSave = utcNow;
+			host.Stats.Save();
 		};
 		try
 		{
@@ -113,6 +126,9 @@ internal static class Program
 		Say("list   http://localhost:" + host.Port + "/v1/servers");
 		Say("status http://localhost:" + host.Port + "/");
 		Say("waiting for announces (the game sends one every 45s while hosting)");
+		Say("");
+		Say("achievements http://localhost:" + host.Port + "/v1/achievements");
+		Say("leaderboard  http://localhost:" + host.Port + "/v1/leaderboard?stat=AirTravel");
 		Say("");
 		ManualResetEvent manualResetEvent = new ManualResetEvent(initialState: false);
 		Console.CancelKeyPress += delegate(object sender, ConsoleCancelEventArgs e)

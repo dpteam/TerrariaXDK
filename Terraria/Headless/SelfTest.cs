@@ -97,8 +97,10 @@ internal static class SelfTest
 		RunCheck("menu tables", CheckMenuTables);
 		RunCheck("text entry", CheckTextEntry);
 		RunCheck("pointer scaling", CheckPointerScaling);
+		RunCheck("modal input latch", CheckModalInputLatch);
 		RunCheck("screen geometry", CheckScreenGeometry);
 		RunCheck("master server live", CheckMasterServerLive);
+		RunCheck("achievement stats", CheckAchievementStats);
 		RunCheck("every text key used", CheckTextKeysUsed);
 #if DEBUG
 		RunCheck("debug kit", CheckDebugKit);
@@ -8476,6 +8478,54 @@ internal static class SelfTest
 	/// mouse only reached part of the screen - and it was invisible at 540p in a 720p window,
 	/// because "almost right" looks like a slightly-off cursor rather than a bug.
 	/// </summary>
+	private static bool CheckModalInputLatch()
+	{
+		try
+		{
+			MouseState idleMouse = new MouseState();
+			KeyboardState idleKeys = new KeyboardState();
+			if (Terraria.Input.KeyboardMouseInput.ModalInputDown(idleKeys, idleMouse, false))
+			{
+				return Fail("an idle device reports a held confirm key");
+			}
+			// The keyboard closes on Enter and the screen behind it starts on Enter. Until the
+			// key is released, the latch has to stay on, or character creation reopens its own
+			// name prompt from the same keystroke.
+			if (!Terraria.Input.KeyboardMouseInput.ModalInputDown(new KeyboardState(Keys.Enter), idleMouse, false))
+			{
+				return Fail("a held Enter did not keep the modal latch engaged");
+			}
+			if (!Terraria.Input.KeyboardMouseInput.ModalInputDown(new KeyboardState(Keys.Escape), idleMouse, false))
+			{
+				return Fail("a held Escape did not keep the modal latch engaged");
+			}
+			// Accepting with the on-screen OK button leaves the left button down for a moment.
+			MouseState heldMouse = new MouseState(0, 0, 0, ButtonState.Pressed, ButtonState.Released, ButtonState.Released, ButtonState.Released, ButtonState.Released);
+			if (!Terraria.Input.KeyboardMouseInput.ModalInputDown(idleKeys, heldMouse, false))
+			{
+				return Fail("a held left mouse button did not keep the modal latch engaged");
+			}
+			if (!Terraria.Input.KeyboardMouseInput.ModalInputDown(idleKeys, idleMouse, true))
+			{
+				return Fail("a held pad button did not keep the modal latch engaged");
+			}
+			// A key that is not a modal control (W) must not freeze game input.
+			if (Terraria.Input.KeyboardMouseInput.ModalInputDown(new KeyboardState(Keys.W), idleMouse, false))
+			{
+				return Fail("an unrelated key kept the modal latch engaged");
+			}
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("modal input latch check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
 	private static bool CheckPointerScaling()
 	{
 		try
@@ -8831,18 +8881,45 @@ internal static class SelfTest
 			// Pick up the configured endpoint, but keep the test short and side-effect free: no
 			// cache write, no backoff accounting, no publishing.
 			Terraria.Net.MasterServerClient.ResetBackoff();
+			// Liveness first, and from /health rather than from the cache file: Fetch() falls back
+			// to the cached list when the master is down, so "the cache exists" only proves that
+			// some run in the past succeeded. That check used to report a dead master as live.
+			int health = Terraria.Net.MasterServerClient.Probe("/health");
+			if (health == 0)
+			{
+				Skip(endpoint + " did not answer - start the master server to run this check");
+			}
+			if (health != 200)
+			{
+				return Fail(endpoint + " /health answered " + health);
+			}
 			List<Terraria.Net.MasterServerEntry> list = Terraria.Net.MasterServerClient.Fetch();
 			if (list == null)
 			{
 				return Fail("Fetch returned null instead of a list");
 			}
-			// An empty list is a valid answer ("nobody is hosting"), so only the transport can be
-			// judged here: the cache is written only on a successful response.
-			if (!System.IO.File.Exists(Terraria.Net.MasterServerClient.CachePath))
-			{
-				Skip(endpoint + " did not answer - start the master server to run this check");
-			}
 			Console.WriteLine("    master server " + endpoint + ": " + list.Count + " server(s) listed");
+			// Same server, same client code the achievements and leaderboard screens use.
+			int totalPlayers;
+			int[] counts = Terraria.Net.MasterServerClient.FetchAchievementCounts(out totalPlayers);
+			if (counts == null)
+			{
+				// A 404 means a master from before the statistics endpoints. That is a version
+				// mismatch in a separate service, not a defect in this build, so it is a skip
+				// with the reason - a Fail here would break every checkout pointed at an older
+				// master, including the public one.
+				if (Terraria.Net.MasterServerClient.Probe("/v1/achievements") == 404)
+				{
+					Skip(endpoint + " is older than this build - rebuild tools/MasterServer to check the statistics");
+				}
+				return Fail(endpoint + " did not answer /v1/achievements");
+			}
+			List<Terraria.Net.BoardRow> board = Terraria.Net.MasterServerClient.FetchBoard(new string[1] { "AirTravel" }, 10);
+			if (board == null)
+			{
+				return Fail(endpoint + " did not answer /v1/leaderboard - update the master server");
+			}
+			Console.WriteLine("    stats: " + totalPlayers + " player(s), " + counts.Length + " achievement(s) reported, " + board.Count + " ranked by air travel");
 			return true;
 		}
 		catch (SkipCheckException)
@@ -8861,6 +8938,72 @@ internal static class SelfTest
 			{
 				Terraria.Net.MasterServerClient.SetEndpoints(savedEndpoints);
 			}
+		}
+	}
+
+	private static bool CheckAchievementStats()
+	{
+		try
+		{
+			// The board columns are the keys the master ranks by, so their names and order matter:
+			// a reordered column would put a crafting count under "AirTravel".
+			string[] array = Terraria.Leaderboards.LeaderboardInfo.BoardStatistics(Terraria.Leaderboards.Leaderboard.DISTANCE);
+			if (array == null || array.Length != 4 || array[0] != "AirTravel" || array[3] != "LavaTravel")
+			{
+				return Fail("the distance board columns are not AirTravel..LavaTravel");
+			}
+			array = Terraria.Leaderboards.LeaderboardInfo.BoardStatistics(Terraria.Leaderboards.Leaderboard.CRAFTING);
+			if (array == null || array.Length != 6 || array[0] != "FurnitureCrafted")
+			{
+				return Fail("the crafting board columns are not the six crafting statistics");
+			}
+			if (Terraria.Leaderboards.LeaderboardInfo.BoardStatistics((Terraria.Leaderboards.Leaderboard)99) != null)
+			{
+				return Fail("an out-of-range board produced columns");
+			}
+
+			// The counter line: present only when the numbers are known, and it names the
+			// population so "12" cannot be read as "12%".
+			Terraria.Net.StatSync.ResetForTests();
+			if (Terraria.Net.StatSync.HasCounts || Terraria.Net.StatSync.AchievementLabel(0) != null)
+			{
+				return Fail("an empty cache still produced an achievement label");
+			}
+			if (Terraria.Net.StatSync.AchievementCount(-1) != -1)
+			{
+				return Fail("a negative achievement index produced a count");
+			}
+			Terraria.Net.StatSync.SetCountsForTests(new int[3] { 5, 0, 3 }, 10);
+			if (!Terraria.Net.StatSync.HasCounts)
+			{
+				return Fail("the counts were set but HasCounts is false");
+			}
+			if (Terraria.Net.StatSync.AchievementCount(0) != 5 || Terraria.Net.StatSync.AchievementCount(2) != 3)
+			{
+				return Fail("the counts were not readable back");
+			}
+			string text = Terraria.Net.StatSync.AchievementLabel(0);
+			if (text == null || !text.Contains("5") || !text.Contains("10"))
+			{
+				return Fail("the label did not mention both numbers: '" + text + "'");
+			}
+			if (Terraria.Net.StatSync.AchievementLabel(7) != null)
+			{
+				return Fail("an achievement nobody reported produced a label");
+			}
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("achievement stats check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Net.StatSync.ResetForTests();
 		}
 	}
 

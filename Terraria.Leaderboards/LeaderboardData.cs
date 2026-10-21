@@ -16,7 +16,14 @@ public class LeaderboardData
 
 		public Gamer Gamer;
 
-		public string Gamertag => Gamer.Gamertag;
+		/// <summary>
+		/// Name for a row that did not come from Xbox Live (a row read from the master server).
+		/// <see cref="Gamer"/> is an abstract XNA type and cannot be constructed here, so the name
+		/// is carried directly rather than faked with a stub gamer.
+		/// </summary>
+		public string Name;
+
+		public string Gamertag => (Gamer != null) ? Gamer.Gamertag : Name;
 	}
 
 	private class Cache
@@ -64,11 +71,34 @@ public class LeaderboardData
 
 	public string LeaderboardName;
 
-	public bool Ready => Reader != null;
+	public bool Ready => Reader != null || _fromMaster;
 
-	private bool CanPageDown => Reader.CanPageDown;
+	/// <summary>
+	/// True when the table came from the master server instead of Xbox Live. It is a single
+	/// batch, so there is nothing to page to: the whole point is to show something where Live
+	/// would have shown nothing at all.
+	/// </summary>
+	private bool _fromMaster;
 
-	private bool CanPageUp => Reader.CanPageUp;
+	/// <summary>The board currently loaded, so an asynchronous failure can still fall back.</summary>
+	private Leaderboard _board;
+
+	// Master-fallback state. Volatile because the fetch runs on its own thread; the game thread
+	// only reads them in Update(). _masterRows is published by the volatile write of
+	// _masterLoading = false, which is a release: the list is complete before the flag drops.
+	private volatile bool _masterLoading;
+
+	/// <summary>True from the moment a master read starts until its result has been applied or
+	/// reported. Without it, a successful Live read would look like a failed master read.</summary>
+	private volatile bool _masterAttempted;
+
+	private volatile int _masterGeneration;
+
+	private System.Collections.Generic.List<Terraria.Net.BoardRow> _masterRows;
+
+	private bool CanPageDown => !_fromMaster && Reader != null && Reader.CanPageDown;
+
+	private bool CanPageUp => !_fromMaster && Reader != null && Reader.CanPageUp;
 
 	private static void ProcessEntries(LeaderboardReader Reader, Column[] Columns, ref Cache BoardCache)
 	{
@@ -118,40 +148,166 @@ public class LeaderboardData
 		};
 	}
 
+	/// <summary>
+	/// Loads a board. The master server is the source, not Xbox Live.
+	///
+	/// The reason is not laziness: the Live reader in this port is a stub that manufactures
+	/// plausible rows (<c>Microsoft.Xna.Framework.GamerServices.LeaderboardReader</c>), so a
+	/// Live-first screen showed invented players and never touched the real numbers. The stub
+	/// stays for the achievements list, where it only enumerates real local achievements, but a
+	/// ranking made of made-up names is worse than an empty one.
+	/// </summary>
 	public void LoadLeaderboard(Leaderboard BoardType)
 	{
-		LeaderboardIdentity identity = LeaderboardInfo.GetIdentity(BoardType);
-		ReqResult = LeaderboardReader.BeginRead(identity, 0, 50, null, null);
-		Reader = null;
-		ReadStateReq = AsyncRequest.FullRead;
-		NumEntries = 0;
 		ResetCaches();
 		Columns = LeaderboardInfo.GetColumns(BoardType);
 		LeaderboardName = LeaderboardInfo.GetName(BoardType);
+		NumEntries = 0;
+		_board = BoardType;
+		_fromMaster = false;
+		_masterAttempted = false;
+		Reader = null;
+		ReadStateReq = AsyncRequest.None;
+		ReqResult = null;
+		BeginLoadFromMaster(BoardType);
 	}
 
+	/// <summary>
+	/// "My rank" pivot. The master's table is global, so the pivot changes nothing here; the
+	/// board is still the real one.
+	/// </summary>
 	public void LoadLeaderboard(Leaderboard BoardType, Gamer CurrentGamer)
 	{
-		LeaderboardIdentity identity = LeaderboardInfo.GetIdentity(BoardType);
-		ReqResult = LeaderboardReader.BeginRead(identity, CurrentGamer, 50, null, CurrentGamer);
-		Reader = null;
-		ReadStateReq = AsyncRequest.FullRead;
-		NumEntries = 0;
-		ResetCaches();
-		Columns = LeaderboardInfo.GetColumns(BoardType);
-		LeaderboardName = LeaderboardInfo.GetName(BoardType);
+		LoadLeaderboard(BoardType);
 	}
 
+	/// <summary>
+	/// Friends board. There is no friends service in this port, and inventing one would mean
+	/// inventing friend rows - so the table stays empty until a real source exists.
+	/// </summary>
 	public void LoadLeaderboard(Leaderboard BoardType, FriendCollection FriendsList, Gamer CurrentGamer)
 	{
-		LeaderboardIdentity identity = LeaderboardInfo.GetIdentity(BoardType);
-		ReqResult = LeaderboardReader.BeginRead(identity, FriendsList, CurrentGamer, FriendsList.Count + 1, null, CurrentGamer);
-		Reader = null;
-		ReadStateReq = AsyncRequest.FullRead;
-		NumEntries = 0;
 		ResetCaches();
 		Columns = LeaderboardInfo.GetColumns(BoardType);
 		LeaderboardName = LeaderboardInfo.GetName(BoardType);
+		NumEntries = 0;
+		_board = BoardType;
+		_fromMaster = false;
+		_masterAttempted = false;
+		Reader = null;
+		ReadStateReq = AsyncRequest.None;
+		ReqResult = null;
+		BatchSize = 0;
+	}
+
+	/// <summary>
+	/// Starts reading the board from the master server's ranking, on a background thread.
+	///
+	/// Background because a master that is configured but does not answer costs a full HTTP
+	/// timeout, and doing that here would freeze the menu the moment it opens. The result is
+	/// picked up by <see cref="Update"/>, which the screen already polls every frame.
+	/// </summary>
+	private void BeginLoadFromMaster(Leaderboard BoardType)
+	{
+		string[] statistics = Terraria.Net.StatSync.BoardStatistics(BoardType);
+		if (statistics == null)
+		{
+			return;
+		}
+		_masterGeneration++;
+		int generation = _masterGeneration;
+		_masterRows = null;
+		_masterAttempted = true;
+		_masterLoading = true;
+		System.Threading.Thread thread = new System.Threading.Thread(delegate()
+		{
+			try
+			{
+				System.Collections.Generic.List<Terraria.Net.BoardRow> rows = Terraria.Net.StatSync.FetchBoard(statistics, PageSize);
+				// A stale answer for a board the player has already left is dropped.
+				if (generation != _masterGeneration)
+				{
+					return;
+				}
+				_masterRows = rows;
+			}
+			catch (Exception ex)
+			{
+				Program.LogDebug("Leaderboard", "master read failed: " + ex.Message);
+				if (generation == _masterGeneration)
+				{
+					_masterRows = null;
+				}
+			}
+			finally
+			{
+				if (generation == _masterGeneration)
+				{
+					_masterLoading = false;
+				}
+			}
+		});
+		thread.IsBackground = true;
+		thread.Name = "TerrariaXDK.Board";
+		thread.Start();
+	}
+
+	/// <summary>
+	/// Installs rows fetched from the master. Returns false when there was nothing to install,
+	/// in which case the caller keeps its "no leaderboard" path.
+	///
+	/// Rows are ranked by the sum of the board's columns, which is the rating the console build
+	/// submitted to Xbox Live, so the order reads the same as it did there.
+	/// </summary>
+	private bool ApplyMasterRows()
+	{
+		System.Collections.Generic.List<Terraria.Net.BoardRow> list = _masterRows;
+		if (list == null || list.Count == 0)
+		{
+			return false;
+		}
+		Row[] array2 = new Row[list.Count];
+		for (int i = 0; i < list.Count; i++)
+		{
+			Terraria.Net.BoardRow boardRow = list[i];
+			long[] values = boardRow.Values;
+			uint[] array3 = new uint[values.Length];
+			for (int j = 0; j < values.Length; j++)
+			{
+				array3[j] = ((values[j] < 0L) ? 0u : ((values[j] > 4294967295L) ? uint.MaxValue : (uint)values[j]));
+			}
+			array2[i] = new Row
+			{
+				Available = true,
+				Rank = i + 1,
+				Name = boardRow.Gamertag,
+				Statistics = array3
+			};
+		}
+		CurrentCache = new Cache
+		{
+			Entries = array2,
+			StartIndex = 0,
+			NumEntries = array2.Length
+		};
+		StaleCache = new Cache
+		{
+			Entries = new Row[0],
+			StartIndex = 0,
+			NumEntries = 0
+		};
+		MergedCache = new Cache
+		{
+			Entries = array2,
+			StartIndex = 0,
+			NumEntries = array2.Length
+		};
+		_fromMaster = true;
+		NumEntries = array2.Length;
+		BatchSize = Math.Min(array2.Length, DefaultBatchSize);
+		BatchStart = 0;
+		Selected = 0;
+		return true;
 	}
 
 	private void ResetCaches()
@@ -192,6 +348,22 @@ public class LeaderboardData
 
 	public bool Update()
 	{
+		// The master fallback is polled first: while it is in flight there is nothing to draw yet
+		// but nothing has failed either, so the screen keeps its table and waits.
+		if (_masterAttempted && !_fromMaster)
+		{
+			if (_masterLoading)
+			{
+				return true;
+			}
+			if (_masterRows != null)
+			{
+				return ApplyMasterRows();
+			}
+			// Neither Xbox Live nor the master had anything: let the screen say so, once.
+			_masterAttempted = false;
+			return false;
+		}
 		if (ReadStateReq == AsyncRequest.None || !ReqResult.IsCompleted)
 		{
 			return true;
@@ -202,9 +374,15 @@ public class LeaderboardData
 			{
 				Reader = LeaderboardReader.EndRead(ReqResult);
 			}
-			catch
+			catch (Exception ex)
 			{
-				return false;
+				// Live accepted the read and then failed it. Same fallback as a synchronous
+				// failure, so a flaky service shows the master's table instead of an error box.
+				Program.LogDebug("Leaderboard", "Xbox Live read failed, asking the master: " + ex.Message);
+				ReqResult = null;
+				ReadStateReq = AsyncRequest.None;
+				BeginLoadFromMaster(_board);
+				return true;
 			}
 			BatchStart = Reader.PageStart;
 			Selected = 0;

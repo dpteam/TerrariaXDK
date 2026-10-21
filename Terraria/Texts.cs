@@ -230,6 +230,12 @@ internal static class Texts
 		Add(dictionary, "ui.cheats.removed", "Removed {0} enemies");
 		Add(dictionary, "ui.cheats.status", "Cheats: {0}");
 
+		// --- Achievements ---------------------------------------------------
+		// "Reported by" rather than "earned by": the master server trusts what clients tell it,
+		// and calling these numbers verified would be a lie the player cannot check.
+		Add(dictionary, "ui.achievements.earned.by", "Reported by {0} of {1} players");
+		Add(dictionary, "ui.achievements.nobody", "Nobody has reported this achievement yet");
+
 		// --- Mods screen ----------------------------------------------------
 		Add(dictionary, "ui.mods.title", "Mods");
 		Add(dictionary, "ui.mods.entry.on", "[on]  ");

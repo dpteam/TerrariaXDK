@@ -76,18 +76,31 @@ internal sealed class MasterServerHost
 	private volatile bool _stopping;
 	private DateTime _startedUtc;
 
+	/// <summary>Achievement and leaderboard aggregation. Same process, same console.</summary>
+	private readonly PlayerStats _stats;
+
 	/// <summary>Raised for every request and every change to the list, so the console can show it.</summary>
 	public event Action<string> Log;
 
 	/// <summary>Raised when the stored list changed, so the caller can persist it.</summary>
 	public event Action Changed;
 
+	/// <summary>Raised when the statistics changed (not the world list).</summary>
+	public event Action StatsChangedEvent;
+
 	public MasterServerHost(int port, int ttlSeconds, string dataPath)
 	{
 		_requestedPort = port;
 		_ttlSeconds = (ttlSeconds > 0) ? ttlSeconds : DefaultTtlSeconds;
 		_dataPath = dataPath;
+		// Statistics live in their own file: the world list is disposable (every entry expires in
+		// two minutes), while achievement counts are the accumulated result of everybody who ever
+		// played. Keeping them together meant one cleanup could lose both.
+		_stats = new PlayerStats(string.IsNullOrEmpty(dataPath) ? null : Path.ChangeExtension(dataPath, ".stats.json"));
 	}
+
+	/// <summary>The statistics store, for tests and for the console's shutdown line.</summary>
+	public PlayerStats Stats => _stats;
 
 	/// <summary>The port actually bound; differs from the request when 0 was asked for.</summary>
 	public int Port { get; private set; }
@@ -142,6 +155,7 @@ internal sealed class MasterServerHost
 		{
 		}
 		Save();
+		_stats.Save();
 	}
 
 	private void AcceptLoop()
@@ -186,8 +200,7 @@ internal sealed class MasterServerHost
 	}
 
 	/// <summary>Serves one HTTP request. Reads the request line and headers, then the body.</summary>
-	private void Serve(TcpClient client)
-	{
+	private void Serve(TcpClient client)	{
 		client.NoDelay = true;
 		client.ReceiveTimeout = 10000;
 		client.SendTimeout = 10000;
@@ -215,9 +228,11 @@ internal sealed class MasterServerHost
 		}
 		string method = parts[0].ToUpperInvariant();
 		string path = parts[1];
+		string query = string.Empty;
 		int num = path.IndexOf('?');
 		if (num >= 0)
 		{
+			query = path.Substring(num + 1);
 			path = path.Substring(0, num);
 		}
 		byte[] body;
@@ -242,12 +257,19 @@ internal sealed class MasterServerHost
 		}
 		int num2;
 		string text2;
-		Route(method, path, body, remote, out num2, out text2, out string contentType);
+		Route(method, path, query, body, remote, out num2, out text2, out string contentType);
 		Respond(stream, num2, contentType, text2);
-		Say(remote + "  " + method + " " + path + "  -> " + num2);
+		if (query.Length != 0)
+		{
+			Say(remote + "  " + method + " " + path + "?" + query + "  -> " + num2);
+		}
+		else
+		{
+			Say(remote + "  " + method + " " + path + "  -> " + num2);
+		}
 	}
 
-	private void Route(string method, string path, byte[] body, string remote, out int status, out string response, out string contentType)
+	private void Route(string method, string path, string query, byte[] body, string remote, out int status, out string response, out string contentType)
 	{
 		contentType = "application/json";
 		string text = Encoding.UTF8.GetString(body);
@@ -284,6 +306,34 @@ internal sealed class MasterServerHost
 		case "/health":
 			status = 200;
 			response = HealthJson();
+			return;
+		case "/v1/stats":
+			if (method != "POST")
+			{
+				status = 405;
+				response = "{\"error\":\"use POST\"}";
+				return;
+			}
+			status = ReportStats(text, out response);
+			return;
+		case "/v1/achievements":
+			if (method != "GET")
+			{
+				status = 405;
+				response = "{\"error\":\"use GET\"}";
+				return;
+			}
+			status = 200;
+			response = AchievementsJson();
+			return;
+		case "/v1/leaderboard":
+			if (method != "GET")
+			{
+				status = 405;
+				response = "{\"error\":\"use GET\"}";
+				return;
+			}
+			status = LeaderboardJson(query, out response);
 			return;
 		case "/":
 			status = 200;
@@ -465,8 +515,200 @@ internal sealed class MasterServerHost
 		return "{\"ok\":true,\"servers\":" + num.ToString(CultureInfo.InvariantCulture)
 			+ ",\"ttlSeconds\":" + _ttlSeconds.ToString(CultureInfo.InvariantCulture)
 			+ ",\"announces\":" + _totalAnnounces.ToString(CultureInfo.InvariantCulture)
+			+ ",\"players\":" + _stats.PlayerCount.ToString(CultureInfo.InvariantCulture)
 			+ ",\"uptimeSeconds\":" + ((int)Math.Max(0.0, (DateTime.UtcNow - _startedUtc).TotalSeconds)).ToString(CultureInfo.InvariantCulture)
 			+ "}";
+	}
+
+	/// <summary>
+	/// <c>POST /v1/stats</c>: <c>{"gamertag":..,"achievements":[0,5],"stats":{"AirTravel":1234}}</c>.
+	///
+	/// Achievements as an array of indices rather than a map of flags: the client has a fixed list
+	/// and only ever needs to say which entries it has, so the shorter form is also the honest one.
+	/// </summary>
+	private int ReportStats(string body, out string response)
+	{
+		string error;
+		Dictionary<string, object> dictionary = Json.ParseObject(body, out error);
+		if (dictionary == null)
+		{
+			response = "{\"error\":" + Json.Quote(error) + "}";
+			return 400;
+		}
+		string text = Json.GetString(dictionary, "gamertag");
+		if (string.IsNullOrEmpty(text))
+		{
+			response = "{\"error\":\"gamertag is required\"}";
+			return 400;
+		}
+		List<int> list = new List<int>();
+		List<object> array = Json.GetArray(dictionary, "achievements");
+		if (array != null)
+		{
+			for (int i = 0; i < array.Count; i++)
+			{
+				string text2 = (array[i] == null) ? null : Convert.ToString(array[i], CultureInfo.InvariantCulture);
+				int result;
+				if (text2 != null && int.TryParse(text2, out result))
+				{
+					list.Add(result);
+				}
+			}
+		}
+		Dictionary<string, long> dictionary2 = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+		Dictionary<string, object> obj = Json.GetObject(dictionary, "stats");
+		if (obj != null)
+		{
+			foreach (KeyValuePair<string, object> item in obj)
+			{
+				string text3 = (item.Value == null) ? null : Convert.ToString(item.Value, CultureInfo.InvariantCulture);
+				long result2;
+				if (text3 != null && long.TryParse(text3, out result2))
+				{
+					dictionary2[item.Key] = result2;
+				}
+			}
+		}
+		string text4;
+		int num = _stats.Report(text, list.ToArray(), dictionary2, out text4);
+		if (num < 0)
+		{
+			response = "{\"error\":" + Json.Quote(text4) + "}";
+			return 400;
+		}
+		StatsChanged();
+		if (num > 0)
+		{
+			// Only when something changed: this endpoint is called on every session end, and a line
+			// per call would bury the server list.
+			Say("stats    " + text.Trim() + ": +" + num + " achievement(s), " + dictionary2.Count + " stat(s)");
+		}
+		response = "{\"ok\":true,\"newAchievements\":" + num.ToString(CultureInfo.InvariantCulture) + "}";
+		return 200;
+	}
+
+	private string AchievementsJson()
+	{
+		int num;
+		int[] array = _stats.AchievementCounts(out num);
+		StringBuilder stringBuilder = new StringBuilder(64 + array.Length * 12);
+		stringBuilder.Append("{\"totalPlayers\":").Append(num.ToString(CultureInfo.InvariantCulture));
+		stringBuilder.Append(",\"counts\":[");
+		for (int i = 0; i < array.Length; i++)
+		{
+			if (i > 0)
+			{
+				stringBuilder.Append(',');
+			}
+			stringBuilder.Append(array[i].ToString(CultureInfo.InvariantCulture));
+		}
+		stringBuilder.Append("]}");
+		return stringBuilder.ToString();
+	}
+
+	/// <summary>
+	/// <c>GET /v1/leaderboard?stats=Ore,Gems&amp;limit=50</c>: the ranking for a board.
+	///
+	/// Named statistics rather than a board number: the board list belongs to the game, and
+	/// numbering it in the server would mean changing the server every time a column is added.
+	/// Several names at once because a board is a table - the screen needs every column, and
+	/// asking for them one at a time would put four requests on one refresh.
+	///
+	/// Rows are ranked by the sum of the requested statistics, which is the same rating the
+	/// console build submitted as a board entry.
+	/// </summary>
+	private int LeaderboardJson(string query, out string response)
+	{
+		string text = QueryValue(query, "stats");
+		if (text == null)
+		{
+			text = QueryValue(query, "stat");
+		}
+		int result;
+		if (!int.TryParse(QueryValue(query, "limit"), out result) || result <= 0)
+		{
+			result = 50;
+		}
+		if (result > 500)
+		{
+			result = 500;
+		}
+		if (string.IsNullOrEmpty(text))
+		{
+			response = "{\"error\":\"stats is required, e.g. ?stats=Ore,Gems\"}";
+			return 400;
+		}
+		string[] array = text.Split(',');
+		List<string> list = new List<string>(array.Length);
+		for (int i = 0; i < array.Length; i++)
+		{
+			string text2 = array[i].Trim();
+			if (text2.Length != 0)
+			{
+				list.Add(text2);
+			}
+		}
+		if (list.Count == 0)
+		{
+			response = "{\"error\":\"stats is required, e.g. ?stats=Ore,Gems\"}";
+			return 400;
+		}
+		List<PlayerRecord> rows = _stats.RankBySum(list, result);
+		StringBuilder stringBuilder = new StringBuilder(128 + rows.Count * (64 + list.Count * 12));
+		stringBuilder.Append("{\"stats\":[");
+		for (int j = 0; j < list.Count; j++)
+		{
+			if (j > 0)
+			{
+				stringBuilder.Append(',');
+			}
+			stringBuilder.Append(Json.Quote(list[j]));
+		}
+		stringBuilder.Append("],\"rows\":[");
+		for (int k = 0; k < rows.Count; k++)
+		{
+			PlayerRecord playerRecord = rows[k];
+			if (k > 0)
+			{
+				stringBuilder.Append(',');
+			}
+			stringBuilder.Append("{\"rank\":").Append((k + 1).ToString(CultureInfo.InvariantCulture));
+			stringBuilder.Append(",\"gamertag\":").Append(Json.Quote(playerRecord.Gamertag));
+			stringBuilder.Append(",\"values\":[");
+			for (int l = 0; l < list.Count; l++)
+			{
+				if (l > 0)
+				{
+					stringBuilder.Append(',');
+				}
+				long num;
+				playerRecord.Stats.TryGetValue(list[l], out num);
+				stringBuilder.Append(num.ToString(CultureInfo.InvariantCulture));
+			}
+			stringBuilder.Append("]}");
+		}
+		stringBuilder.Append("]}");
+		response = stringBuilder.ToString();
+		return 200;
+	}
+
+	/// <summary>One value from a query string, url-decoded enough for names and numbers.</summary>
+	internal static string QueryValue(string query, string key)
+	{
+		if (string.IsNullOrEmpty(query))
+		{
+			return null;
+		}
+		string[] array = query.Split('&');
+		for (int i = 0; i < array.Length; i++)
+		{
+			int num = array[i].IndexOf('=');
+			if (num > 0 && array[i].Substring(0, num).Equals(key, StringComparison.OrdinalIgnoreCase))
+			{
+				return Uri.UnescapeDataString(array[i].Substring(num + 1));
+			}
+		}
+		return null;
 	}
 
 	/// <summary>A human page, so "is it running?" does not need a JSON client.</summary>
@@ -663,6 +905,15 @@ internal sealed class MasterServerHost
 		if (changed != null)
 		{
 			changed();
+		}
+	}
+
+	private void StatsChanged()
+	{
+		Action action = StatsChangedEvent;
+		if (action != null)
+		{
+			action();
 		}
 	}
 

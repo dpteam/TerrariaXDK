@@ -101,6 +101,58 @@ internal static class SelfTest
 			Thread.Sleep(2200);
 			Request(text + "/v1/servers", "GET", null, out num, out text2);
 			Check("stale listings expire", text2.Contains("\"servers\":[]"), Trim(text2));
+
+			// --- achievements and leaderboards -------------------------------
+			Request(text + "/v1/achievements", "GET", null, out num, out text2);
+			Check("no players, no counts", num == 200 && text2.Contains("\"totalPlayers\":0") && text2.Contains("\"counts\":[]"), Trim(text2));
+
+			Request(text + "/v1/stats", "POST",
+				"{\"gamertag\":\"Alice\",\"achievements\":[0,2,5],\"stats\":{\"AirTravel\":1200,\"Deaths\":3}}",
+				out num, out text2);
+			Check("stats accepted", num == 200 && text2.Contains("\"newAchievements\":3"), "status " + num + ": " + Trim(text2));
+
+			Request(text + "/v1/stats", "POST",
+				"{\"gamertag\":\"Bob\",\"achievements\":[2],\"stats\":{\"AirTravel\":900}}", out num, out text2);
+			Check("second player accepted", num == 200 && text2.Contains("\"newAchievements\":1"), Trim(text2));
+
+			Request(text + "/v1/achievements", "GET", null, out num, out text2);
+			// Achievement 2 is held by both, 0 and 5 by Alice only.
+			Check("counts per achievement", text2.Contains("\"totalPlayers\":2") && text2.Contains("[1,0,2,0,0,1]"), Trim(text2));
+
+			// Re-reporting the same achievements adds nothing; a lower stat does not lower the record.
+			Request(text + "/v1/stats", "POST",
+				"{\"gamertag\":\"Alice\",\"achievements\":[0,2,5],\"stats\":{\"AirTravel\":50}}", out num, out text2);
+			Check("re-report adds nothing", text2.Contains("\"newAchievements\":0"), Trim(text2));
+			Request(text + "/v1/leaderboard?stat=AirTravel", "GET", null, out num, out text2);
+			Check("stats keep the maximum",
+				text2.Contains("\"gamertag\":\"Alice\",\"values\":[1200]") && text2.Contains("\"rank\":1"), Trim(text2));
+			Check("ranking is sorted", text2.IndexOf("Alice", StringComparison.Ordinal) < text2.IndexOf("Bob", StringComparison.Ordinal), Trim(text2));
+
+			Request(text + "/v1/leaderboard?stat=Deaths", "GET", null, out num, out text2);
+			Check("a stat only some players have", text2.Contains("{\"rank\":1,\"gamertag\":\"Alice\",\"values\":[3]}") && !text2.Contains("Bob"), Trim(text2));
+
+			// A board is a table: every column at once, ranked by their sum. Bob has 900 AirTravel
+			// and 0 Deaths, Alice 1200 and 3, so Alice leads on the sum as well - but the columns
+			// come back in the order that was asked for, not in ranking order.
+			Request(text + "/v1/leaderboard?stats=AirTravel,Deaths", "GET", null, out num, out text2);
+			Check("a board returns every column",
+				text2.Contains("\"stats\":[\"AirTravel\",\"Deaths\"]") && text2.Contains("\"values\":[1200,3]"), Trim(text2));
+			Check("a board ranks by the sum",
+				text2.IndexOf("Alice", StringComparison.Ordinal) < text2.IndexOf("Bob", StringComparison.Ordinal)
+				&& text2.Contains("\"values\":[900,0]"), Trim(text2));
+
+			Request(text + "/v1/leaderboard", "GET", null, out num, out text2);
+			Check("leaderboard needs a stat name", num == 400, "status " + num + ": " + Trim(text2));
+			Request(text + "/v1/leaderboard?stat=NoSuchStat", "GET", null, out num, out text2);
+			Check("an unknown stat is an empty ranking", num == 200 && text2.Contains("\"rows\":[]"), Trim(text2));
+
+			Request(text + "/v1/stats", "POST", "{\"achievements\":[1]}", out num, out text2);
+			Check("stats need a gamertag", num == 400, "status " + num + ": " + Trim(text2));
+			Request(text + "/v1/stats", "GET", null, out num, out text2);
+			Check("stats refuse GET", num == 405, "status " + num + ": " + Trim(text2));
+
+			Request(text + "/health", "GET", null, out num, out text2);
+			Check("health counts players", text2.Contains("\"players\":2"), Trim(text2));
 		}
 		catch (Exception ex)
 		{

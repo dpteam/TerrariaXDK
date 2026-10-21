@@ -15,11 +15,10 @@ namespace MasterServer;
 /// </summary>
 internal static class Json
 {
-	/// <summary>Reads a flat <c>{"key":value,...}</c> object. Nested values are skipped.</summary>
+	/// <summary>Reads a JSON object. Nested values become <c>Dictionary</c> or <c>List</c>.</summary>
 	public static Dictionary<string, object> ParseObject(string text, out string error)
 	{
 		error = null;
-		Dictionary<string, object> dictionary = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
 		if (text == null)
 		{
 			error = "empty body";
@@ -31,6 +30,69 @@ internal static class Json
 			error = "not a JSON object";
 			return null;
 		}
+		return ReadObject(text, ref i, out error);
+	}
+
+	private static object ReadValue(string text, ref int i, out string error)
+	{
+		error = null;
+		if (i >= text.Length)
+		{
+			error = "unexpected end of value";
+			return null;
+		}
+		char c = text[i];
+		if (c == '"')
+		{
+			return ReadString(text, ref i, out error);
+		}
+		if (c == '{')
+		{
+			// Nested objects are parsed properly: the statistics report is an object of counters,
+			// and skipping it would silently drop every number.
+			return ReadObject(text, ref i, out error);
+		}
+		if (c == '[')
+		{
+			return ReadArray(text, ref i, out error);
+		}
+		int num = i;
+		while (i < text.Length && text[i] != ',' && text[i] != '}' && text[i] != ']')
+		{
+			i++;
+		}
+		string text2 = text.Substring(num, i - num).Trim();
+		if (text2.Length == 0)
+		{
+			error = "empty value";
+			return null;
+		}
+		if (text2.Equals("true", StringComparison.OrdinalIgnoreCase))
+		{
+			return true;
+		}
+		if (text2.Equals("false", StringComparison.OrdinalIgnoreCase))
+		{
+			return false;
+		}
+		if (text2.Equals("null", StringComparison.OrdinalIgnoreCase))
+		{
+			return null;
+		}
+		double num2;
+		if (double.TryParse(text2, NumberStyles.Float, CultureInfo.InvariantCulture, out num2))
+		{
+			return num2;
+		}
+		// Unquoted text is not valid JSON, but refusing the whole announce over it would lose a
+		// host for a typo in one optional field.
+		return text2;
+	}
+
+	private static Dictionary<string, object> ReadObject(string text, ref int i, out string error)
+	{
+		error = null;
+		Dictionary<string, object> dictionary = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
 		i++;
 		while (true)
 		{
@@ -42,6 +104,7 @@ internal static class Json
 			}
 			if (text[i] == '}')
 			{
+				i++;
 				return dictionary;
 			}
 			if (text[i] == ',')
@@ -75,99 +138,36 @@ internal static class Json
 		}
 	}
 
-	private static object ReadValue(string text, ref int i, out string error)
+	private static List<object> ReadArray(string text, ref int i, out string error)
 	{
 		error = null;
-		if (i >= text.Length)
+		List<object> list = new List<object>();
+		i++;
+		while (true)
 		{
-			error = "unexpected end of value";
-			return null;
-		}
-		char c = text[i];
-		if (c == '"')
-		{
-			return ReadString(text, ref i, out error);
-		}
-		if (c == '{' || c == '[')
-		{
-			// Not used by this protocol; skip the whole container so a future field cannot break
-			// the parser.
-			SkipContainer(text, ref i, c, out error);
-			return null;
-		}
-		int num = i;
-		while (i < text.Length && text[i] != ',' && text[i] != '}')
-		{
-			i++;
-		}
-		string text2 = text.Substring(num, i - num).Trim();
-		if (text2.Length == 0)
-		{
-			error = "empty value";
-			return null;
-		}
-		if (text2.Equals("true", StringComparison.OrdinalIgnoreCase))
-		{
-			return true;
-		}
-		if (text2.Equals("false", StringComparison.OrdinalIgnoreCase))
-		{
-			return false;
-		}
-		if (text2.Equals("null", StringComparison.OrdinalIgnoreCase))
-		{
-			return null;
-		}
-		double num2;
-		if (double.TryParse(text2, NumberStyles.Float, CultureInfo.InvariantCulture, out num2))
-		{
-			return num2;
-		}
-		// Unquoted text is not valid JSON, but refusing the whole announce over it would lose a
-		// host for a typo in one optional field.
-		return text2;
-	}
-
-	private static void SkipContainer(string text, ref int i, char open, out string error)
-	{
-		error = null;
-		char c = (open == '{') ? '}' : ']';
-		int num = 0;
-		bool flag = false;
-		while (i < text.Length)
-		{
-			char c2 = text[i];
-			if (flag)
+			i = SkipWhitespace(text, i);
+			if (i >= text.Length)
 			{
-				if (c2 == '\\')
-				{
-					i++;
-				}
-				else if (c2 == '"')
-				{
-					flag = false;
-				}
+				error = "unexpected end of array";
+				return null;
 			}
-			else if (c2 == '"')
+			if (text[i] == ']')
 			{
-				flag = true;
+				i++;
+				return list;
 			}
-			else if (c2 == open)
+			if (text[i] == ',')
 			{
-				num++;
+				i++;
+				continue;
 			}
-			else if (c2 == c)
+			object item = ReadValue(text, ref i, out error);
+			if (error != null)
 			{
-				num--;
-				if (num == 0)
-				{
-					i++;
-					return;
-				}
+				return null;
 			}
-			i++;
+			list.Add(item);
 		}
-		error = "unterminated container";
 	}
 
 	private static string ReadString(string text, ref int i, out string error)
@@ -305,5 +305,27 @@ internal static class Json
 		}
 		text = text.Trim();
 		return text.Equals("true", StringComparison.OrdinalIgnoreCase) || text == "1";
+	}
+
+	/// <summary>A nested object, or null when the key is missing or is not an object.</summary>
+	public static Dictionary<string, object> GetObject(Dictionary<string, object> source, string key)
+	{
+		object value;
+		if (source == null || !source.TryGetValue(key, out value))
+		{
+			return null;
+		}
+		return value as Dictionary<string, object>;
+	}
+
+	/// <summary>A nested array, or null when the key is missing or is not an array.</summary>
+	public static List<object> GetArray(Dictionary<string, object> source, string key)
+	{
+		object value;
+		if (source == null || !source.TryGetValue(key, out value))
+		{
+			return null;
+		}
+		return value as List<object>;
 	}
 }

@@ -101,8 +101,8 @@ internal class LeaderboardsUI
 
 	public void Update()
 	{
-		// Xbox Live is gone, but the board itself is served locally now, so the screen works
-		// offline instead of returning early forever.
+		// Xbox Live is gone; LeaderboardData falls back to the master server's table, and only
+		// fails (returns false) when neither service has an answer.
 		if (!Data.Update())
 		{
 			MessageBox.Show(ParentUI.controller, Lang.MenuText[5], Lang.InterfaceText[36], new string[1] { Lang.MenuText[90] });
@@ -137,7 +137,12 @@ internal class LeaderboardsUI
 			}
 			else if (ParentUI.IsButtonTriggered(Buttons.A) && ParentUI.CanViewGamerCard() && Data.NumEntries > 0)
 			{
-				ParentUI.ShowGamerCard(Data.GetSelectedGamer());
+				// A row read from the master server has a name but no Gamer to open a card for.
+				Gamer selectedGamer = Data.GetSelectedGamer();
+				if (selectedGamer != null)
+				{
+					ParentUI.ShowGamerCard(selectedGamer);
+				}
 			}
 			if (flag)
 			{

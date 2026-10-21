@@ -460,9 +460,254 @@ internal static class MasterServerClient
 		}
 	}
 
-	/// <summary>Reads at most <see cref="MaxResponseBytes"/>; null when the body is too large.</summary>
-	private static string ReadLimited(Stream stream)
+	// --- Statistics and leaderboards ----------------------------------------
+
+	/// <summary>
+	/// Posts this player's achievements and counters. Returns the number of newly recorded
+	/// achievements, or -1 with a reason.
+	///
+	/// Synchronous, like the rest of this class: the caller owns the background thread
+	/// (<see cref="StatSync"/>). Keeping the thread out of here is what lets the self-test drive
+	/// these methods directly against a local master.
+	/// </summary>
+	public static int ReportStats(string gamertag, int[] achievements, Dictionary<string, long> stats, out string error)
 	{
+		error = null;
+		if (string.IsNullOrEmpty(gamertag))
+		{
+			error = "no gamertag";
+			return -1;
+		}
+		StringBuilder stringBuilder = new StringBuilder(256);
+		stringBuilder.Append("{\"gamertag\":").Append(Json.Quote(gamertag));
+		stringBuilder.Append(",\"achievements\":[");
+		if (achievements != null)
+		{
+			for (int i = 0; i < achievements.Length; i++)
+			{
+				if (i > 0)
+				{
+					stringBuilder.Append(',');
+				}
+				stringBuilder.Append(achievements[i].ToString(CultureInfo.InvariantCulture));
+			}
+		}
+		stringBuilder.Append("],\"stats\":{");
+		bool flag = true;
+		if (stats != null)
+		{
+			foreach (KeyValuePair<string, long> stat in stats)
+			{
+				if (!flag)
+				{
+					stringBuilder.Append(',');
+				}
+				flag = false;
+				stringBuilder.Append(Json.Quote(stat.Key)).Append(':').Append(stat.Value.ToString(CultureInfo.InvariantCulture));
+			}
+		}
+		stringBuilder.Append("}}");
+		int num;
+		string text;
+		if (!TryRequestWithStatus(Endpoints, "POST", "/v1/stats", stringBuilder.ToString(), out num, out text))
+		{
+			error = "the master server is unreachable";
+			return -1;
+		}
+		Dictionary<string, object> dictionary = Json.Parse(text) as Dictionary<string, object>;
+		if (num != 200)
+		{
+			error = (dictionary == null) ? ("status " + num) : (Json.GetString(dictionary, "error") ?? ("status " + num));
+			return -1;
+		}
+		if (dictionary == null)
+		{
+			error = "the master answered with something that is not JSON";
+			return -1;
+		}
+		return Json.GetInt(dictionary, "newAchievements", 0);
+	}
+
+	/// <summary>
+	/// How many players earned each achievement, as a dense array by index, plus the population.
+	/// Returns null when the master cannot be reached, so the caller can keep showing "unknown"
+	/// instead of "0 of 0 players".
+	/// </summary>
+	public static int[] FetchAchievementCounts(out int totalPlayers)
+	{
+		totalPlayers = 0;
+		int num;
+		string text;
+		if (!TryRequestWithStatus(Endpoints, "GET", "/v1/achievements", null, out num, out text) || num != 200)
+		{
+			return null;
+		}
+		Dictionary<string, object> dictionary = Json.Parse(text) as Dictionary<string, object>;
+		if (dictionary == null)
+		{
+			return null;
+		}
+		totalPlayers = Json.GetInt(dictionary, "totalPlayers", 0);
+		List<object> array = Json.GetArray(dictionary, "counts");
+		if (array == null)
+		{
+			return null;
+		}
+		int[] array2 = new int[array.Count];
+		for (int i = 0; i < array.Count; i++)
+		{
+			string text2 = (array[i] == null) ? null : Convert.ToString(array[i], CultureInfo.InvariantCulture);
+			int result;
+			array2[i] = (text2 != null && int.TryParse(text2, out result)) ? result : 0;
+		}
+		return array2;
+	}
+
+	/// <summary>
+	/// One board from the master: every column of every row, ranked by the sum of the columns.
+	/// Returns null when the master is unreachable, so the screen can fall back to its own
+	/// message instead of drawing an empty table.
+	/// </summary>
+	public static List<BoardRow> FetchBoard(string[] statistics, int limit)
+	{
+		if (statistics == null || statistics.Length == 0)
+		{
+			return null;
+		}
+		StringBuilder stringBuilder = new StringBuilder("/v1/leaderboard?stats=", 48);
+		for (int i = 0; i < statistics.Length; i++)
+		{
+			if (i > 0)
+			{
+				stringBuilder.Append(',');
+			}
+			stringBuilder.Append(Uri.EscapeDataString(statistics[i]));
+		}
+		stringBuilder.Append("&limit=").Append(limit.ToString(CultureInfo.InvariantCulture));
+		int num;
+		string text;
+		if (!TryRequestWithStatus(Endpoints, "GET", stringBuilder.ToString(), null, out num, out text) || num != 200)
+		{
+			return null;
+		}
+		Dictionary<string, object> dictionary = Json.Parse(text) as Dictionary<string, object>;
+		List<object> array = (dictionary == null) ? null : Json.GetArray(dictionary, "rows");
+		if (array == null)
+		{
+			return null;
+		}
+		List<BoardRow> list = new List<BoardRow>(array.Count);
+		for (int j = 0; j < array.Count; j++)
+		{
+			Dictionary<string, object> dictionary2 = array[j] as Dictionary<string, object>;
+			if (dictionary2 == null)
+			{
+				continue;
+			}
+			string text2 = Json.GetString(dictionary2, "gamertag");
+			if (string.IsNullOrEmpty(text2))
+			{
+				continue;
+			}
+			List<object> array2 = Json.GetArray(dictionary2, "values");
+			long[] array3 = new long[statistics.Length];
+			if (array2 != null)
+			{
+				for (int k = 0; k < array3.Length && k < array2.Count; k++)
+				{
+					string text3 = (array2[k] == null) ? null : Convert.ToString(array2[k], CultureInfo.InvariantCulture);
+					long result;
+					array3[k] = (text3 != null && long.TryParse(text3, out result)) ? result : 0L;
+				}
+			}
+			BoardRow boardRow = new BoardRow();
+			boardRow.Gamertag = text2;
+			boardRow.Values = array3;
+			list.Add(boardRow);
+		}
+		return list;
+	}
+
+	/// <summary>
+	/// Like <see cref="TryRequest"/>, but also reports a non-200 status together with its body.
+	/// The failure detail matters for the statistics endpoint: "400 gamertag is required" is a bug
+	/// report, while "unreachable" is a network problem, and the two need different fixes.
+	/// </summary>
+	private static bool TryRequestWithStatus(string[] candidates, string method, string path, string payload, out int status, out string body)
+	{
+		status = 0;
+		body = null;
+		if (candidates == null || candidates.Length == 0)
+		{
+			return false;
+		}
+		for (int i = 0; i < candidates.Length; i++)
+		{
+			string url = "http://" + candidates[i] + path;
+			try
+			{
+				HttpWebRequest httpWebRequest = (HttpWebRequest)WebRequest.Create(url);
+				httpWebRequest.Method = method;
+				httpWebRequest.Timeout = TimeoutMs;
+				httpWebRequest.ReadWriteTimeout = TimeoutMs;
+				httpWebRequest.KeepAlive = false;
+				httpWebRequest.UserAgent = "TerrariaXDK/" + Main.OGCVersion;
+				httpWebRequest.Accept = "application/json";
+				httpWebRequest.Proxy = null;
+				if (payload != null)
+				{
+					byte[] bytes = Encoding.UTF8.GetBytes(payload);
+					httpWebRequest.ContentType = "application/json; charset=utf-8";
+					httpWebRequest.ContentLength = bytes.Length;
+					using Stream stream = httpWebRequest.GetRequestStream();
+					stream.Write(bytes, 0, bytes.Length);
+				}
+				using HttpWebResponse httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse();
+				status = (int)httpWebResponse.StatusCode;
+				using Stream stream2 = httpWebResponse.GetResponseStream();
+				body = ReadLimited(stream2);
+				return true;
+			}
+			catch (WebException ex)
+			{
+				// A 4xx/5xx arrives as an exception, but the response still carries the reason.
+				HttpWebResponse httpWebResponse2 = ex.Response as HttpWebResponse;
+				if (httpWebResponse2 != null)
+				{
+					using (httpWebResponse2)
+					{
+						status = (int)httpWebResponse2.StatusCode;
+						body = ReadLimited(httpWebResponse2.GetResponseStream());
+					}
+					return true;
+				}
+				Program.LogDebug("Master", Describe(ex, url));
+			}
+			catch (Exception ex2)
+			{
+				Program.LogDebug("Master", Describe(ex2, url));
+			}
+		}
+		return false;
+	}
+
+	/// <summary>
+	/// HTTP status for one path on the master, or 0 when nothing answered. Diagnostics only:
+	/// the self-test uses it to tell "the master is old" (404) from "the master is broken" (0).
+	/// </summary>
+	internal static int Probe(string path)
+	{
+		int num;
+		string text;
+		if (!TryRequestWithStatus(Endpoints, "GET", path, null, out num, out text))
+		{
+			return 0;
+		}
+		return num;
+	}
+
+	/// <summary>Reads at most <see cref="MaxResponseBytes"/>; null when the body is too large.</summary>
+	private static string ReadLimited(Stream stream)	{
 		if (stream == null)
 		{
 			return string.Empty;

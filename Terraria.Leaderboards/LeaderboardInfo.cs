@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Xna.Framework.GamerServices;
 using Microsoft.Xna.Framework.Net;
 
@@ -157,6 +158,28 @@ internal class LeaderboardInfo
 		{
 			LeaderboardsInfo[(int)BoardType].Submit(leaderboardWriter, Stats);
 		}
+	}
+
+	/// <summary>
+	/// The statistic names of this board's columns, in display order.
+	///
+	/// Names, not column ids: they are what the master server ranks by, and a name survives the
+	/// column order changing. The board's rating is the sum of these, which is what the console
+	/// build submitted to Xbox Live (<c>Submit</c> sets <c>Rating = sum</c>).
+	/// </summary>
+	public static string[] BoardStatistics(Leaderboard BoardType)
+	{
+		if ((int)BoardType < 0 || (int)BoardType >= LeaderboardsInfo.Length)
+		{
+			return null;
+		}
+		ColumnMapping[] columns = LeaderboardsInfo[(int)BoardType].Columns;
+		string[] array = new string[columns.Length];
+		for (int i = 0; i < columns.Length; i++)
+		{
+			array[i] = columns[i].Statistic.ToString();
+		}
+		return array;
 	}
 
 	private void Submit(LeaderboardWriter Writer, Statistics Stats)
