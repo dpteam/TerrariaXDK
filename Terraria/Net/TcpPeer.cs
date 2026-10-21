@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -24,9 +24,9 @@ namespace Terraria.Net;
 internal sealed class TcpPeer : IPeerTransport
 {
 	// --- Opcodes ------------------------------------------------------------
-	private const byte OpHello = 1;
+	internal const byte OpHello = 1;
 
-	private const byte OpWelcome = 2;
+	internal const byte OpWelcome = 2;
 
 	private const byte OpRoster = 3;
 
@@ -41,7 +41,7 @@ internal sealed class TcpPeer : IPeerTransport
 	private const byte OpRosterRequest = 8;
 
 	/// <summary>Host rejects the connection and explains why (wrong password, mods, version).</summary>
-	private const byte OpReject = 9;
+	internal const byte OpReject = 9;
 
 	/// <summary>Latency probe; the peer echoes it back as <see cref="OpPong"/>.</summary>
 	private const byte OpPing = 10;

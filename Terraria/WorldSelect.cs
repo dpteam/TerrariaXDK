@@ -378,7 +378,19 @@ public static class WorldSelect
 					UI.DrawStringLC(UI.BoldSmallFont, text, destRect.X + 32, destRect.Center.Y, color);
 					int maxPlayers2 = joinableSession.AvailableSession.OpenPublicGamerSlots + joinableSession.PlayerCount;
 					s2 = Lang.MenuText[78] + joinableSession.PlayerCount.ToStringLookup() + "/" + Math.Max(1, maxPlayers2).ToStringLookup();
-					UI.DrawStringRC(UI.BoldSmallFont, s2, destRect.Right, destRect.Center.Y, color);
+					// Ping goes to the left of the player count: it is the first thing you look
+					// at when choosing between two servers, and it fits on the same line.
+					string pingLabel = Terraria.Net.ServerPing.Label(joinableSession.AvailableSession.EndPoint);
+					if (pingLabel.Length != 0)
+					{
+						s2 = pingLabel + "   " + s2;
+						Color pingColor = (pingLabel == "timeout") ? new Color(235, 130, 120) : color;
+						UI.DrawStringRC(UI.BoldSmallFont, s2, destRect.Right, destRect.Center.Y, pingColor);
+					}
+					else
+					{
+						UI.DrawStringRC(UI.BoldSmallFont, s2, destRect.Right, destRect.Center.Y, color);
+					}
 					destRect.Y += num;
 				}
 			}

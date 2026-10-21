@@ -68,6 +68,7 @@ internal static class SelfTest
 		RunCheck("mod world events", CheckModWorldEvents);
 		RunCheck("saved servers", CheckSavedServers);
 		RunCheck("auto refresh", CheckAutoRefresh);
+		RunCheck("server ping", CheckServerPing);
 		RunCheck("world backups", CheckWorldBackups);
 		RunCheck("backup restore", CheckBackupRestore);
 		RunCheck("host commands", CheckHostCommands);
@@ -5556,6 +5557,230 @@ internal static class SelfTest
 			WorldProtection.DisableBuild = disableBuild;
 			// Restore the active flag to match reality, whichever file survived.
 			ServerConfig.Apply();
+		}
+	}
+
+	// --- Server ping --------------------------------------------------------
+
+	/// <summary>
+	/// A server list that shows a ping before you join is the difference between "try it and
+	/// wait" and choosing with your eyes. The parts that matter: a host that refuses you (wrong
+	/// password, different mods) is still alive and must not read as "dead", a dead host must
+	/// read as dead within the timeout, and an unmeasured host must read as unknown rather than
+	/// either of those.
+	/// </summary>
+	private static bool CheckServerPing()
+	{
+		try
+		{
+			// The greeting must be the same packet the real client sends.
+			byte[] hello = ServerPing.BuildHello();
+			byte[] frame = WireFormat.ReadFrame(new MemoryStream(hello));
+			if (frame == null)
+			{
+				return Fail("the ping greeting is not a valid frame");
+			}
+			if (frame[0] != TcpPeer.OpHello)
+			{
+				return Fail("the ping greeting does not start with Hello");
+			}
+			using (MemoryStream stream = new MemoryStream(frame, 1, frame.Length - 1))
+			{
+				using BinaryReader reader = new BinaryReader(stream, Encoding.UTF8);
+				if (reader.ReadInt32() != TcpPeer.ProtocolVersionPublic)
+				{
+					return Fail("the ping greeting carries the wrong protocol version");
+				}
+				if (string.IsNullOrEmpty(reader.ReadString()))
+				{
+					return Fail("the ping greeting has no gamertag");
+				}
+				reader.ReadString();
+				reader.ReadString();
+			}
+
+			ServerPing.Clear();
+			// Unmeasured: unknown, not dead.
+			System.Net.IPEndPoint unknown = new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 1);
+			int num;
+			bool flag;
+			if (ServerPing.TryGet(unknown, out num, out flag))
+			{
+				return Fail("an unmeasured server reported a result");
+			}
+			if (ServerPing.Label(unknown) != "")
+			{
+				return Fail("an unmeasured server produced a label");
+			}
+
+			// Accepting host: measured, reachable.
+			using (StubPeer accepting = new StubPeer(WireFormat.LengthPrefix(WireFormat.Frame(TcpPeer.OpWelcome, BitConverter.GetBytes(1L)))))
+			{
+				ServerPing.Probe(accepting.EndPoint);
+				if (!ServerPing.TryGet(accepting.EndPoint, out num, out flag))
+				{
+					return Fail("a reachable server was not measured");
+				}
+				if (!flag || num < 0)
+				{
+					return Fail("a reachable server was reported as dead");
+				}
+				if (!ServerPing.Label(accepting.EndPoint).EndsWith("ms"))
+				{
+					return Fail("a reachable server label is '" + ServerPing.Label(accepting.EndPoint) + "'");
+				}
+				// The probe must actually have sent our greeting, not just opened a socket.
+				if (accepting.LastFrame == null || accepting.LastFrame[0] != TcpPeer.OpHello)
+				{
+					return Fail("the probe did not send a Hello");
+				}
+			}
+
+			// Refusing host (password / mods / version): still alive.
+			using (StubPeer refusing = new StubPeer(WireFormat.LengthPrefix(WireFormat.Frame(TcpPeer.OpReject, Encoding.UTF8.GetBytes("Wrong password.")))))
+			{
+				ServerPing.Probe(refusing.EndPoint);
+				if (!ServerPing.TryGet(refusing.EndPoint, out num, out flag))
+				{
+					return Fail("a refusing server was not measured");
+				}
+				if (!flag)
+				{
+					return Fail("a refusing server was reported as dead");
+				}
+			}
+
+			// A port nobody listens on: dead, but as a result rather than an exception.
+			System.Net.IPEndPoint dead = FindClosedPort();
+			ServerPing.TimeoutMsOverrideForTests = 400;
+			try
+			{
+				ServerPing.Probe(dead);
+			}
+			finally
+			{
+				ServerPing.TimeoutMsOverrideForTests = 0;
+			}
+			if (!ServerPing.TryGet(dead, out num, out flag))
+			{
+				return Fail("a dead server was not measured");
+			}
+			if (flag)
+			{
+				return Fail("a closed port was reported as reachable");
+			}
+			if (ServerPing.Label(dead) != "timeout")
+			{
+				return Fail("a dead server label is '" + ServerPing.Label(dead) + "'");
+			}
+
+			// Clear() forgets everything, so a new search does not show stale numbers.
+			ServerPing.Clear();
+			if (ServerPing.TryGet(dead, out num, out flag))
+			{
+				return Fail("Clear did not forget the measurements");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("server ping check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			ServerPing.TimeoutMsOverrideForTests = 0;
+			ServerPing.Clear();
+		}
+	}
+
+	/// <summary>Binds and immediately releases a port, so nothing is listening on it.</summary>
+	private static System.Net.IPEndPoint FindClosedPort()
+	{
+		TcpListener listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
+		listener.Start();
+		int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+		listener.Stop();
+		return new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, port);
+	}
+
+	/// <summary>
+	/// Minimal peer for the ping test: accepts one connection, reads a frame, answers with the
+	/// bytes it was given, and records what it received.
+	/// </summary>
+	private sealed class StubPeer : IDisposable
+	{
+		private readonly TcpListener _listener;
+
+		private readonly Thread _thread;
+
+		private readonly byte[] _reply;
+
+		private volatile bool _stopped;
+
+		public volatile byte[] LastFrame;
+
+		public StubPeer(byte[] reply)
+		{
+			_reply = reply;
+			_listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
+			_listener.Start();
+			_thread = new Thread(Loop)
+			{
+				IsBackground = true,
+				Name = "selftest.ping"
+			};
+			_thread.Start();
+		}
+
+		public System.Net.IPEndPoint EndPoint => new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, ((System.Net.IPEndPoint)_listener.LocalEndpoint).Port);
+
+		private void Loop()
+		{
+			while (!_stopped)
+			{
+				TcpClient tcpClient;
+				try
+				{
+					tcpClient = _listener.AcceptTcpClient();
+				}
+				catch
+				{
+					return;
+				}
+				try
+				{
+					tcpClient.NoDelay = true;
+					NetworkStream stream = tcpClient.GetStream();
+					LastFrame = WireFormat.ReadFrame(stream);
+					stream.Write(_reply, 0, _reply.Length);
+					stream.Flush();
+				}
+				catch
+				{
+				}
+				finally
+				{
+					try
+					{
+						tcpClient.Close();
+					}
+					catch
+					{
+					}
+				}
+			}
+		}
+
+		public void Dispose()
+		{
+			_stopped = true;
+			try
+			{
+				_listener.Stop();
+			}
+			catch
+			{
+			}
 		}
 	}
 

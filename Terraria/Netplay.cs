@@ -543,6 +543,9 @@ public sealed class Netplay
 	public static void StopFindingSessions()
 	{
 		availableSessions.Clear();
+		// Pings belong to the previous list; keeping them would show measurements for servers
+		// that are no longer listed.
+		Terraria.Net.ServerPing.Clear();
 		if (sessionFinderThread != null)
 		{
 			stopSessionFinderThread = true;
@@ -903,8 +906,31 @@ public sealed class Netplay
 				}
 			}
 		}
+		FinishSessionSearch();
 		stopSessionFinderThread = false;
 		sessionFinderThread = null;
+	}
+
+	/// <summary>
+	/// Starts a background probe for every server now in the list, so the rows can show a ping
+	/// before the player joins. Called once at the end of a search: probing during discovery
+	/// would compete with it for sockets and make the list appear later.
+	/// </summary>
+	private static void FinishSessionSearch()
+	{
+		List<System.Net.IPEndPoint> list = new List<System.Net.IPEndPoint>();
+		lock (availableSessions)
+		{
+			for (int i = 0; i < availableSessions.Count; i++)
+			{
+				System.Net.IPEndPoint endPoint = availableSessions[i].AvailableSession.EndPoint;
+				if (endPoint != null)
+				{
+					list.Add(endPoint);
+				}
+			}
+		}
+		Terraria.Net.ServerPing.MeasureAllAsync(list);
 	}
 
 	public static void CheckOfflineSession()
