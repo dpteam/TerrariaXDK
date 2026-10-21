@@ -51,6 +51,7 @@ internal static class SelfTest
 		RunCheck("tconfig import", CheckTConfigImport);
 		RunCheck("mod load order", CheckModLoadOrder);
 		RunCheck("virtual keyboard", CheckVirtualKeyboard);
+		RunCheck("name prompt", CheckNamePrompt);
 		RunCheck("display settings", CheckDisplaySettings);
 		RunCheck("display profiles", CheckDisplayProfiles);
 		RunCheck("hud settings", CheckHudSettings);
@@ -3368,6 +3369,176 @@ internal static class SelfTest
 				UI.MainUI.CurMenuType = menuBefore;
 			}
 			Terraria.Mods.ModEvents.Reset();
+		}
+	}
+
+	// --- Name prompt --------------------------------------------------------
+
+	/// <summary>
+	/// Character and world names used to be generated and committed without asking. The
+	/// prompt is what replaced that, so two things must hold: a name that will look broken in
+	/// a list (empty, too long, full of control characters) is rejected, and the latch opens
+	/// the keyboard exactly once per menu.
+	/// </summary>
+	private static bool CheckNamePrompt()
+	{
+		string savedName = null;
+		bool accepted = false;
+		bool cancelled = false;
+		try
+		{
+			// Sanitising: control characters and runs of spaces never reach a save file or
+			// the network roster.
+			if (NameRules.Sanitize("  Bob  ") != "Bob")
+			{
+				return Fail("leading/trailing spaces were not trimmed");
+			}
+			if (NameRules.Sanitize("a\r\nb") != "a b")
+			{
+				return Fail("a newline survived sanitising: '" + NameRules.Sanitize("a\r\nb") + "'");
+			}
+			if (NameRules.Sanitize("a     b") != "a b")
+			{
+				return Fail("runs of spaces were not collapsed");
+			}
+			if (NameRules.Sanitize(null) != "" || NameRules.Sanitize("") != "")
+			{
+				return Fail("empty input did not sanitise to an empty name");
+			}
+
+			string name;
+			string error;
+			if (!NameRules.TryNormalize("Bob", NameRules.MaxCharacterLength, out name, out error) || name != "Bob")
+			{
+				return Fail("a valid name was rejected");
+			}
+			if (NameRules.TryNormalize("   ", NameRules.MaxCharacterLength, out name, out error))
+			{
+				return Fail("an all-space name was accepted");
+			}
+			if (string.IsNullOrEmpty(error))
+			{
+				return Fail("an empty name was rejected without a reason");
+			}
+			if (NameRules.TryNormalize(new string('x', NameRules.MaxCharacterLength + 1), NameRules.MaxCharacterLength, out name, out error))
+			{
+				return Fail("an over-long name was accepted");
+			}
+			if (!NameRules.TryNormalize(new string('x', NameRules.MaxCharacterLength), NameRules.MaxCharacterLength, out name, out error))
+			{
+				return Fail("a name exactly at the limit was rejected");
+			}
+			// The generated fallbacks must always satisfy the rules they are the fallback for.
+			for (int i = 0; i < 20; i++)
+			{
+				string generated = NameRules.DefaultCharacterName();
+				if (!NameRules.TryNormalize(generated, NameRules.MaxCharacterLength, out name, out error))
+				{
+					return Fail("the generated character name is invalid: '" + generated + "' (" + error + ")");
+				}
+				string generatedWorld = NameRules.DefaultWorldName();
+				if (!NameRules.TryNormalize(generatedWorld, NameRules.MaxWorldLength, out name, out error))
+				{
+					return Fail("the generated world name is invalid: '" + generatedWorld + "' (" + error + ")");
+				}
+			}
+
+			// The latch: asking twice in the same frame must not open two prompts.
+			NamePrompt.Reset();
+			if (NamePrompt.IsOpen)
+			{
+				return Fail("the prompt was already open after a reset");
+			}
+			NamePrompt.Ask(MenuMode.NAME_CHARACTER, "Character name", "Bob", NameRules.MaxCharacterLength, delegate(string text)
+			{
+				accepted = true;
+				savedName = text;
+			}, delegate
+			{
+				cancelled = true;
+			});
+			if (!NamePrompt.IsOpen || !NamePrompt.IsOpenFor(MenuMode.NAME_CHARACTER))
+			{
+				return Fail("the prompt did not open for NAME_CHARACTER");
+			}
+			// A second Ask for the same menu must be a no-op, not a second keyboard.
+			NamePrompt.Ask(MenuMode.NAME_CHARACTER, "Character name", "Other", NameRules.MaxCharacterLength, delegate
+			{
+				accepted = true;
+			}, delegate
+			{
+				cancelled = true;
+			});
+			if (!Input.VirtualKeyboard.IsOpen || Input.VirtualKeyboard.Text != "Bob")
+			{
+				return Fail("a second Ask replaced the open prompt");
+			}
+			// Accepting goes through validation and closes the prompt.
+			Input.VirtualKeyboard.SetText("  Alice  ");
+			if (!Input.VirtualKeyboard.Commit())
+			{
+				return Fail("the keyboard could not be committed");
+			}
+			if (!accepted || savedName != "Alice")
+			{
+				return Fail("the accepted name was '" + savedName + "' instead of 'Alice'");
+			}
+			if (NamePrompt.IsOpen)
+			{
+				return Fail("the prompt stayed open after accepting");
+			}
+			// An invalid name must reopen the prompt with the typed text kept, not commit.
+			accepted = false;
+			savedName = null;
+			NamePrompt.Ask(MenuMode.NAME_WORLD, "World name", "New World", NameRules.MaxWorldLength, delegate(string text)
+			{
+				accepted = true;
+				savedName = text;
+			}, delegate
+			{
+				cancelled = true;
+			});
+			Input.VirtualKeyboard.SetText("   ");
+			Input.VirtualKeyboard.Commit();
+			if (accepted)
+			{
+				return Fail("an empty name was committed");
+			}
+			if (!NamePrompt.IsOpen || !Input.VirtualKeyboard.IsOpen)
+			{
+				return Fail("an invalid name closed the prompt instead of asking again");
+			}
+			if (Input.VirtualKeyboard.Text != "   ")
+			{
+				return Fail("the rejected text was not kept for editing");
+			}
+			if (string.IsNullOrEmpty(NamePrompt.Hint))
+			{
+				return Fail("the rejection was not explained");
+			}
+			// Cancelling reports back and closes.
+			Input.VirtualKeyboard.SetText("Fine");
+			if (!Input.VirtualKeyboard.CancelEXT())
+			{
+				return Fail("the keyboard could not be cancelled");
+			}
+			if (!cancelled || accepted)
+			{
+				return Fail("cancelling reported an accept");
+			}
+			if (NamePrompt.IsOpen)
+			{
+				return Fail("the prompt stayed open after cancelling");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("name prompt check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			NamePrompt.Reset();
 		}
 	}
 

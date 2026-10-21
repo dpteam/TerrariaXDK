@@ -52,6 +52,8 @@ internal static class VirtualKeyboard
 
 	private static Action<string> _onAccept;
 
+	private static Action _onCancel;
+
 	private static string _title = "";
 
 	private static int _repeat;
@@ -102,9 +104,10 @@ internal static class VirtualKeyboard
 
 	/// <summary>
 	/// Opens the keyboard. <paramref name="onAccept"/> receives the typed text when the player
-	/// confirms; closing without confirming calls nothing.
+	/// confirms. <paramref name="onCancel"/> runs when the player backs out, so a caller that
+	/// replaced a default value with "ask the player" can restore or drop it.
 	/// </summary>
-	public static void Open(string title, string initial, Action<string> onAccept)
+	public static void Open(string title, string initial, Action<string> onAccept, Action onCancel = null)
 	{
 		_open = true;
 		_symbols = false;
@@ -114,7 +117,9 @@ internal static class VirtualKeyboard
 		_repeat = 0;
 		_title = title ?? "";
 		SetText(initial);
-		_onAccept = onAccept;		KeyboardMouseInput.TextInputActive = true;
+		_onAccept = onAccept;
+		_onCancel = onCancel;
+		KeyboardMouseInput.TextInputActive = true;
 		// Take the current pad state as "already down" so the frame that opens the keyboard
 		// does not immediately register a press on whatever button opened it.
 		_prevA = true;
@@ -129,9 +134,33 @@ internal static class VirtualKeyboard
 	{
 		_open = false;
 		_onAccept = null;
+		_onCancel = null;
 		KeyboardMouseInput.TextInputActive = false;
 		// The key that closed the keyboard must not also reach the game.
 		KeyboardMouseInput.SuppressGameInput = true;
+	}
+
+	/// <summary>Closes the keyboard and reports the cancellation to whoever opened it.</summary>
+	private static void Cancel()
+	{
+		Action onCancel = _onCancel;
+		// Cleared before the callback so it cannot re-enter the keyboard from inside Close().
+		_onCancel = null;
+		_onAccept = null;
+		_open = false;
+		KeyboardMouseInput.TextInputActive = false;
+		KeyboardMouseInput.SuppressGameInput = true;
+		if (onCancel != null)
+		{
+			try
+			{
+				onCancel();
+			}
+			catch (Exception ex)
+			{
+				Program.LogWarn("VirtualKeyboard", "cancel handler threw: " + ex.Message);
+			}
+		}
 	}
 
 	/// <summary>Runs one frame of the keyboard. Called from <c>Main.Update</c>.</summary>
@@ -171,7 +200,9 @@ internal static class VirtualKeyboard
 
 		if (flag12)
 		{
-			Close();
+			// Back means "I changed my mind": the caller may need to undo whatever it did
+			// before asking (for example, a name it was about to commit).
+			Cancel();
 			return;
 		}
 		if (flag11)
@@ -270,7 +301,7 @@ internal static class VirtualKeyboard
 					Accept();
 					return;
 				case 4:
-					Close();
+					Cancel();
 					return;
 				}
 				Main.PlaySound(12);
@@ -289,6 +320,34 @@ internal static class VirtualKeyboard
 		Action<string> onAccept = _onAccept;
 		Close();
 		onAccept?.Invoke(result);
+	}
+
+	/// <summary>
+	/// Confirms the current text, as Start or the on-screen "accept" cell would. Returns
+	/// false when nothing was listening, which is what the headless tests assert on.
+	/// </summary>
+	internal static bool Commit()
+	{
+		if (!_open || _onAccept == null)
+		{
+			return false;
+		}
+		Accept();
+		return true;
+	}
+
+	/// <summary>
+	/// Cancels, as Back would, running the caller's cancel callback. Used by the headless
+	/// tests: the button path is covered by the input mapping checks.
+	/// </summary>
+	internal static bool CancelEXT()
+	{
+		if (!_open)
+		{
+			return false;
+		}
+		Cancel();
+		return true;
 	}
 
 	private static string[] CurrentPage()

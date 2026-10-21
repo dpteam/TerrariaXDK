@@ -1881,6 +1881,12 @@ public sealed class UI
 		{
 			SaveSettings();
 		}
+		// The name prompt is bound to its menu: leaving that menu must never leave a keyboard
+		// floating over whatever comes next.
+		if (mode != MenuMode.NAME_CHARACTER && mode != MenuMode.NAME_WORLD)
+		{
+			NamePrompt.Reset();
+		}
 		numMenuItems = 0;
 		if (reset)
 		{
@@ -3077,31 +3083,35 @@ public sealed class UI
 		}
 		else if (CurMenuMode == MenuMode.NAME_CHARACTER)
 		{
-			byte[] array = new byte[4];
-			using (RandomNumberGenerator randomNumberGenerator = RandomNumberGenerator.Create())
+			// Used to generate a name and commit it without asking: pressing Start in
+			// character creation decided your character's name forever. Now the on-screen
+			// keyboard asks, pre-filled with the same generated default.
+			if (NamePrompt.IsOpen)
 			{
-				randomNumberGenerator.GetBytes(array);
+				// The keyboard owns the input; nothing to do until it answers.
+				return;
 			}
-			int value = BitConverter.ToInt32(array, 0);
-			string text = CRC32Helper.CalculateCRC32(BitConverter.GetBytes(value)).ToString("X8");
-			string text2 = DateTime.Now.ToString("yyMMdd");
-			string text3 = text.ToUpper() + text2;
-			if (text3.Length > 16)
+			numMenuItems = 0;
+			string defaultName = NameRules.DefaultCharacterName();
+			NamePrompt.Ask(MenuMode.NAME_CHARACTER, "Character name", defaultName, NameRules.MaxCharacterLength, delegate(string name)
 			{
-				text3 = text3.Substring(0, 16);
-			}
-			Main.PlaySound(10);
-			Player player = loadPlayer[numLoadPlayers];
-			player.CharacterName = text3;
-			player.ui = this;
-			loadPlayerPath[numLoadPlayers] = nextLoadPlayer();
-			player.Save(loadPlayerPath[numLoadPlayers]);
-			PrevMenu(-2);
-			selectedPlayer = numLoadPlayers;
-			showPlayer = numLoadPlayers;
-			uiY = numLoadPlayers;
-			MENU_SELECT_COORDS[uiY].X = ViewportHalfWidth;
-			numLoadPlayers++;
+				Main.PlaySound(10);
+				Player player = loadPlayer[numLoadPlayers];
+				player.CharacterName = name;
+				player.ui = this;
+				loadPlayerPath[numLoadPlayers] = nextLoadPlayer();
+				player.Save(loadPlayerPath[numLoadPlayers]);
+				PrevMenu(-2);
+				selectedPlayer = numLoadPlayers;
+				showPlayer = numLoadPlayers;
+				uiY = numLoadPlayers;
+				MENU_SELECT_COORDS[uiY].X = ViewportHalfWidth;
+				numLoadPlayers++;
+			}, delegate
+			{
+				// Cancelled: back to character creation, character not saved.
+				PrevMenu();
+			});
 		}
 		else if (CurMenuMode == MenuMode.CONFIRM_DELETE_CHARACTER)
 		{
@@ -3132,22 +3142,25 @@ public sealed class UI
 		}
 		else if (CurMenuMode == MenuMode.NAME_WORLD)
 		{
-			byte[] data = new byte[8];
-			using (RandomNumberGenerator randomNumberGenerator2 = RandomNumberGenerator.Create())
+			// Same story as the character name: the world used to be created and named
+			// without asking, so every world was called something like
+			// "WORLD_A3F19C07_123456" until the player renamed the save file.
+			if (NamePrompt.IsOpen)
 			{
-				randomNumberGenerator2.GetBytes(data);
-			}
-			string text4 = CRC32Helper.CalculateCRC32(data).ToString("X8");
-			string text5 = DateTime.Now.ToString("HHmmss");
-			string text6 = "WORLD_" + text4 + "_" + text5;
-			if (text6.Length > 20)
-			{
-				text6 = text6.Substring(0, 20);
+				return;
 			}
 			numMenuItems = 0;
-			Main.PlaySound(10);
-			SetMenu(MenuMode.STATUS_SCREEN, rememberPrevious: false);
-			WorldSelect.CreateWorld(text6);
+			string defaultWorld = NameRules.DefaultWorldName();
+			NamePrompt.Ask(MenuMode.NAME_WORLD, "World name", defaultWorld, NameRules.MaxWorldLength, delegate(string name)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.STATUS_SCREEN, rememberPrevious: false);
+				WorldSelect.CreateWorld(name);
+			}, delegate
+			{
+				// Cancelled: back to the world size choice, nothing created.
+				PrevMenu();
+			});
 		}
 		else if (CurMenuMode == MenuMode.CONFIRM_DELETE_WORLD)
 		{
