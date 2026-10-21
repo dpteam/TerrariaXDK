@@ -100,7 +100,11 @@ public sealed class MiniMap
 		return (int)((UI.NumActiveViews > 1 ? 340f : 290f) * Main.ScreenMultiplier);
 	}
 
-	public static void OnStartGame()	{
+	/// <summary>
+	/// Sizes the map for a newly started world. Called once per world, before the first build.
+	/// </summary>
+	public static void OnStartGame()
+	{
 		Width = (short)(Main.MaxTilesX - 68);
 		Height = (short)(Main.MaxTilesY - 68);
 		TexWidth = (short)(Width / 4);

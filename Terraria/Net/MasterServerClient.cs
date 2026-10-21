@@ -707,7 +707,8 @@ internal static class MasterServerClient
 	}
 
 	/// <summary>Reads at most <see cref="MaxResponseBytes"/>; null when the body is too large.</summary>
-	private static string ReadLimited(Stream stream)	{
+	private static string ReadLimited(Stream stream)
+	{
 		if (stream == null)
 		{
 			return string.Empty;

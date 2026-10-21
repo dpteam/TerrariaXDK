@@ -10252,7 +10252,8 @@ public sealed class UI
 	}
 
 	private void DrawMiniMap()
-	{		int safeAreaOffsetLeft = CurrentView.SafeAreaOffsetLeft;
+	{
+		int safeAreaOffsetLeft = CurrentView.SafeAreaOffsetLeft;
 		int safeAreaOffsetTop = CurrentView.SafeAreaOffsetTop;
 		int width = CurrentView.ViewWidth - CurrentView.SafeAreaOffsetLeft - CurrentView.SafeAreaOffsetRight;
 		int height = Main.ResolutionHeight - CurrentView.SafeAreaOffsetTop - CurrentView.SafeAreaOffsetBottom - (int)(36f * Main.ScreenMultiplier);
@@ -11240,7 +11241,8 @@ public sealed class UI
 		if (PadState.IsButtonUp(Buttons.RightTrigger) && PadState.IsButtonUp(Buttons.A))
 		{
 			stackSplit = 0;
-		}		else if (stackSplit > 0)
+		}
+		else if (stackSplit > 0)
 		{
 			stackSplit--;
 		}

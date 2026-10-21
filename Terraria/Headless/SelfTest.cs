@@ -1067,7 +1067,8 @@ internal static class SelfTest
 		{
 			Keys.W,
 			Keys.D
-		});		GamePadState gamePadState9 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], movement, false, true);
+		});
+		GamePadState gamePadState9 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], movement, false, true);
 		if (gamePadState9.ThumbSticks.Left.LengthSquared() > 0.001f || gamePadState9.Buttons.buttons != 0)
 		{
 			return Fail("movement is not suppressed while typing");
@@ -8608,7 +8609,8 @@ internal static class SelfTest
 		}
 	}
 
-	private static bool CheckModalInputLatch()	{
+	private static bool CheckModalInputLatch()
+	{
 		try
 		{
 			MouseState idleMouse = new MouseState();

@@ -647,7 +647,8 @@ internal sealed class TcpPeer : IPeerTransport
 	}
 
 	private void SendRoster(Connection connection)
-	{		using MemoryStream memoryStream = new MemoryStream();
+	{
+		using MemoryStream memoryStream = new MemoryStream();
 		BinaryWriter binaryWriter = new BinaryWriter(memoryStream, Encoding.UTF8);
 		binaryWriter.Write(OpRoster);
 		Connection[] array;
