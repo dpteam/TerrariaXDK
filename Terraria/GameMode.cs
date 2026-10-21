@@ -32,13 +32,18 @@ public static class GameMode
 
 	public static void Update()
 	{
-		bool flag = HandleMouse();
+		// Hover moves the selection; the click itself comes through the shared "left mouse = A"
+		// mapping. What matters is that a click only counts when the pointer is actually on a row:
+		// otherwise it activated whichever row was highlighted last, which read as "clicking
+		// Start Game toggles the checkbox above it".
+		bool overRow = HandleMouse();
+		bool pointerDriving = Terraria.Input.KeyboardMouseInput.Enabled && Terraria.Input.KeyboardMouseInput.CursorOverride;
 		if (UI.MainUI.IsBackButtonTriggered())
 		{
 			UI.MainUI.PrevMenu();
 			return;
 		}
-		if (flag || UI.MainUI.IsButtonTriggered(Buttons.A))
+		if (UI.MainUI.IsButtonTriggered(Buttons.A) && (overRow || !pointerDriving))
 		{
 			Activate(CursorY);
 		}
@@ -76,9 +81,9 @@ public static class GameMode
 	}
 
 	/// <summary>
-	/// Hover-only: moving the pointer over a row selects it. Clicking is left to the shared
-	/// "left mouse = A" path so there is exactly one activation per click; handling the click
-	/// here as well used to toggle a checkbox twice (on and immediately back off).
+	/// Hover: moves the selection to the row under the pointer and reports whether the pointer is
+	/// on one. Clicking is left to the shared "left mouse = A" path so there is exactly one
+	/// activation per click; handling the click here as well used to toggle a checkbox twice.
 	/// </summary>
 	private static bool HandleMouse()
 	{
@@ -101,7 +106,7 @@ public static class GameMode
 				return false;
 			}
 			CursorY = (byte)i;
-			return false;
+			return true;
 		}
 		return false;
 	}
@@ -140,24 +145,27 @@ public static class GameMode
 
 	public static void Draw(WorldView view)
 	{
-		Main.DrawRect(451, new Rectangle
-		{
-			X = (view.ViewWidth >> 1) - (int)(190f * Main.ScreenMultiplier),
-			Y = (int)(210f * Main.ScreenMultiplier),
-			Width = (int)(380f * Main.ScreenMultiplier),
-			Height = (int)(168f * Main.ScreenMultiplier)
-		}, 64);
+		// The panel, and the rows inside it, from one base rectangle. They used to be computed from
+		// two unrelated numbers: the panel was centred at ViewWidth/2 - 190 and 380 wide, while the
+		// clickable rows started 90px further right and were only 320 wide. So the left quarter of
+		// every row was not clickable and the right quarter of the panel was clickable outside the
+		// drawn box - "the left side of this menu does not respond".
+		Rectangle panel = new Rectangle(
+			(view.ViewWidth >> 1) - (int)(190f * Main.ScreenMultiplier),
+			(int)(210f * Main.ScreenMultiplier),
+			(int)(380f * Main.ScreenMultiplier),
+			(int)(168f * Main.ScreenMultiplier));
+		Main.DrawRect(451, panel, 64);
 		Color c = Color.White;
 		int num = (view.ViewWidth >> 1) - (int)(100f * Main.ScreenMultiplier);
 		int num2 = (int)(230f * Main.ScreenMultiplier);
 		MouseRowTop = num2;
 		MouseRowHeight = (int)(64f * Main.ScreenMultiplier);
-		MouseRowsArea = new Rectangle(num - (int)(8f * Main.ScreenMultiplier), num2 - (int)(8f * Main.ScreenMultiplier), (int)(320f * Main.ScreenMultiplier), MouseRowHeight * 3);
-		// Per-row hit rectangles. The checkbox rows are 64px tall; the Start Game text is measured
-		// below, because it sits well under the checkbox block and used to fall outside the only
-		// hit area, so clicking it activated whatever row was selected last.
-		int num0 = num - (int)(8f * Main.ScreenMultiplier);
-		int num1 = (int)(320f * Main.ScreenMultiplier);
+		// Rows cover the panel's full width, and a few pixels of slack on each side: the checkbox
+		// is a picture, and asking the player to hit the picture exactly is pointless.
+		int num0 = panel.X - (int)(4f * Main.ScreenMultiplier);
+		int num1 = panel.Width + (int)(8f * Main.ScreenMultiplier);
+		MouseRowsArea = new Rectangle(num0, num2 - (int)(8f * Main.ScreenMultiplier), num1, MouseRowHeight * 2);
 		RowRects[0] = new Rectangle(num0, num2 - (int)(8f * Main.ScreenMultiplier), num1, MouseRowHeight);
 		RowValid[0] = true;
 		RowRects[1] = new Rectangle(num0, num2 + MouseRowHeight - (int)(8f * Main.ScreenMultiplier), num1, MouseRowHeight);
@@ -208,16 +216,10 @@ public static class GameMode
 		Vector2 pivot = UI.MeasureString(UI.BigFont, text);
 		pivot.X *= 0.5f;
 		pivot.Y *= 0.5f;
-		float y = 454f;
-		switch (Main.ScreenHeightPtr)
-		{
-		case ScreenHeights.HD:
-			y = 620f;
-			break;
-		case ScreenHeights.FHD:
-			y = 940f;
-			break;
-		}
+		// Below the panel by a fixed gap, not by a per-preset constant: the old numbers (454 / 620 /
+		// 940) were three hand-tuned values for three presets, and a fourth preset would have
+		// needed a fourth.
+		float y = panel.Bottom + (int)(76f * Main.ScreenMultiplier);
 		UI.DrawStringScaled(pos: new Vector2(view.ViewWidth >> 1, y), font: UI.BigFont, s: text, c: c, pivot: pivot, scale: num3);
 		// The Start Game row, from the same measurements the text is drawn with, with a little
 		// vertical slack because the text is thin and a pixel-perfect target is unpleasant.
