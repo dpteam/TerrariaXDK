@@ -87,8 +87,7 @@ internal static class DebugKit
 		int num4 = 0;
 		for (int j = num; j < num2 && num4 < player.Inventory.Length && num3 < PageSize; j++)
 		{
-			Item item = default(Item);
-			item.SetDefaults(j);
+			Item item = Create(j);
 			if (item.Type <= 0)
 			{
 				continue;
@@ -153,6 +152,28 @@ internal static class DebugKit
 
 	/// <summary>Names for the help line, in the same order as the numbers.</summary>
 	internal static string List => "default (0), pvp (1), pve (2), full (3)";
+
+	/// <summary>
+	/// One item from an id, whichever table the id lives in.
+	///
+	/// The port's own additions (Copper/Gold/Silver tools) have negative enum values and are
+	/// created by <c>NetDefaults</c>, which switches on the name. <c>SetDefaults</c> on a negative
+	/// id sets no fields at all and leaves the item at type -13, so the kit quietly skipped them:
+	/// the "default" kit was handing out less than it claimed.
+	/// </summary>
+	internal static Item Create(int id)
+	{
+		Item item = default(Item);
+		if (id < 0)
+		{
+			item.NetDefaults(id);
+		}
+		else
+		{
+			item.SetDefaults(id);
+		}
+		return item;
+	}
 
 	/// <summary>
 	/// Fills the inventory with one kit.
@@ -231,12 +252,11 @@ internal static class DebugKit
 		for (int j = 0; j < array.Length && num < player.Inventory.Length; j++)
 		{
 			int num2 = (int)array[j];
-			if (num2 <= 0)
+			if (num2 == 0)
 			{
 				continue;
 			}
-			Item item = default(Item);
-			item.SetDefaults(num2);
+			Item item = Create(num2);
 			if (item.Type <= 0)
 			{
 				continue;

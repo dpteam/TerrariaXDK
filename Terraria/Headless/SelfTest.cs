@@ -9013,12 +9013,95 @@ internal static class SelfTest
 			}
 			Console.WriteLine("    debug kit: " + num + " item ids, " + Terraria.Cheats.DebugKit.PageCount
 				+ " pages, " + num6 + " placed on page 0");
+
+			// --- debug world chests -------------------------------------------
+			// Classification is what decides which chest an item ends up in. A block that is a
+			// workbench must be furniture (that is what a player looks for), and a tool that also
+			// damages must be a tool, or the sorted chests are worse than one big one.
+			if (!SameCategory(EntityID.ItemID.DIRT_BLOCK, Terraria.Cheats.DebugWorld.Category.Blocks))
+			{
+				return Fail("a dirt block did not land in the blocks chest");
+			}
+			if (!SameCategory(EntityID.ItemID.WORK_BENCH, Terraria.Cheats.DebugWorld.Category.Furniture))
+			{
+				return Fail("a workbench was filed as a plain block");
+			}
+			if (!SameCategory(EntityID.ItemID.WOOD_WALL, Terraria.Cheats.DebugWorld.Category.Walls))
+			{
+				return Fail("a wall item did not land in the walls chest");
+			}
+			if (!SameCategory(EntityID.ItemID.COPPER_PICKAXE, Terraria.Cheats.DebugWorld.Category.Tools))
+			{
+				return Fail("a pickaxe was not filed as a tool");
+			}
+			if (!SameCategory(EntityID.ItemID.IRON_BROADSWORD, Terraria.Cheats.DebugWorld.Category.Weapons))
+			{
+				return Fail("a sword was not filed as a weapon");
+			}
+			if (!SameCategory(EntityID.ItemID.IRON_HELMET, Terraria.Cheats.DebugWorld.Category.Armor))
+			{
+				return Fail("a helmet was not filed as armor");
+			}
+			if (!SameCategory(EntityID.ItemID.HEALING_POTION, Terraria.Cheats.DebugWorld.Category.Potions))
+			{
+				return Fail("a healing potion was not filed as a potion");
+			}
+			// Every category must end up with something. Which chest an item lands in is checked
+			// above one by one; here the point is that no chest is empty, because an empty chest
+			// in a room built for finding things is worse than no chest at all.
+			System.Collections.Generic.Dictionary<Terraria.Cheats.DebugWorld.Category, List<int>> collected = Terraria.Cheats.DebugWorld.Collect();
+			int num7 = 0;
+			int num8 = 0;
+			foreach (KeyValuePair<Terraria.Cheats.DebugWorld.Category, List<int>> item in collected)
+			{
+				num7 += item.Value.Count;
+				if (item.Value.Count == 0)
+				{
+					return Fail("the " + Terraria.Cheats.DebugWorld.Label(item.Key) + " chest would be empty");
+				}
+				num8++;
+			}
+			if (num8 != Terraria.Cheats.DebugWorld.Categories.Length)
+			{
+				return Fail("only " + num8 + " of " + Terraria.Cheats.DebugWorld.Categories.Length + " chests are planned");
+			}
+			if (num7 < 300)
+			{
+				// "All the items" that fits in a few hundred ids is not all the items: the id
+				// table resolution is broken, not the classification.
+				return Fail("only " + num7 + " item ids were collected for the chests");
+			}
+			Console.WriteLine("    debug world: " + num7 + " items into " + num8 + " chests ("
+				+ Terraria.Cheats.DebugWorld.Label(Terraria.Cheats.DebugWorld.Category.Weapons) + " " + collected[Terraria.Cheats.DebugWorld.Category.Weapons].Count + ", "
+				+ Terraria.Cheats.DebugWorld.Label(Terraria.Cheats.DebugWorld.Category.Blocks) + " " + collected[Terraria.Cheats.DebugWorld.Category.Blocks].Count + ", "
+				+ Terraria.Cheats.DebugWorld.Label(Terraria.Cheats.DebugWorld.Category.Materials) + " " + collected[Terraria.Cheats.DebugWorld.Category.Materials].Count + ")");
 			return true;
 		}
 		catch (Exception ex)
 		{
 			return Fail("debug kit check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
+	}
+
+	/// <summary>True when one item id is classified into <paramref name="Expected"/>.</summary>
+	private static bool SameCategory(EntityID.ItemID Id, Terraria.Cheats.DebugWorld.Category Expected)
+	{
+		Item item = Terraria.Cheats.DebugKit.Create((int)Id);
+		if (item.Type <= 0)
+		{
+			Console.WriteLine("       " + Id + " = " + (int)Id + " did not resolve (type " + item.Type + ")");
+			// A name that does not resolve is a different bug, and the caller's message would be
+			// misleading; the id list itself is checked by the debug kit test.
+			return false;
+		}
+		if (Terraria.Cheats.DebugWorld.Classify(item) == Expected)
+		{
+			return true;
+		}
+		Console.WriteLine("       " + Id + " resolved to type " + item.Type + " (tile " + item.CreateTile
+			+ ", wall " + item.CreateWall + ", pick " + item.PickPower + ", dmg " + item.Damage
+			+ ") and was filed as " + Terraria.Cheats.DebugWorld.Classify(item));
+		return false;
 	}
 
 	// --- Debug console ------------------------------------------------------

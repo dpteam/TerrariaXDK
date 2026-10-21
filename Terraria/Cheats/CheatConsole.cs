@@ -119,6 +119,16 @@ internal static class CheatConsole
 					return;
 				}
 				Echo(Texts.Format("chat.debugkit.items", num, result, DebugKit.PageCount - 1), value: true);
+			}),
+			new Command("debugworld", "", "chat.debugworld.help", delegate(string[] a)
+			{
+				string error;
+				if (!DebugWorld.Build(UI.MainUI.ActivePlayer, out error))
+				{
+					Main.NewText(Texts.Format("chat.debugworld.failed", error), 255, 130, 120);
+					return;
+				}
+				Echo(Texts.Get("chat.debugworld.done"), value: true);
 			})
 #endif
 		};

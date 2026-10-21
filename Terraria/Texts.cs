@@ -84,6 +84,9 @@ internal static class Texts
 		Add(dictionary, "chat.debugkit.allitems", "fill the inventory with one page of every item id");
 		Add(dictionary, "chat.debugkit.usage", "Usage: !allitems [page 0-{0}]");
 		Add(dictionary, "chat.debugkit.items", "gave {0} item(s) from page {1} of 0-{2}");
+		Add(dictionary, "chat.debugworld.help", "build a room of chests sorted by category next to you");
+		Add(dictionary, "chat.debugworld.done", "debug room built: chests are behind the crafting stations");
+		Add(dictionary, "chat.debugworld.failed", "could not build the debug room: {0}");
 #endif
 		Add(dictionary, "chat.host.not.hosting", "Commands only work while hosting a multiplayer world.");
 		Add(dictionary, "chat.host.forbidden", "{0} may not use {1}.");
