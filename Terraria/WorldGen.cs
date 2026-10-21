@@ -12640,6 +12640,11 @@ internal static class WorldGen
 		catch
 		{
 		}
+		if (flag)
+		{
+			// One line, and a no-op unless a mod is loaded and a world is running.
+			Terraria.Mods.ModEvents.TilePlaced(i, j);
+		}
 		return flag;
 	}
 
@@ -14625,6 +14630,7 @@ internal static class WorldGen
 						ptr->Liquid = 128;
 					}
 					SquareTileFrame(i, j);
+					Terraria.Mods.ModEvents.TileKilled(i, j);
 					return true;
 				}
 			}
@@ -15541,6 +15547,8 @@ internal static class WorldGen
 				ptr->Liquid = 128;
 			}
 			SquareTileFrame(i, j);
+			// Reached only when the tile was really removed: EffectOnly returns earlier.
+			Terraria.Mods.ModEvents.TileKilled(i, j);
 		}
 	}
 

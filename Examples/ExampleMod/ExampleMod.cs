@@ -21,7 +21,9 @@ namespace ExampleMod;
 /// <item><see cref="OnWorldSaving"/> - writing your own data next to the world save;</item>
 /// <item><see cref="OnGameUpdate"/> - per-frame game tick, independent of players;</item>
 /// <item><see cref="ModContext.SendPacket"/> plus <see cref="OnPacket"/> - mod-to-mod
-/// traffic without touching the game's own packet ids.</item>
+/// traffic without touching the game's own packet ids;</item>
+/// <item><see cref="OnTilePlaced"/>, <see cref="OnTileKilled"/>, <see cref="OnNpcHurt"/> -
+/// world events (suppressed during world generation).</item>
 /// </list>
 ///
 /// It deliberately changes no gameplay: copy it, rename it, and build from there.
@@ -115,4 +117,38 @@ public class ExampleMod : Mod
 
 	/// <summary>Counter filled on the network thread, drained on the game thread.</summary>
 	private volatile int _pendingPackets;
+
+	/// <summary>
+	/// A tile appeared. This fires on the main thread, inside the tile code, so keep it cheap:
+	/// no allocations, no looping over the world. Do the real work in OnGameUpdate.
+	/// </summary>
+	public override void OnTilePlaced(int x, int y)
+	{
+		_tilesChanged++;
+	}
+
+	public override void OnTileKilled(int x, int y)
+	{
+		_tilesChanged++;
+	}
+
+	/// <summary>
+	/// Damage was applied to an NPC; <c>npc.Life &lt;= 0</c> means this hit killed it.
+	/// In multiplayer this also fires on clients, so check <c>Context.IsHost</c> before
+	/// changing anything that has to be authoritative.
+	/// </summary>
+	public override void OnNpcHurt(NPC npc, int damage)
+	{
+		_npcsHurt++;
+		if (npc.Life <= 0)
+		{
+			_npcsKilled++;
+		}
+	}
+
+	private int _tilesChanged;
+
+	private int _npcsHurt;
+
+	private int _npcsKilled;
 }

@@ -60,6 +60,7 @@ internal static class SelfTest
 		RunCheck("master endpoints", CheckMasterEndpoints);
 		RunCheck("lan discovery", CheckLanDiscovery);
 		RunCheck("mod packets", CheckModPackets);
+		RunCheck("mod world events", CheckModWorldEvents);
 		RunCheck("saved servers", CheckSavedServers);
 		RunCheck("auto refresh", CheckAutoRefresh);
 		RunCheck("world backups", CheckWorldBackups);
@@ -2998,6 +2999,183 @@ internal static class SelfTest
 		}
 		// One last pump so the final state is visible to the caller.
 		return condition();
+	}
+
+	// --- Mod world events ---------------------------------------------------
+
+	/// <summary>
+	/// A mod that counts what it is told. Instantiated directly: mods are plain .NET objects,
+	/// so no plugin folder or reflection is needed to check the dispatch path.
+	/// </summary>
+	private sealed class CountingMod : Terraria.Mods.Mod
+	{
+		public int TilesPlaced;
+
+		public int TilesKilled;
+
+		public int NpcsHurt;
+
+		public int LastX = -1;
+
+		public int LastY = -1;
+
+		public int LastDamage = -1;
+
+		public override void OnTilePlaced(int x, int y)
+		{
+			TilesPlaced++;
+			LastX = x;
+			LastY = y;
+		}
+
+		public override void OnTileKilled(int x, int y)
+		{
+			TilesKilled++;
+			LastX = x;
+			LastY = y;
+		}
+
+		public override void OnNpcHurt(Terraria.NPC npc, int damage)
+		{
+			NpcsHurt++;
+			LastDamage = damage;
+		}
+	}
+
+	/// <summary>A mod that throws from every hook, to prove one bad mod cannot break the rest.</summary>
+	private sealed class CrashingMod : Terraria.Mods.Mod
+	{
+		public override void OnTilePlaced(int x, int y)
+		{
+			throw new InvalidOperationException("synthetic failure");
+		}
+	}
+
+	/// <summary>
+	/// Tile and NPC hooks are the newest way mods touch the world, and they sit inside the
+	/// hottest code in the game (tile placement, mining, every damage tick). Two things must
+	/// hold or the game becomes unusable: they must cost nothing without mods, and they must
+	/// not fire during world generation.
+	/// </summary>
+	private static bool CheckModWorldEvents()
+	{
+		System.Collections.Generic.IList<Terraria.Mods.Mod> mods = Terraria.Mods.ModLoader.Mods;
+		int errorsBefore = Terraria.Mods.ModLoader.LoadErrors.Count;
+		int countBefore = mods.Count;
+		bool genBefore = Terraria.WorldGen.Gen;
+		MenuType menuBefore = (UI.MainUI != null) ? UI.MainUI.CurMenuType : MenuType.NONE;
+		try
+		{
+			// The gate itself, every combination: this is what keeps the cost at zero.
+			if (Terraria.Mods.ModEvents.ShouldDispatch(false, 0, false))
+			{
+				return Fail("events dispatch with no mods");
+			}
+			if (Terraria.Mods.ModEvents.ShouldDispatch(true, 3, false))
+			{
+				return Fail("events dispatch during world generation");
+			}
+			if (Terraria.Mods.ModEvents.ShouldDispatch(false, 3, true))
+			{
+				return Fail("events dispatch while a menu is open");
+			}
+			if (!Terraria.Mods.ModEvents.ShouldDispatch(false, 3, false))
+			{
+				return Fail("events are suppressed in a running world with mods");
+			}
+
+			CountingMod counter = new CountingMod();
+			CrashingMod crasher = new CrashingMod();
+			mods.Add(counter);
+
+			// A mod is loaded, but world generation is running: still nothing.
+			Terraria.WorldGen.Gen = true;
+			if (Terraria.Mods.ModEvents.IsActive)
+			{
+				return Fail("world events fire during world generation");
+			}
+			Terraria.Mods.ModEvents.TilePlaced(5, 6);
+			if (counter.TilesPlaced != 0)
+			{
+				return Fail("a mod saw a tile placed during world generation");
+			}
+			Terraria.WorldGen.Gen = false;
+
+			// In a running world the events arrive with their arguments.
+			if (!Terraria.Mods.ModEvents.IsActive)
+			{
+				return Fail("world events are inactive in a running world");
+			}
+			Terraria.Mods.ModEvents.Reset();
+			Terraria.Mods.ModEvents.TilePlaced(10, 20);
+			Terraria.Mods.ModEvents.TileKilled(11, 21);
+			if (counter.TilesPlaced != 1 || counter.TilesKilled != 1)
+			{
+				return Fail("tile events were not delivered: " + counter.TilesPlaced + "/" + counter.TilesKilled);
+			}
+			if (counter.LastX != 11 || counter.LastY != 21)
+			{
+				return Fail("a tile event carried the wrong coordinates");
+			}
+			if (Terraria.Mods.ModEvents.DispatchCount != 2)
+			{
+				return Fail("the dispatch counter does not match the events");
+			}
+
+			// NPC damage: the NPC is created locally, no world needed.
+			Terraria.NPC npc = new Terraria.NPC();
+			npc.Active = 1;
+			npc.Life = 100;
+			Terraria.Mods.ModEvents.NpcHurt(npc, 42);
+			if (counter.NpcsHurt != 1 || counter.LastDamage != 42)
+			{
+				return Fail("an NPC damage event was not delivered");
+			}
+			// A null NPC must be ignored, not crash the damage path.
+			Terraria.Mods.ModEvents.NpcHurt(null, 5);
+			if (counter.NpcsHurt != 1)
+			{
+				return Fail("a null NPC was dispatched");
+			}
+
+			// One mod throwing must not stop the others, and must not escape the event.
+			mods.Add(crasher);
+			try
+			{
+				Terraria.Mods.ModEvents.TilePlaced(30, 40);
+			}
+			catch (Exception ex)
+			{
+				return Fail("a crashing mod escaped the event dispatch: " + ex.Message);
+			}
+			if (counter.TilesPlaced != 2)
+			{
+				return Fail("a healthy mod stopped receiving events after another mod crashed");
+			}
+			if (Terraria.Mods.ModLoader.LoadErrors.Count <= errorsBefore)
+			{
+				return Fail("the crash was not recorded in the mod error list");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("mod world event check threw: " + ex.Message);
+		}
+		finally
+		{
+			// Remove only what this check added, back to front.
+			for (int i = mods.Count - 1; i >= countBefore; i--)
+			{
+				mods.RemoveAt(i);
+			}
+			Terraria.WorldGen.Gen = genBefore;
+			if (UI.MainUI != null)
+			{
+				UI.MainUI.CurMenuType = menuBefore;
+			}
+			Terraria.Mods.ModEvents.Reset();
+		}
 	}
 
 	private static bool Fail(string message)

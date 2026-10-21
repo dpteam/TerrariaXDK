@@ -16206,6 +16206,7 @@ public sealed class NPC
 			{
 				CheckDead();
 			}
+			Terraria.Mods.ModEvents.NpcHurt(this, Damage);
 			return num;
 		}
 		return 0.0;
