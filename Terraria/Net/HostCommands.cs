@@ -24,7 +24,7 @@ namespace Terraria.Net;
 internal static class HostCommands
 {
 	/// <summary>Every command name, for chat completion.</summary>
-	public static readonly string[] Names = new string[15]
+	public static readonly string[] Names = new string[16]
 	{
 		"!kick",
 		"!ban",
@@ -40,10 +40,11 @@ internal static class HostCommands
 		"!op",
 		"!deop",
 		"!groups",
+		"!region",
 		"!help"
 	};
 
-	private const string HelpText = "!kick <player> [reason], !ban/!unban <player|ip>, !bans, !who, !mute/!unmute <player>, !whisper <player> <text>, !motd [text], !rules [text], !say <text>, !op <player> [group], !deop <player>, !groups";
+	private const string HelpText = "!kick <player> [reason], !ban/!unban <player|ip>, !bans, !who, !mute/!unmute <player>, !whisper <player> <text>, !motd [text], !rules [text], !say <text>, !op <player> [group], !deop <player>, !groups, !region list|add <name> [radius]|remove <name>|group <name> [group], !help";
 
 	/// <summary>
 	/// Permission each command needs. Anything not listed here (only <c>!help</c>) is open to
@@ -56,6 +57,10 @@ internal static class HostCommands
 		case "!who":
 		case "!bans":
 		case "!groups":
+			return Permission.Inspect;
+		case "!region":
+			// Listing is harmless; changing the map's rules is not. The subcommand decides,
+			// and it is checked below.
 			return Permission.Inspect;
 		case "!kick":
 			return Permission.Kick;
@@ -191,8 +196,171 @@ internal static class HostCommands
 		case "!groups":
 			DoGroups();
 			return true;
+		case "!region":
+			DoRegion(rest, actor, isLocalHost, out error);
+			return true;
 		}
 		return false;
+	}
+
+	/// <summary>
+	/// <c>!region list</c> is readable by anyone allowed to inspect; the mutating subcommands
+	/// need <see cref="Permission.Manage"/>, because they change who may build where for the
+	/// whole map.
+	/// </summary>
+	private static void DoRegion(string rest, string actor, bool isLocalHost, out string error)
+	{
+		error = null;
+		string text;
+		string text2;
+		SplitTarget(rest, out text, out text2);
+		text = text.ToLowerInvariant();
+		if (text.Length == 0 || text == "list")
+		{
+			DoRegionList();
+			return;
+		}
+		if (!Permissions.Allows(actor, Permission.Manage, isLocalHost))
+		{
+			error = "Changing regions needs the 'manage' permission.";
+			return;
+		}
+		switch (text)
+		{
+		case "add":
+			DoRegionAdd(text2, out error);
+			return;
+		case "remove":
+			DoRegionRemove(text2, out error);
+			return;
+		case "group":
+			DoRegionGroup(text2, out error);
+			return;
+		default:
+			error = "Usage: !region list | add <name> [radius] | remove <name> | group <name> [group]";
+			break;
+		}
+	}
+
+	private static void DoRegionList()
+	{
+		List<Region> list = Regions.All;
+		if (list.Count == 0)
+		{
+			Say("No regions. !region add <name> [radius] protects the area around you.", 200, 200, 210);
+			return;
+		}
+		for (int i = 0; i < list.Count; i++)
+		{
+			Say(list[i].Describe(), 200, 220, 255);
+		}
+		IList<string> loadProblems = Regions.LoadProblems;
+		for (int j = 0; j < loadProblems.Count; j++)
+		{
+			Say("regions.txt: " + loadProblems[j], 255, 170, 140);
+		}
+	}
+
+	/// <summary>
+	/// Creates a region around the host's current position. The host is the only one who can
+	/// do this, so "around me" is well defined - a remote player would have to send
+	/// coordinates, and a misplaced region is hard to notice from inside it.
+	/// </summary>
+	private static void DoRegionAdd(string rest, out string error)
+	{
+		error = null;
+		string text;
+		string text2;
+		SplitTarget(rest, out text, out text2);
+		if (text.Length == 0)
+		{
+			error = "Usage: !region add <name> [radius]";
+			return;
+		}
+		int result = 24;
+		if (text2.Length != 0 && (!int.TryParse(text2, out result) || result < 1 || result > 500))
+		{
+			error = "Radius must be 1-500 tiles.";
+			return;
+		}
+		int x = 0;
+		int y = 0;
+		if (!TryGetHostTile(out x, out y))
+		{
+			error = "Stand in the world first: the region is created around you.";
+			return;
+		}
+		Region region = new Region();
+		region.Name = text;
+		region.X1 = x - result;
+		region.Y1 = y - result;
+		region.X2 = x + result;
+		region.Y2 = y + result;
+		region.Normalize();
+		if (!Regions.Add(region, out error))
+		{
+			return;
+		}
+		Say("Created region '" + text + "' around you (" + region.Width + "x" + region.Height + "), host only. "
+			+ "Use !region group " + text + " <group> to let a group build.", 180, 230, 180);
+	}
+
+	private static void DoRegionRemove(string name, out string error)
+	{
+		error = null;
+		if (name.Length == 0)
+		{
+			error = "Usage: !region remove <name>";
+			return;
+		}
+		if (!Regions.Remove(name))
+		{
+			error = "No region called '" + name + "'.";
+			return;
+		}
+		Say("Removed region '" + name + "'.", 255, 190, 160);
+	}
+
+	private static void DoRegionGroup(string rest, out string error)
+	{
+		error = null;
+		string text;
+		string text2;
+		SplitTarget(rest, out text, out text2);
+		if (text.Length == 0)
+		{
+			error = "Usage: !region group <name> [group]";
+			return;
+		}
+		if (!Regions.SetGroup(text, text2, out error))
+		{
+			return;
+		}
+		Say(string.IsNullOrEmpty(text2) ? ("Region '" + text + "' is now host only.") : ("Region '" + text + "' is now buildable by group '" + text2 + "'."), 180, 230, 180);
+	}
+
+	/// <summary>The host's own tile position, or false when there is no world running.</summary>
+	private static bool TryGetHostTile(out int x, out int y)
+	{
+		x = 0;
+		y = 0;
+		try
+		{
+			UI ui = UI.MainUI;
+			if (ui == null || ui.ActivePlayer == null)
+			{
+				return false;
+			}
+			Microsoft.Xna.Framework.Rectangle rectangle = ui.ActivePlayer.XYWH;
+			// Player coordinates are in pixels; a tile is 16.
+			x = (rectangle.X + 10) / 16;
+			y = (rectangle.Y + 21) / 16;
+			return x >= 0 && y >= 0 && x < Main.MaxTilesX && y < Main.MaxTilesY;
+		}
+		catch
+		{
+			return false;
+		}
 	}
 
 	private static void DoOp(string rest, out string error)

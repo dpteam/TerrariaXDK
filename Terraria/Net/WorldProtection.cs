@@ -82,6 +82,14 @@ internal static class WorldProtection
 			reason = "The area around spawn is protected.";
 			return false;
 		}
+		// Named regions: "this is my house". Checked after spawn protection so the spawn
+		// message stays the one players actually expect there.
+		Region region = Regions.FindAt(x, y);
+		if (region != null && !Regions.AllowsIn(region, isHost: false, gamertag))
+		{
+			reason = "Region '" + region.Name + "' is protected.";
+			return false;
+		}
 		return true;
 	}
 

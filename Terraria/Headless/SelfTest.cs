@@ -74,6 +74,7 @@ internal static class SelfTest
 		RunCheck("moderation", CheckModeration);
 		RunCheck("permissions", CheckPermissions);
 		RunCheck("world protection", CheckWorldProtection);
+		RunCheck("regions", CheckRegions);
 		RunCheck("ban list", CheckBanList);
 		ReportMemory();
 		Console.WriteLine();
@@ -4735,9 +4736,9 @@ internal static class SelfTest
 					return Fail("'" + gated[j] + "' is not a known command");
 				}
 			}
-			if (HostCommands.Names.Length != 15)
+			if (HostCommands.Names.Length != 16)
 			{
-				return Fail("the command list has " + HostCommands.Names.Length + " entries, expected 15");
+				return Fail("the command list has " + HostCommands.Names.Length + " entries, expected 16");
 			}
 			// The chat packet helpers: the host recognises a client command by reading the line
 			// back out of the packet, so a round-trip mismatch would silently disable commands.
@@ -4942,6 +4943,266 @@ internal static class SelfTest
 			WorldProtection.DisableBuild = disableBuild;
 			WorldProtection.SpawnRadius = spawnRadius;
 			WorldProtection.ResetNotices();
+			Permissions.Reload();
+		}
+	}
+
+	// --- Regions ------------------------------------------------------------
+
+	/// <summary>
+	/// Regions are the general form of "this is my house". The parts that can silently go wrong:
+	/// a rectangle given backwards (x1 &gt; x2) that ends up empty, overlapping regions making
+	/// "may I build here" depend on iteration order, a region with no group defaulting to open
+	/// instead of closed, and a region that is not consulted by the edit gate at all.
+	/// </summary>
+	private static bool CheckRegions()
+	{
+		string backup = null;
+		bool had = System.IO.File.Exists(Regions.FilePath);
+		try
+		{
+			if (had)
+			{
+				backup = System.IO.File.ReadAllText(Regions.FilePath, Encoding.UTF8);
+			}
+			if (System.IO.File.Exists(Regions.FilePath))
+			{
+				System.IO.File.Delete(Regions.FilePath);
+			}
+			Regions.Reload();
+			if (Regions.Count != 0)
+			{
+				return Fail("the region list did not start empty");
+			}
+
+			// Geometry: inclusive bounds, and a backwards rectangle is normalised.
+			Region region = new Region();
+			region.Name = "house";
+			region.X1 = 100;
+			region.Y1 = 200;
+			region.X2 = 160;
+			region.Y2 = 240;
+			region.Normalize();
+			if (region.Width != 61 || region.Height != 41)
+			{
+				return Fail("the region size is off: " + region.Width + "x" + region.Height);
+			}
+			if (!region.Contains(100, 200) || !region.Contains(160, 240) || region.Contains(99, 200) || region.Contains(161, 240))
+			{
+				return Fail("the region bounds are not inclusive");
+			}
+			Region backwards = new Region();
+			backwards.Name = "backwards";
+			backwards.X1 = 60;
+			backwards.Y1 = 40;
+			backwards.X2 = 10;
+			backwards.Y2 = 5;
+			backwards.Normalize();
+			if (backwards.X1 != 10 || backwards.X2 != 60 || backwards.Y1 != 5 || backwards.Y2 != 40)
+			{
+				return Fail("a backwards rectangle was not normalised");
+			}
+
+			string error;
+			if (!Regions.Add(region, out error))
+			{
+				return Fail("adding a region failed: " + error);
+			}
+			// Duplicate name and overlapping bounds are both refused, with a reason.
+			Region same = new Region();
+			same.Name = "HOUSE";
+			same.X1 = 1;
+			same.Y1 = 1;
+			same.X2 = 2;
+			same.Y2 = 2;
+			if (Regions.Add(same, out error) || string.IsNullOrEmpty(error))
+			{
+				return Fail("a duplicate region name was accepted");
+			}
+			Region overlaps = new Region();
+			overlaps.Name = "shed";
+			overlaps.X1 = 150;
+			overlaps.Y1 = 230;
+			overlaps.X2 = 200;
+			overlaps.Y2 = 260;
+			if (Regions.Add(overlaps, out error) || error.IndexOf("house", StringComparison.OrdinalIgnoreCase) < 0)
+			{
+				return Fail("an overlapping region was accepted without naming the clash");
+			}
+			// An empty rectangle and a nameless one are refused.
+			Region empty = new Region();
+			empty.Name = "empty";
+			empty.X1 = 5;
+			empty.Y1 = 5;
+			empty.X2 = 5;
+			empty.Y2 = 5;
+			// A single tile is a valid region, so this must succeed; check a truly invalid one.
+			Region nameless = new Region();
+			nameless.Name = "   ";
+			nameless.X1 = 900;
+			nameless.Y1 = 900;
+			nameless.X2 = 910;
+			nameless.Y2 = 910;
+			if (Regions.Add(nameless, out error))
+			{
+				return Fail("a nameless region was accepted");
+			}
+			Region badName = new Region();
+			badName.Name = "a=b";
+			badName.X1 = 900;
+			badName.Y1 = 900;
+			badName.X2 = 910;
+			badName.Y2 = 910;
+			if (Regions.Add(badName, out error))
+			{
+				return Fail("a region name containing '=' was accepted (it would corrupt the file)");
+			}
+
+			// Permission: a region with no group is host-only, not open.
+			if (!Regions.AllowsIn(region, isHost: true, "Owner"))
+			{
+				return Fail("the host may not build in their own region");
+			}
+			if (Regions.AllowsIn(region, isHost: false, "Alice"))
+			{
+				return Fail("a group-less region allowed a normal player");
+			}
+			// Assigning a group lets exactly that group in.
+			if (!Permissions.Assign("Alice", "mod", out error) || !Regions.SetGroup("house", "mod", out error))
+			{
+				return Fail("could not point a region at a group: " + error);
+			}
+			if (!Regions.AllowsIn(Regions.FindByName("house"), isHost: false, "Alice"))
+			{
+				return Fail("a player in the region's group was refused");
+			}
+			if (Regions.AllowsIn(Regions.FindByName("house"), isHost: false, "Bob"))
+			{
+				return Fail("a player outside the region's group was allowed");
+			}
+			if (!Regions.SetGroup("house", null, out error) || Regions.AllowsIn(Regions.FindByName("house"), isHost: false, "Alice"))
+			{
+				return Fail("clearing the group did not make the region host-only");
+			}
+			// Unknown groups are refused rather than silently stored.
+			if (Regions.SetGroup("house", "ghostgroup", out error) || string.IsNullOrEmpty(error))
+			{
+				return Fail("a region was pointed at an unknown group");
+			}
+			if (Regions.SetGroup("nosuchregion", "mod", out error))
+			{
+				return Fail("pointing a missing region at a group reported success");
+			}
+
+			// Lookup by tile, including the negative space.
+			if (Regions.FindAt(120, 220) == null || Regions.FindAt(120, 220).Name != "house")
+			{
+				return Fail("a tile inside the region was not found");
+			}
+			if (Regions.FindAt(5000, 1000) != null)
+			{
+				return Fail("a tile outside every region matched one");
+			}
+
+			// The edit gate must consult regions: this is what makes them more than a list.
+			string reason;
+			WorldProtection.SpawnRadius = 0;
+			WorldProtection.DisableBuild = false;
+			if (WorldProtection.CanEdit(isHost: false, "Bob", 120, 220, out reason) || string.IsNullOrEmpty(reason))
+			{
+				return Fail("the edit gate ignored a region");
+			}
+			if (reason.IndexOf("house", StringComparison.OrdinalIgnoreCase) < 0)
+			{
+				return Fail("the refusal did not name the region: " + reason);
+			}
+			if (!WorldProtection.CanEdit(isHost: true, "Owner", 120, 220, out reason))
+			{
+				return Fail("the host was blocked by a region");
+			}
+			// Outside the region the ordinary rules apply again.
+			if (!WorldProtection.CanEdit(isHost: false, "Bob", 4000, 1200, out reason))
+			{
+				return Fail("a region blocked a tile outside itself: " + reason);
+			}
+
+			// File round-trip, including the optional group field.
+			Regions.SetGroup("house", "mod", out error);
+			Regions.Reload();
+			Region reloaded = Regions.FindByName("house");
+			if (reloaded == null || reloaded.Group != "mod" || reloaded.X1 != 100 || reloaded.Y2 != 240)
+			{
+				return Fail("a region did not survive a reload");
+			}
+
+			// A hand-edited file: junk is reported, good lines still load, overlaps dropped.
+			string text = string.Join("\r\n", new string[6]
+			{
+				"# comment",
+				"good = 10,10,20,20",
+				"broken = 10,10",
+				"notnumbers = a,b,c,d",
+				"overlap = 15,15,30,30",
+				"outside = 1,1," + (Main.MaxTilesX + 5) + ",20"
+			});
+			System.IO.File.WriteAllText(Regions.FilePath, text, Encoding.UTF8);
+			Regions.Reload();
+			if (Regions.FindByName("good") == null)
+			{
+				return Fail("a valid region in a partly broken file was dropped");
+			}
+			if (Regions.FindByName("broken") != null || Regions.FindByName("notnumbers") != null || Regions.FindByName("outside") != null)
+			{
+				return Fail("an invalid region line was loaded");
+			}
+			if (Regions.FindByName("overlap") != null)
+			{
+				return Fail("an overlapping region from the file was loaded");
+			}
+			if (Regions.LoadProblems.Count < 3)
+			{
+				return Fail("the file's problems were not reported (" + Regions.LoadProblems.Count + ")");
+			}
+
+			// Parse: the group field is optional, whitespace tolerated.
+			Region parsed;
+			if (!Regions.TryParseBody(" 5, 6, 7, 8 , mod ", out parsed, out error) || parsed.Group != "mod")
+			{
+				return Fail("a well-formed body with a group did not parse: " + error);
+			}
+			if (!Regions.TryParseBody("5,6,7,8", out parsed, out error) || parsed.Group != null)
+			{
+				return Fail("a body without a group did not parse");
+			}
+			if (Regions.TryParseBody("5,6,7", out parsed, out error) || Regions.TryParseBody("5,6,7,8,mod,extra", out parsed, out error))
+			{
+				return Fail("a malformed body was accepted");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("regions check threw: " + ex.Message);
+		}
+		finally
+		{
+			Regions.Reload();
+			// Leave the region storage as it was found, including "no file".
+			try
+			{
+				if (backup != null)
+				{
+					System.IO.File.WriteAllText(Regions.FilePath, backup, Encoding.UTF8);
+				}
+				else if (System.IO.File.Exists(Regions.FilePath))
+				{
+					System.IO.File.Delete(Regions.FilePath);
+				}
+			}
+			catch
+			{
+			}
+			Regions.Reload();
 			Permissions.Reload();
 		}
 	}
