@@ -731,14 +731,14 @@ public sealed class UI
 
 	private static readonly Location[] MENU_SETTINGS_COORDS = new Location[8]
 	{
-		new Location(Main.ResolutionWidth / 2, 190),
-		new Location(Main.ResolutionWidth / 2, 238),
-		new Location(Main.ResolutionWidth / 2, 286),
-		new Location(Main.ResolutionWidth / 2, 334),
-		new Location(Main.ResolutionWidth / 2, 382),
-		new Location(Main.ResolutionWidth / 2, 430),
-		new Location(Main.ResolutionWidth / 2, 478),
-		new Location(Main.ResolutionWidth / 2, 526)
+		new Location(Main.ResolutionWidth / 2, 210),
+		new Location(Main.ResolutionWidth / 2, 258),
+		new Location(Main.ResolutionWidth / 2, 306),
+		new Location(Main.ResolutionWidth / 2, 354),
+		new Location(Main.ResolutionWidth / 2, 402),
+		new Location(Main.ResolutionWidth / 2, 450),
+		new Location(Main.ResolutionWidth / 2, 498),
+		new Location(Main.ResolutionWidth / 2, 546)
 	};
 
 	private string[] menuString = new string[14];
@@ -3272,6 +3272,7 @@ public sealed class UI
 		}
 		else if (CurMenuMode == MenuMode.SETTINGS)
 		{
+			menuTop = 210;
 			menuSpace = 48;
 			numMenuItems = 8;
 			if (this == MainUI)
