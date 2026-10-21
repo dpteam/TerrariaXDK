@@ -772,6 +772,18 @@ internal static class VirtualKeyboard
 		return _symbols ? SymbolsPage : LettersPage;
 	}
 
+	/// <summary>Selected grid row, for the self-test.</summary>
+	internal static int RowForTests => _row;
+
+	/// <summary>Selected grid column, for the self-test.</summary>
+	internal static int ColForTests => _col;
+
+	/// <summary>Test hook: moves the grid cursor the way the pad does.</summary>
+	internal static void MoveForTests(int dx, int dy)
+	{
+		Move(dx, dy);
+	}
+
 	private static void Move(int dx, int dy)
 	{
 		string[] page = CurrentPage();
@@ -799,13 +811,15 @@ internal static class VirtualKeyboard
 		}
 		else
 		{
-			// Bottom action row always has five cells.
+			// Bottom action row: space (cols 0-1, wide), del, caps, OK and X. Six selectable
+			// cells, not five: the X cell is drawn, so the cursor has to be able to reach it.
+			// Wrapping at four left a visible button that could not be selected at all.
 			_col += dx;
 			if (_col < 0)
 			{
-				_col = 4;
+				_col = 5;
 			}
-			else if (_col > 4)
+			else if (_col > 5)
 			{
 				_col = 0;
 			}

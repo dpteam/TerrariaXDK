@@ -101,6 +101,7 @@ internal static class SelfTest
 		RunCheck("menu hit table", CheckMenuHitTable);
 		RunCheck("creation flow back", CheckCreateFlowBack);
 		RunCheck("typed characters", CheckTypedCharacters);
+		RunCheck("keyboard grid", CheckKeyboardGrid);
 		RunCheck("inventory transfer", CheckInventoryTransfer);
 		RunCheck("save slots", CheckSaveSlots);
 		RunCheck("map screen mouse", CheckMapScreenMouse);
@@ -8821,6 +8822,63 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("typed characters check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	private static bool CheckKeyboardGrid()
+	{
+		try
+		{
+			// Every cell that is drawn has to be reachable by the cursor: a button the player can
+			// see but not select is the "keys do not press" report. The bottom row is the case
+			// that was wrong - the X cell was drawn at column 5 while wrap-around stopped at 4.
+			Terraria.Input.VirtualKeyboard.Open("Grid", "", null, null);
+			if (!Terraria.Input.VirtualKeyboard.IsOpen)
+			{
+				return Fail("the keyboard did not open for the grid check");
+			}
+			// Open puts the cursor on the letter row; three rows down is the action row.
+			for (int i = 0; i < 3; i++)
+			{
+				Terraria.Input.VirtualKeyboard.MoveForTests(0, 1);
+			}
+			if (Terraria.Input.VirtualKeyboard.RowForTests != 4)
+			{
+				return Fail("three rows down put the cursor on row " + Terraria.Input.VirtualKeyboard.RowForTests + " instead of the action row");
+			}
+			for (int j = 0; j < 5; j++)
+			{
+				Terraria.Input.VirtualKeyboard.MoveForTests(1, 0);
+			}
+			if (Terraria.Input.VirtualKeyboard.ColForTests != 5)
+			{
+				return Fail("the last action cell (X, column 5) cannot be reached: cursor at column " + Terraria.Input.VirtualKeyboard.ColForTests);
+			}
+			// Wrapping continues from there in both directions.
+			Terraria.Input.VirtualKeyboard.MoveForTests(1, 0);
+			if (Terraria.Input.VirtualKeyboard.ColForTests != 0)
+			{
+				return Fail("moving right past the last cell did not wrap to the first");
+			}
+			Terraria.Input.VirtualKeyboard.MoveForTests(-1, 0);
+			if (Terraria.Input.VirtualKeyboard.ColForTests != 5)
+			{
+				return Fail("moving left from the first cell did not wrap to the last");
+			}
+			Terraria.Input.VirtualKeyboard.CancelEXT();
+			if (Terraria.Input.VirtualKeyboard.IsOpen)
+			{
+				return Fail("the keyboard did not close after the grid check");
+			}
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("keyboard grid check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 
