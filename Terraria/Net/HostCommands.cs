@@ -24,7 +24,7 @@ namespace Terraria.Net;
 internal static class HostCommands
 {
 	/// <summary>Every command name, for chat completion.</summary>
-	public static readonly string[] Names = new string[16]
+	public static readonly string[] Names = new string[21]
 	{
 		"!kick",
 		"!ban",
@@ -41,10 +41,15 @@ internal static class HostCommands
 		"!deop",
 		"!groups",
 		"!region",
+		"!additem",
+		"!delitem",
+		"!items",
+		"!stats",
+		"!world",
 		"!help"
 	};
 
-	private const string HelpText = "!kick <player> [reason], !ban/!unban <player|ip>, !bans, !who, !mute/!unmute <player>, !whisper <player> <text>, !motd [text], !rules [text], !say <text>, !op <player> [group], !deop <player>, !groups, !region list|add <name> [radius]|remove <name>|group <name> [group], !help";
+	private const string HelpText = "!kick <player> [reason], !ban/!unban <player|ip>, !bans, !who, !mute/!unmute <player>, !whisper <player> <text>, !motd/!rules [text], !say <text>, !op/!deop <player> [group], !groups, !region list|add|remove|group, !additem/!delitem <id>, !items, !stats, !world, !help";
 
 	/// <summary>
 	/// Permission each command needs. Anything not listed here (only <c>!help</c>) is open to
@@ -61,6 +66,14 @@ internal static class HostCommands
 		case "!region":
 			// Listing is harmless; changing the map's rules is not. The subcommand decides,
 			// and it is checked below.
+			return Permission.Inspect;
+		case "!additem":
+		case "!delitem":
+			return Permission.Manage;
+		case "!items":
+			return Permission.Inspect;
+		case "!stats":
+		case "!world":
 			return Permission.Inspect;
 		case "!kick":
 			return Permission.Kick;
@@ -199,8 +212,121 @@ internal static class HostCommands
 		case "!region":
 			DoRegion(rest, actor, isLocalHost, out error);
 			return true;
+		case "!additem":
+			DoAddItem(rest, out error);
+			return true;
+		case "!delitem":
+			DoDelItem(rest, out error);
+			return true;
+		case "!items":
+			DoItems();
+			return true;
+		case "!stats":
+			DoStats();
+			return true;
+		case "!world":
+			DoWorld();
+			return true;
 		}
 		return false;
+	}
+
+	private static void DoAddItem(string rest, out string error)
+	{
+		error = null;
+		int netId;
+		if (!ItemRestrictions.TryParseEntry(rest, out netId, out error))
+		{
+			return;
+		}
+		if (!ItemRestrictions.Add(netId))
+		{
+			error = "Item " + netId + " is already banned.";
+			return;
+		}
+		Say("Banned item " + netId + ".", 255, 190, 160);
+	}
+
+	private static void DoDelItem(string rest, out string error)
+	{
+		error = null;
+		int netId;
+		if (!ItemRestrictions.TryParseEntry(rest, out netId, out error))
+		{
+			return;
+		}
+		if (!ItemRestrictions.Remove(netId))
+		{
+			error = "Item " + netId + " is not banned.";
+			return;
+		}
+		Say("Unbanned item " + netId + ".", 180, 230, 180);
+	}
+
+	private static void DoItems()
+	{
+		List<int> list = ItemRestrictions.All;
+		if (list.Count == 0)
+		{
+			Say("No items are banned.", 200, 200, 210);
+			return;
+		}
+		Say(list.Count + " banned: " + string.Join(", ", list.ConvertAll(delegate(int id) { return id.ToString(); }).ToArray()), 255, 190, 160);
+	}
+
+	private static void DoStats()
+	{
+		string text = "Players " + ((TcpPeer.CurrentHost == null) ? 0 : (TcpPeer.CurrentHost.ConnectedCount + 1)) + "/" + (NetworkConfig.MaxPlayers + 1);
+		Say(text, 200, 220, 255);
+		Say("Traffic: " + NetworkStats.Describe(), 200, 220, 255);
+		Say("Uptime " + FormatDuration(HostUptimeSeconds()), 200, 220, 255);
+	}
+
+	/// <summary>
+	/// Seconds since hosting started. Uses the transport's start tick rather than a timer, so
+	/// there is one source of truth for "how long has this server been up".
+	/// </summary>
+	internal static long HostUptimeSeconds()
+	{
+		if (!NetworkStats.HasStart)
+		{
+			return 0;
+		}
+		long num = unchecked(Environment.TickCount - NetworkStats.StartedTick);
+		if (num < 0)
+		{
+			// TickCount wraps every ~49 days; anything negative is a wrap, not a time machine.
+			num += int.MaxValue;
+		}
+		return num / 1000;
+	}
+
+	private static void DoWorld()
+	{
+		Say("World: " + (string.IsNullOrEmpty(Main.WorldName) ? "(unnamed)" : Main.WorldName) + ", " + Main.MaxTilesX + "x" + Main.MaxTilesY + " tiles", 200, 220, 255);
+		Say("Spawn: (" + Main.SpawnTileX + ", " + Main.SpawnTileY + "), surface " + Main.WorldSurface + ", rock layer " + Main.RockLayer, 200, 220, 255);
+		Say("Bosses downed: " + (NPC.HasDownedBoss1 ? "eye " : "") + (NPC.HasDownedBoss2 ? "eater " : "") + (NPC.HasDownedBoss3 ? "skeletron " : "(none reported so far)"), 200, 220, 255);
+	}
+
+	/// <summary>"1h 02m 03s" - readable in one chat line.</summary>
+	internal static string FormatDuration(long seconds)
+	{
+		if (seconds < 0)
+		{
+			seconds = 0;
+		}
+		long num = seconds / 3600;
+		long num2 = seconds % 3600 / 60;
+		long num3 = seconds % 60;
+		if (num > 0)
+		{
+			return num + "h " + num2.ToString("00") + "m";
+		}
+		if (num2 > 0)
+		{
+			return num2 + "m " + num3.ToString("00") + "s";
+		}
+		return num3 + "s";
 	}
 
 	/// <summary>

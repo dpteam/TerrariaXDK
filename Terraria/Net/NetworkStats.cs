@@ -141,8 +141,20 @@ internal static class NetworkStats
 			_packetsSent = 0L;
 			_packetsReceived = 0L;
 			Since.Restart();
+			StartedTick = Environment.TickCount;
+			HasStart = true;
 		}
 	}
+
+	/// <summary>
+	/// Environment.TickCount at the moment the session started. The stopwatch in
+	/// <see cref="Since"/> measures rates, not total uptime, and a wall-clock comparison would
+	/// jump if the system time changed - which is exactly what <c>!stats</c> must not do.
+	/// </summary>
+	internal static int StartedTick;
+
+	/// <summary>True once a session has been started (StartedTick is meaningful).</summary>
+	internal static bool HasStart;
 
 	/// <summary>One-line summary for the HUD / log.</summary>
 	public static string Describe()

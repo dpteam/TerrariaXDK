@@ -111,6 +111,7 @@ dotnet build TerrariaXDK.csproj -v q --nologo     # 0 ошибок
 | Бан-лист | `Storage/Config/banlist.txt` | `BanList` |
 | Права и группы | `Storage/Config/permissions.ini` | `Permissions` |
 | Регионы | `Storage/Config/regions.txt` | `Regions` |
+| Запрещённые предметы | `Storage/Config/items.txt` | `ItemRestrictions` |
 | Моды | `Storage/Mods/<Mod>/<Mod>.dll` | `ModLoader` |
 | Отладочный лог | `Storage/Logs/terraria-debug.log` (прошлый запуск — `terraria-debug.prev.log`) | `Program` |
 | Крашлог | `Storage/Logs/client-crashlog.txt` | `Program` |

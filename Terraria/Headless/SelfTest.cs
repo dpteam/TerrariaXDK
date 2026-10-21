@@ -75,6 +75,7 @@ internal static class SelfTest
 		RunCheck("permissions", CheckPermissions);
 		RunCheck("world protection", CheckWorldProtection);
 		RunCheck("regions", CheckRegions);
+		RunCheck("item restrictions", CheckItemRestrictions);
 		RunCheck("ban list", CheckBanList);
 		ReportMemory();
 		Console.WriteLine();
@@ -3218,6 +3219,63 @@ internal static class SelfTest
 				Terraria.Net.WorldProtection.ResetNotices();
 			}
 
+			// A banned item over a live connection: the host must refuse the inventory sync and
+			// not relay it. This is the only place the server is authoritative for "does this
+			// item exist", so it is where the ban has to be enforced.
+			int netModeItem = Main.NetMode;
+			Main.NetMode = 2;
+			try
+			{
+				ItemRestrictions.Reload();
+				ItemRestrictions.Add(48);
+				bool createdItemClient;
+				NetClient itemClient = EnsureNetClient(hostSession, "Stub Gamer (1)", out createdItemClient);
+				if (itemClient == null)
+				{
+					return Fail("no NetClient for the banned item check");
+				}
+				try
+				{
+					// PlayerSet entries are created by the game's constructor, which never runs
+					// headless; stand one up so the handler has a target.
+					Player savedPlayer = Main.PlayerSet[1];
+					Main.PlayerSet[1] = new Player();
+					try
+					{
+						Player target = Main.PlayerSet[1];
+						target.Inventory[3].Init();
+						SendInventorySync(itemClient, 1, 3, 1, 48);
+						if (target.Inventory[3].NetID == 48 || target.Inventory[3].Stack > 0)
+						{
+							return Fail("a banned item was accepted into the inventory");
+						}
+						// An allowed item still syncs: the gate must not block everything.
+						SendInventorySync(itemClient, 1, 3, 1, 1);
+						if (target.Inventory[3].Stack <= 0)
+						{
+							return Fail("an allowed item was refused by the item gate");
+						}
+					}
+					finally
+					{
+						Main.PlayerSet[1] = savedPlayer;
+					}
+				}
+				finally
+				{
+					if (createdItemClient)
+					{
+						Netplay.ClientList.Remove(itemClient);
+					}
+				}
+			}
+			finally
+			{
+				ItemRestrictions.Remove(48);
+				ItemRestrictions.Reload();
+				Main.NetMode = netModeItem;
+			}
+
 			// A kick from the host must actually disconnect that player - this is what !kick
 			// uses, and it is the only admin action that touches a live connection.
 			TcpPeer hostPeer = TcpPeer.CurrentHost;
@@ -3413,6 +3471,33 @@ internal static class SelfTest
 				{
 					binaryWriter.Write(style);
 				}
+			}
+			binaryWriter.Flush();
+		}
+		byte[] buffer = stream.ToArray();
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.PacketIn.BaseStream.Write(buffer, 0, buffer.Length);
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.GetData(client);
+	}
+
+	/// <summary>
+	/// Feeds one inventory sync packet (message 5) into the host as if it arrived from that
+	/// client: player index, slot, stack, then prefix and item id when the stack is non-zero.
+	/// </summary>
+	private static void SendInventorySync(NetClient client, byte player, byte slot, byte stack, short netId)
+	{
+		System.IO.MemoryStream stream = new System.IO.MemoryStream();
+		using (System.IO.BinaryWriter binaryWriter = new System.IO.BinaryWriter(stream, Encoding.UTF8))
+		{
+			binaryWriter.Write((byte)5);
+			binaryWriter.Write(player);
+			binaryWriter.Write(slot);
+			binaryWriter.Write(stack);
+			if (stack > 0)
+			{
+				binaryWriter.Write((byte)0);
+				binaryWriter.Write(netId);
 			}
 			binaryWriter.Flush();
 		}
@@ -4736,9 +4821,9 @@ internal static class SelfTest
 					return Fail("'" + gated[j] + "' is not a known command");
 				}
 			}
-			if (HostCommands.Names.Length != 16)
+			if (HostCommands.Names.Length != 21)
 			{
-				return Fail("the command list has " + HostCommands.Names.Length + " entries, expected 16");
+				return Fail("the command list has " + HostCommands.Names.Length + " entries, expected 21");
 			}
 			// The chat packet helpers: the host recognises a client command by reading the line
 			// back out of the packet, so a round-trip mismatch would silently disable commands.
@@ -5204,6 +5289,117 @@ internal static class SelfTest
 			}
 			Regions.Reload();
 			Permissions.Reload();
+		}
+	}
+
+	// --- Item restrictions --------------------------------------------------
+
+	/// <summary>
+	/// Banned items are enforced where the host is authoritative: an inventory sync carrying a
+	/// banned id is refused and not relayed. The parts that can silently fail: the id parser
+	/// accepting names it cannot resolve (banning nothing), the file losing ids on save, and the
+	/// check looking only at the main grid while the item hides in an armour slot.
+	/// </summary>
+	private static bool CheckItemRestrictions()
+	{
+		string backup = null;
+		bool had = System.IO.File.Exists(ItemRestrictions.FilePath);
+		try
+		{
+			if (had)
+			{
+				backup = System.IO.File.ReadAllText(ItemRestrictions.FilePath, Encoding.UTF8);
+			}
+			if (System.IO.File.Exists(ItemRestrictions.FilePath))
+			{
+				System.IO.File.Delete(ItemRestrictions.FilePath);
+			}
+			ItemRestrictions.Reload();
+			if (ItemRestrictions.Count != 0)
+			{
+				return Fail("the banned item list did not start empty");
+			}
+			if (!ItemRestrictions.Add(48))
+			{
+				return Fail("a valid item id could not be banned");
+			}
+			if (ItemRestrictions.Add(48))
+			{
+				return Fail("banning the same id twice reported a change");
+			}
+			if (ItemRestrictions.Add(0) || ItemRestrictions.Add(-3) || ItemRestrictions.Add(40000))
+			{
+				return Fail("an impossible item id was banned");
+			}
+			if (!ItemRestrictions.IsBanned(48) || ItemRestrictions.IsBanned(49) || ItemRestrictions.IsBanned(0))
+			{
+				return Fail("the banned list answers wrongly");
+			}
+			// Ids survive a reload, and junk in the file is skipped.
+			ItemRestrictions.Reload();
+			if (!ItemRestrictions.IsBanned(48) || ItemRestrictions.Count != 1)
+			{
+				return Fail("a banned id did not survive a reload");
+			}
+			System.IO.File.WriteAllText(ItemRestrictions.FilePath, "# comment\r\n48\r\nnotanumber\r\n40000\r\n", Encoding.UTF8);
+			ItemRestrictions.Reload();
+			if (ItemRestrictions.Count != 1 || !ItemRestrictions.IsBanned(48))
+			{
+				return Fail("a hand-edited banned list was misread (" + ItemRestrictions.Count + " entries)");
+			}
+			// Unban, and a second unban reports nothing to do.
+			if (!ItemRestrictions.Remove(48) || ItemRestrictions.IsBanned(48))
+			{
+				return Fail("unban did not lift the ban");
+			}
+			if (ItemRestrictions.Remove(48))
+			{
+				return Fail("unban of a missing id reported success");
+			}
+			// The parser: numbers are fine, names are refused loudly (there is no name table in
+			// this port), and the error explains why.
+			int netId;
+			string error;
+			if (!ItemRestrictions.TryParseEntry(" 94 ", out netId, out error) || netId != 94)
+			{
+				return Fail("a plain numeric id did not parse: " + error);
+			}
+			if (ItemRestrictions.TryParseEntry("0", out netId, out error) || ItemRestrictions.TryParseEntry("99999", out netId, out error))
+			{
+				return Fail("an out-of-range id was accepted");
+			}
+			if (ItemRestrictions.TryParseEntry("Copper Shortsword", out netId, out error) || string.IsNullOrEmpty(error))
+			{
+				return Fail("an item name was accepted without a name table");
+			}
+			if (ItemRestrictions.TryParseEntry("", out netId, out error) || string.IsNullOrEmpty(error))
+			{
+				return Fail("an empty entry was accepted");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("item restriction check threw: " + ex.Message);
+		}
+		finally
+		{
+			ItemRestrictions.Reload();
+			try
+			{
+				if (backup != null)
+				{
+					System.IO.File.WriteAllText(ItemRestrictions.FilePath, backup, Encoding.UTF8);
+				}
+				else if (System.IO.File.Exists(ItemRestrictions.FilePath))
+				{
+					System.IO.File.Delete(ItemRestrictions.FilePath);
+				}
+			}
+			catch
+			{
+			}
+			ItemRestrictions.Reload();
 		}
 	}
 

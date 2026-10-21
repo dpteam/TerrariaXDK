@@ -68,6 +68,40 @@ public sealed class NetMessage
 		return false;
 	}
 
+	/// <summary>
+	/// Tells a player that an item is not allowed, at most once every few seconds per player so
+	/// a client resending its inventory cannot flood the chat or the log.
+	/// </summary>
+	private static void RefuseBannedItem(NetClient sender, int netId)
+	{
+		string text = null;
+		try
+		{
+			if (sender != null && sender.NetGamer != null)
+			{
+				text = sender.NetGamer.Gamertag;
+			}
+		}
+		catch
+		{
+		}
+		if (string.IsNullOrEmpty(text))
+		{
+			return;
+		}
+		if (!Terraria.Net.WorldProtection.ShouldNotify(text))
+		{
+			return;
+		}
+		Program.LogInfo("Items", "refused item " + netId + " from " + text);
+		Terraria.Net.TcpPeer host = Terraria.Net.TcpPeer.CurrentHost;
+		string sent;
+		if (host != null)
+		{
+			host.SendTextTo(text, Terraria.Net.ItemRestrictions.Notice + " (" + netId + ")", out sent);
+		}
+	}
+
 	public static void CheckBytesServer()
 	{
 		LocalNetworkGamer gamer = Netplay.gamer;
@@ -1955,10 +1989,6 @@ public sealed class NetMessage
 		}
 		case 5:
 		{
-			if (Main.NetMode == 2)
-			{
-				EchoMessage(sender);
-			}
 			int num119 = PacketIn.ReadByte();
 			Player player18 = Main.PlayerSet[num119];
 			int num120 = PacketIn.ReadByte();
@@ -1969,6 +1999,18 @@ public sealed class NetMessage
 			{
 				prefix3 = PacketIn.ReadByte();
 				type5 = PacketIn.ReadInt16();
+			}
+			if (Main.NetMode == 2 && num121 > 0 && Terraria.Net.ItemRestrictions.IsBanned(type5))
+			{
+				// The host is authoritative for what exists in the world: refuse the slot and say
+				// why. Returning here also skips the echo, so the item never reaches other
+				// players - relaying it would defeat the ban entirely.
+				RefuseBannedItem(sender, type5);
+				break;
+			}
+			if (Main.NetMode == 2)
+			{
+				EchoMessage(sender);
 			}
 			if (num120 < 49)
 			{
