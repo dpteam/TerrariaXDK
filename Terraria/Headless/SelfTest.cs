@@ -53,6 +53,7 @@ internal static class SelfTest
 		RunCheck("virtual keyboard", CheckVirtualKeyboard);
 		RunCheck("display settings", CheckDisplaySettings);
 		RunCheck("display profiles", CheckDisplayProfiles);
+		RunCheck("hud settings", CheckHudSettings);
 		RunCheck("direct connect", CheckDirectConnect);
 		RunCheck("session record", CheckSessionRecord);
 		RunCheck("json", CheckJson);
@@ -1462,6 +1463,149 @@ internal static class SelfTest
 			Terraria.Input.VirtualKeyboard.Close();
 			Terraria.Input.KeyboardMouseInput.TextInputActive = flag;
 			Terraria.Input.KeyboardMouseInput.SuppressGameInput = false;
+		}
+	}
+
+	// --- HUD settings -------------------------------------------------------
+
+	/// <summary>
+	/// Zoom used to be parsed with <c>Convert.ToSingle</c> and applied nowhere: a bad value in
+	/// the file crashed the game before the menu, and a good one did nothing. Both halves are
+	/// pinned here, plus the step arithmetic (float accumulation drifts) and the clamping.
+	/// </summary>
+	private static bool CheckHudSettings()
+	{
+		string text = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-hud.ini");
+		float zoom = HudSettings.Zoom;
+		bool watch = HudSettings.AlwaysWatch;
+		bool depth = HudSettings.AlwaysDepth;
+		bool compass = HudSettings.AlwaysCompass;
+		try
+		{
+			// File semantics: 0 = default zoom, 1 = closest.
+			if (HudSettings.ParseZoom("0") != HudSettings.MinZoom || HudSettings.ParseZoom("1") != HudSettings.MaxZoom)
+			{
+				return Fail("the zoom offset does not map to 1.0x .. 2.0x");
+			}
+			if (HudSettings.ParseZoom("0.5") != 1.5f)
+			{
+				return Fail("zoom 0.5 did not map to 1.5x");
+			}
+			// Bad input must not throw: this used to be Convert.ToSingle at startup.
+			string[] bad = new string[5]
+			{
+				"abc",
+				"",
+				"-5",
+				"99",
+				null
+			};
+			for (int i = 0; i < bad.Length; i++)
+			{
+				float parsed = HudSettings.ParseZoom(bad[i]);
+				if (parsed < HudSettings.MinZoom || parsed > HudSettings.MaxZoom)
+				{
+					return Fail("a bad zoom value ('" + bad[i] + "') produced " + parsed);
+				}
+			}
+			if (HudSettings.ParseZoom("-5") != HudSettings.MinZoom || HudSettings.ParseZoom("99") != HudSettings.MaxZoom)
+			{
+				return Fail("zoom values were not clamped to the allowed range");
+			}
+
+			// Stepping: the value must land on the step grid and stop at both ends.
+			HudSettings.Zoom = HudSettings.MinZoom;
+			for (int j = 0; j < 6; j++)
+			{
+				HudSettings.AdjustZoom(1);
+			}
+			if (Math.Abs(HudSettings.Zoom - 1.3f) > 0.0001f)
+			{
+				return Fail("six zoom steps gave " + HudSettings.ZoomLabel + ", expected 1.30x");
+			}
+			HudSettings.AdjustZoom(-1);
+			if (Math.Abs(HudSettings.Zoom - 1.25f) > 0.0001f)
+			{
+				return Fail("zooming out one step gave " + HudSettings.ZoomLabel);
+			}
+			// Repeated steps must not drift: 100 steps of +0.05 is exactly the maximum.
+			HudSettings.Zoom = HudSettings.MinZoom;
+			for (int k = 0; k < 100; k++)
+			{
+				HudSettings.AdjustZoom(1);
+			}
+			if (HudSettings.Zoom != HudSettings.MaxZoom)
+			{
+				return Fail("zoom drifted to " + HudSettings.ZoomLabel + " instead of the maximum");
+			}
+			if (HudSettings.AdjustZoom(1))
+			{
+				return Fail("zooming past the maximum reported a change");
+			}
+			HudSettings.Zoom = HudSettings.MinZoom;
+			if (HudSettings.AdjustZoom(-1))
+			{
+				return Fail("zooming below the default reported a change");
+			}
+			HudSettings.ResetZoom();
+			if (HudSettings.Zoom != HudSettings.MinZoom)
+			{
+				return Fail("reset did not restore the default zoom");
+			}
+
+			// Save/load round-trip, including the HUD switches.
+			if (System.IO.File.Exists(text))
+			{
+				System.IO.File.Delete(text);
+			}
+			HudSettings.Zoom = 1.4f;
+			HudSettings.AlwaysWatch = true;
+			HudSettings.AlwaysDepth = false;
+			HudSettings.AlwaysCompass = true;
+			Settings settings = new Settings(text);
+			HudSettings.Save(settings);
+			settings.Close();
+			HudSettings.Zoom = 1f;
+			HudSettings.AlwaysWatch = false;
+			HudSettings.AlwaysCompass = false;
+			Settings settings2 = new Settings(text);
+			HudSettings.Load(settings2);
+			settings2.Close();
+			if (Math.Abs(HudSettings.Zoom - 1.4f) > 0.005f)
+			{
+				return Fail("the zoom did not survive a save/load cycle: " + HudSettings.ZoomLabel);
+			}
+			if (!HudSettings.AlwaysWatch || HudSettings.AlwaysDepth || !HudSettings.AlwaysCompass)
+			{
+				return Fail("the HUD switches did not survive a save/load cycle");
+			}
+			// Main forwards to HudSettings, because Player reads Main.AlwaysOnWatch.
+			if (Main.AlwaysOnWatch != HudSettings.AlwaysWatch || Main.AlwaysOnCompass != HudSettings.AlwaysCompass)
+			{
+				return Fail("Main does not expose the HUD switches");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("HUD settings check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			HudSettings.Zoom = zoom;
+			HudSettings.AlwaysWatch = watch;
+			HudSettings.AlwaysDepth = depth;
+			HudSettings.AlwaysCompass = compass;
+			try
+			{
+				if (System.IO.File.Exists(text))
+				{
+					System.IO.File.Delete(text);
+				}
+			}
+			catch
+			{
+			}
 		}
 	}
 

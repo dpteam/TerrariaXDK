@@ -47,5 +47,6 @@ public enum MenuMode : byte
 	MODS,
 	DISPLAY,
 	NETWORK,
+	HUD,
 	NUM_MENUS
 }

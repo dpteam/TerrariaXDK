@@ -729,16 +729,17 @@ public sealed class UI
 		new Location(Main.ResolutionWidth / 2, 432)
 	};
 
-	private static readonly Location[] MENU_SETTINGS_COORDS = new Location[8]
+	private static readonly Location[] MENU_SETTINGS_COORDS = new Location[9]
 	{
-		new Location(Main.ResolutionWidth / 2, 210),
-		new Location(Main.ResolutionWidth / 2, 258),
-		new Location(Main.ResolutionWidth / 2, 306),
-		new Location(Main.ResolutionWidth / 2, 354),
-		new Location(Main.ResolutionWidth / 2, 402),
-		new Location(Main.ResolutionWidth / 2, 450),
-		new Location(Main.ResolutionWidth / 2, 498),
-		new Location(Main.ResolutionWidth / 2, 546)
+		new Location(Main.ResolutionWidth / 2, 200),
+		new Location(Main.ResolutionWidth / 2, 244),
+		new Location(Main.ResolutionWidth / 2, 288),
+		new Location(Main.ResolutionWidth / 2, 332),
+		new Location(Main.ResolutionWidth / 2, 376),
+		new Location(Main.ResolutionWidth / 2, 420),
+		new Location(Main.ResolutionWidth / 2, 464),
+		new Location(Main.ResolutionWidth / 2, 508),
+		new Location(Main.ResolutionWidth / 2, 552)
 	};
 
 	private string[] menuString = new string[14];
@@ -2027,6 +2028,12 @@ public sealed class UI
 			uiCoords = null;
 			Terraria.NetworkMenu.Reset();
 			return;
+		case MenuMode.HUD:
+			uiWidth = 0;
+			uiHeight = 1;
+			uiCoords = null;
+			Terraria.HudMenu.Reset();
+			return;
 		case MenuMode.STATUS_SCREEN:
 		case MenuMode.NETPLAY:
 			Progress = 0f;
@@ -2823,6 +2830,14 @@ public sealed class UI
 				SetMenu(MenuMode.SETTINGS);
 			}
 		}
+		else if (CurMenuMode == MenuMode.HUD)
+		{
+			if (Terraria.HudMenu.Update())
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.SETTINGS);
+			}
+		}
 		else if (CurMenuMode == MenuMode.CHEATS)
 		{
 			string[] cheatRows = Terraria.Cheats.CheatMenu.BuildRows();
@@ -3272,9 +3287,9 @@ public sealed class UI
 		}
 		else if (CurMenuMode == MenuMode.SETTINGS)
 		{
-			menuTop = 210;
-			menuSpace = 48;
-			numMenuItems = 8;
+			menuTop = 200;
+			menuSpace = 44;
+			numMenuItems = 9;
 			if (this == MainUI)
 			{
 				menuString[0] = Lang.MenuText[65];
@@ -3336,7 +3351,15 @@ public sealed class UI
 			menuString[7] = "Network: port " + Terraria.Net.NetworkConfig.Port;
 			MENU_SETTINGS_COORDS[7].X = ViewportHalfWidth;
 			menuHC[7] = 0;
-			if (selectedMenu == 7)
+			menuString[8] = "HUD: zoom " + Terraria.HudSettings.ZoomLabel;
+			MENU_SETTINGS_COORDS[8].X = ViewportHalfWidth;
+			menuHC[8] = 0;
+			if (selectedMenu == 8)
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.HUD);
+			}
+			else if (selectedMenu == 7)
 			{
 				Main.PlaySound(10);
 				SetMenu(MenuMode.NETWORK);
@@ -3790,6 +3813,10 @@ public sealed class UI
 		else if (CurMenuMode == MenuMode.NETWORK)
 		{
 			Terraria.NetworkMenu.Draw();
+		}
+		else if (CurMenuMode == MenuMode.HUD)
+		{
+			Terraria.HudMenu.Draw();
 		}
 		if (Main.HardmodeAlert && CurMenuMode == MenuMode.HARDMODE_UPSELL)
 		{

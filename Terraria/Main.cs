@@ -518,11 +518,42 @@ public sealed class Main : Game
 
 	public static bool ShowFPS;
 
-	public static bool AlwaysOnWatch;
+	/// <summary>Forwarded to <see cref="HudSettings"/>; <see cref="Player"/> reads these.</summary>
+	public static bool AlwaysOnWatch
+	{
+		get
+		{
+			return Terraria.HudSettings.AlwaysWatch;
+		}
+		set
+		{
+			Terraria.HudSettings.AlwaysWatch = value;
+		}
+	}
 
-	public static bool AlwaysOnDepth;
+	public static bool AlwaysOnDepth
+	{
+		get
+		{
+			return Terraria.HudSettings.AlwaysDepth;
+		}
+		set
+		{
+			Terraria.HudSettings.AlwaysDepth = value;
+		}
+	}
 
-	public static bool AlwaysOnCompass;
+	public static bool AlwaysOnCompass
+	{
+		get
+		{
+			return Terraria.HudSettings.AlwaysCompass;
+		}
+		set
+		{
+			Terraria.HudSettings.AlwaysCompass = value;
+		}
+	}
 
 	public static ScreenHeights ScreenHeightPtr;
 
@@ -536,7 +567,7 @@ public sealed class Main : Game
 
 	private readonly bool StartFullscreen;
 
-	private float ZoomLevel;
+	private float ZoomLevel = Terraria.HudSettings.MinZoom;
 
 	public static Stopwatch FPSTimer = new Stopwatch();
 
@@ -632,10 +663,10 @@ public sealed class Main : Game
 		settings.Set("Display", "Height", "720", "Window height in pixels.");
 		settings.Set("Display", "ShowFPS", "False");
 		settings.Set("Display", "StartFullscreen", "True", "Determines if the game is started in full-screen mode; This will not upscale, but stretch the current resolution to the display's max.\n; You can also toggle full-screen mode in-game by pressing 'F'.");
-		settings.Set("Display", "ZoomLevel", "0", "Sets how zoomed in the camera will be during initial gameplay; This must be a floating-point number between 0 and 1.\n; You can adjust this in-game by pressing '+' or '-', or the trigger buttons when paused.");
-		settings.Set("Display", "AlwaysOnWatch", "False", "Determines whether the information of the 3rd-tier Watch accessory will always active in-game.");
-		settings.Set("Display", "AlwaysOnDepth", "False", "Determines whether the information of the Depth Meter accessory will always active in-game.");
-		settings.Set("Display", "AlwaysOnCompass", "False", "Determines whether the information of the Compass accessory will always active in-game.");
+		settings.Set("Display", "ZoomLevel", "0", "Camera zoom: 0 = default, 1 = closest. Adjust in game with + and -.");
+		settings.Set("Display", "AlwaysOnWatch", "False", "Always show the clock, without wearing a watch.");
+		settings.Set("Display", "AlwaysOnDepth", "False", "Always show the depth, without wearing a depth meter.");
+		settings.Set("Display", "AlwaysOnCompass", "False", "Always show the horizontal position, without wearing a compass.");
 		settings.Set("Additions", "HardmodeAlert", "False", "Implements a pop-up alert once hardmode is activated within a world а la Pre-1.3 Terraria Mobile.\n; This basically just shows an introductory message about what hardmode is and what you can do from there.");
 		settings.Set("Input", "KeyboardMouse", "True", "Enables desktop keyboard and mouse support for player one (WASD, space, mouse aim/use).\n; Set to False to get the original gamepad-only behaviour.");
 		settings.Set("Cheats", "Enabled", "True", "Enables the single-player cheat menu (TerrariaXDK addition). Has no effect in multiplayer.");
@@ -662,16 +693,13 @@ public sealed class Main : Game
 		Terraria.WorldBackups.Load(settings);
 		ShowFPS = settings.Get("Display", "ShowFPS").ToLower().Equals("true");
 		StartFullscreen = settings.Get("Display", "StartFullscreen").ToLower().Equals("true");
-		ZoomLevel = Convert.ToSingle(settings.Get("Display", "ZoomLevel"));
-		if (ZoomLevel < 0f || ZoomLevel > 1f)
-		{
-			ZoomLevel = 0f;
-		}
-		ZoomLevel++;
-		AlwaysOnWatch = settings.Get("Display", "AlwaysOnWatch").ToLower().Equals("true");
-		AlwaysOnDepth = settings.Get("Display", "AlwaysOnDepth").ToLower().Equals("true");
-		AlwaysOnCompass = settings.Get("Display", "AlwaysOnCompass").ToLower().Equals("true");
-		HardmodeAlert = settings.Get("Additions", "HardmodeAlert").ToLower().Equals("true");
+		// Zoom and the HUD widgets live in HudSettings: the values used to be parsed into
+		// fields that nothing applied, and the parse itself could throw on a bad value.
+		Terraria.HudSettings.Load(settings);
+		settings.Set("Display", "ZoomLevel", "0", "Camera zoom: 0 = default, 1 = closest. Adjust in game with + and -.");
+		settings.Set("Display", "AlwaysOnWatch", "False", "Always show the clock, without wearing a watch.");
+		settings.Set("Display", "AlwaysOnDepth", "False", "Always show the depth, without wearing a depth meter.");
+		settings.Set("Display", "AlwaysOnCompass", "False", "Always show the horizontal position, without wearing a compass.");		HardmodeAlert = settings.Get("Additions", "HardmodeAlert").ToLower().Equals("true");
 		Terraria.Input.KeyboardMouseInput.Enabled = settings.Get("Input", "KeyboardMouse").ToLower().Equals("true");
 		Terraria.Cheats.CheatState.Enabled = settings.Get("Cheats", "Enabled").ToLower().Equals("true");
 		Terraria.Net.NetworkConfig.Port = ParsePort(settings.Get("Network", "Port"), 7777);
@@ -1871,39 +1899,26 @@ public sealed class Main : Game
 		}
 		if (IsGameStarted)
 		{
-			if (CurrentKeyState.IsKeyDown(Keys.OemPlus) && ZoomLevel < 2f)
+			// Zoom lives in HudSettings, so the value shown in the menu, the keys and what the
+			// camera actually does can never drift apart.
+			if (CurrentKeyState.IsKeyDown(Keys.OemPlus))
 			{
-				if ((ZoomLevel += 0.01f) > 2f)
-				{
-					ZoomLevel = 2f;
-				}
-				UI.MainUI.ActivePlayer.CurrentView.DirectZoom(ZoomLevel);
+				Terraria.HudSettings.AdjustZoom(1);
 			}
-			if (CurrentKeyState.IsKeyDown(Keys.OemMinus) && ZoomLevel > 1f)
+			if (CurrentKeyState.IsKeyDown(Keys.OemMinus))
 			{
-				if ((ZoomLevel -= 0.01f) < 1f)
-				{
-					ZoomLevel = 1f;
-				}
-				UI.MainUI.ActivePlayer.CurrentView.DirectZoom(ZoomLevel);
+				Terraria.HudSettings.AdjustZoom(-1);
 			}
+			ZoomLevel = Terraria.HudSettings.Zoom;
 			if (UI.MainUI.CurMenuMode == MenuMode.PAUSE)
 			{
-				if (UI.MainUI.PadState.IsButtonDown(Buttons.RightTrigger) && ZoomLevel < 2f)
+				if (UI.MainUI.PadState.IsButtonDown(Buttons.RightTrigger))
 				{
-					if ((ZoomLevel += 0.01f) > 2f)
-					{
-						ZoomLevel = 2f;
-					}
-					UI.MainUI.ActivePlayer.CurrentView.DirectZoom(ZoomLevel);
+					Terraria.HudSettings.AdjustZoom(1);
 				}
-				if (UI.MainUI.PadState.IsButtonDown(Buttons.LeftTrigger) && ZoomLevel > 1f)
+				if (UI.MainUI.PadState.IsButtonDown(Buttons.LeftTrigger))
 				{
-					if ((ZoomLevel -= 0.01f) < 1f)
-					{
-						ZoomLevel = 1f;
-					}
-					UI.MainUI.ActivePlayer.CurrentView.DirectZoom(ZoomLevel);
+					Terraria.HudSettings.AdjustZoom(-1);
 				}
 			}
 		}
@@ -3673,6 +3688,9 @@ public sealed class Main : Game
 		mainUI.CurMenuType = MenuType.NONE;
 		mainUI.CurrentView.OnStartGame();
 		MiniMap.OnStartGame();
+		// The saved zoom used to be parsed and then never applied anywhere, so the setting
+		// did nothing until the player pressed +/-. Apply it now that the view exists.
+		Terraria.HudSettings.Apply();
 		GC.Collect();
 		IsGameStarted = true;
 		Terraria.Mods.ModLoader.WorldLoaded();
@@ -3691,6 +3709,7 @@ public sealed class Main : Game
 		StartUI.CurMenuType = MenuType.NONE;
 		StartUI.CurrentView.OnStartGame();
 		MiniMap.OnStartGame();
+		Terraria.HudSettings.Apply();
 		IsGameStarted = true;
 		Terraria.Mods.ModLoader.WorldLoaded();
 	}

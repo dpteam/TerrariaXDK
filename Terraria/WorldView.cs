@@ -419,7 +419,9 @@ public class WorldView : IDisposable
 		else
 		{
 			SMOOTH_LIGHT = true;
-			Zoom(1f);
+			// Keep the player's zoom: this used to hard-reset it to 1 every time the view
+			// switched back to fullscreen, silently undoing the setting and the +/- keys.
+			Zoom(Terraria.HudSettings.Zoom);
 		}
 		Type type2 = viewType;
 		bool flag = IsFullScreen();
