@@ -92,6 +92,38 @@ internal class Settings
 		return false;
 	}
 
+	/// <summary>
+	/// Keys present in one section, in file order. Needed by features that iterate a file
+	/// rather than look up known keys: a translation override has to report an index that is out
+	/// of range instead of silently ignoring it.
+	/// </summary>
+	internal List<string> KeysIn(string Subsection)
+	{
+		List<string> list = new List<string>();
+		for (int i = 0; i < Keys.Count; i++)
+		{
+			if (Subsections[i].Equals(Subsection))
+			{
+				list.Add(Keys[i]);
+			}
+		}
+		return list;
+	}
+
+	/// <summary>Section names present in the file, deduplicated, in file order.</summary>
+	internal List<string> SectionNames()
+	{
+		List<string> list = new List<string>();
+		for (int i = 0; i < Subsections.Count; i++)
+		{
+			if (!list.Contains(Subsections[i]))
+			{
+				list.Add(Subsections[i]);
+			}
+		}
+		return list;
+	}
+
 	internal string Get(string Subsection, string Key)
 	{
 		for (int i = 0; i < Keys.Count; i++)
@@ -154,6 +186,16 @@ internal class Settings
 				text4 = "";
 			}
 		}
+	}
+
+	/// <summary>
+	/// Releases a settings file without writing it back. <see cref="Close"/> rewrites the whole
+	/// file from memory; that is correct for files the game owns and wrong for files a player
+	/// edits by hand, such as a translation override, where it would flatten the layout and
+	/// drop anything the parser did not model.
+	/// </summary>
+	internal void Discard()
+	{
 	}
 
 	internal void Close()

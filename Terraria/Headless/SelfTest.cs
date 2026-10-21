@@ -84,6 +84,7 @@ internal static class SelfTest
 		RunCheck("display settings", CheckDisplaySettings);
 		RunCheck("display profiles", CheckDisplayProfiles);
 		RunCheck("language", CheckLanguage);
+		RunCheck("language overrides", CheckLangOverrides);
 		RunCheck("hud settings", CheckHudSettings);
 		RunCheck("direct connect", CheckDirectConnect);
 		RunCheck("session record", CheckSessionRecord);
@@ -143,16 +144,15 @@ internal static class SelfTest
 		{
 			flag = check();
 		}
-		catch (SkipCheckException ex)
-		{
-			_skipped++;
-			string text = ex.Message;
-			Skips.Add(name + (string.IsNullOrEmpty(text) ? "" : (" - " + text)));
-			Console.WriteLine("  skip " + name + (string.IsNullOrEmpty(text) ? "" : (" - " + text)));
-			return;
-		}
 		catch (Exception ex)
 		{
+			// A skip that reaches this far still counts as a skip, whatever wrapped it: a check
+			// with its own catch-all used to turn "Content is not installed" into a failure.
+			if (ex is SkipCheckException)
+			{
+				RecordSkip(name, ex.Message);
+				return;
+			}
 			flag = false;
 			message = ex.GetType().Name + ": " + ex.Message;
 		}
@@ -166,6 +166,14 @@ internal static class SelfTest
 		string text2 = (message == null) ? name : (name + " - " + message);
 		Failures.Add(text2);
 		Console.WriteLine("  FAIL " + text2);
+	}
+
+	private static void RecordSkip(string name, string reason)
+	{
+		_skipped++;
+		string text = name + (string.IsNullOrEmpty(reason) ? "" : (" - " + reason));
+		Skips.Add(text);
+		Console.WriteLine("  skip " + text);
 	}
 
 	// --- Storage ------------------------------------------------------------
@@ -187,9 +195,9 @@ internal static class SelfTest
 		{
 			return Fail("Storage folder has unexpected name: " + root);
 		}
-		string[] array = new string[6]
+		string[] array = new string[7]
 		{
-			Terraria.Storage.AppPaths.Saves, Terraria.Storage.AppPaths.Logs, Terraria.Storage.AppPaths.Mods, Terraria.Storage.AppPaths.Backups, Terraria.Storage.AppPaths.Config, Terraria.Storage.AppPaths.Cache
+			Terraria.Storage.AppPaths.Saves, Terraria.Storage.AppPaths.Logs, Terraria.Storage.AppPaths.Mods, Terraria.Storage.AppPaths.Backups, Terraria.Storage.AppPaths.Config, Terraria.Storage.AppPaths.Cache, Terraria.Storage.AppPaths.Lang
 		};
 		foreach (string text in array)
 		{
@@ -6060,6 +6068,12 @@ internal static class SelfTest
 			}
 			return true;
 		}
+		catch (SkipCheckException)
+		{
+			// A skip is not a failure. Letting the generic catch below swallow it turned
+			// "no tutorial.wld in a bare checkout" into a red CI run.
+			throw;
+		}
 		catch (Exception ex)
 		{
 			return Fail("world file inspector check threw: " + ex.GetType().Name + ": " + ex.Message);
@@ -6196,6 +6210,227 @@ internal static class SelfTest
 		{
 			// Restore both values: the rest of the suite and the player's own session depend on
 			// the strings being in the language that was selected before the test ran.
+			Language.Restore(savedChoice, savedOption);
+		}
+	}
+
+	// --- Language overrides -------------------------------------------------
+
+	/// <summary>
+	/// Translation files are the one part of the language system a player can break by hand, so
+	/// the checks are about what must NOT happen: a bad index must not shift every later string,
+	/// a blank value must not erase a label, and an unknown section must be reported rather than
+	/// ignored. The round trip through <see cref="LangOverrides.WriteTemplate"/> also pins the
+	/// escape format - a template that does not re-read is useless to a translator.
+	/// </summary>
+	private static bool CheckLangOverrides()
+	{
+		int savedOption = Lang.LangOption;
+		int savedChoice = Language.Choice;
+		string name6 = Lang.MenuText[6];
+		string name4 = Lang.MenuText[4];
+		string path = LangOverrides.FileFor(savedOption);
+		string backup = null;
+		try
+		{
+			if (File.Exists(path))
+			{
+				backup = File.ReadAllText(path);
+			}
+			Directory.CreateDirectory(Terraria.Storage.AppPaths.Lang);
+			// A well-formed file with two entries, one of them multi-line.
+			File.WriteAllText(path,
+				"[MenuText]\r\n6 = Uebergesetzt\r\n\r\n[MiscText]\r\n8 = Erste Zeile\\nZweite Zeile\r\n", Encoding.UTF8);
+			LangOverrides.Apply();
+			if (LangOverrides.AppliedCount != 2)
+			{
+				return Fail("expected 2 overrides, applied " + LangOverrides.AppliedCount);
+			}
+			if (Lang.MenuText[6] != "Uebergesetzt")
+			{
+				return Fail("the override was not applied: '" + Lang.MenuText[6] + "'");
+			}
+			if (Lang.MiscText[8] != "Erste Zeile\nZweite Zeile")
+			{
+				return Fail("the \\n escape was not decoded: '" + Lang.MiscText[8].Replace("\n", "<LF>") + "'");
+			}
+			if (LangOverrides.Problems.Count != 0)
+			{
+				return Fail("a valid file reported " + LangOverrides.Problems.Count + " problem(s)");
+			}
+
+			// Unlisted entries keep the built-in text: a partial translation is valid.
+			if (string.IsNullOrEmpty(Lang.MenuText[5]) || string.IsNullOrEmpty(Lang.MiscText[7]))
+			{
+				return Fail("an unlisted entry was lost");
+			}
+
+			// A bad index must be reported, must not shift other strings, and must not crash.
+			File.WriteAllText(path,
+				"[MenuText]\r\n6 = Nach Fehler\r\n9999 = zu weit\r\nabc = keine Zahl\r\n\r\n[Nonsense]\r\n1 = x\r\n", Encoding.UTF8);
+			Lang.MenuText[6] = name6;
+			LangOverrides.Apply();
+			if (Lang.MenuText[6] != "Nach Fehler")
+			{
+				return Fail("a valid entry was dropped because another entry was invalid");
+			}
+			if (LangOverrides.AppliedCount != 1)
+			{
+				return Fail("an invalid file applied " + LangOverrides.AppliedCount + " entries instead of 1");
+			}
+			IList<string> problems = LangOverrides.Problems;
+			if (problems.Count < 3)
+			{
+				return Fail("the invalid file reported only " + problems.Count + " problem(s)");
+			}
+			bool sawRange = false;
+			bool sawSection = false;
+			bool sawIndex = false;
+			for (int i = 0; i < problems.Count; i++)
+			{
+				string text = problems[i];
+				if (text.IndexOf("9999", StringComparison.Ordinal) >= 0)
+				{
+					sawRange = true;
+				}
+				if (text.IndexOf("Nonsense", StringComparison.Ordinal) >= 0)
+				{
+					sawSection = true;
+				}
+				if (text.IndexOf("abc", StringComparison.Ordinal) >= 0)
+				{
+					sawIndex = true;
+				}
+			}
+			if (!sawRange || !sawSection || !sawIndex)
+			{
+				return Fail("the problems do not name the out-of-range index, the unknown section and the non-numeric key");
+			}
+
+			// A blank value must not erase a label.
+			Lang.MenuText[6] = name6;
+			File.WriteAllText(path, "[MenuText]\r\n6 =\r\n", Encoding.UTF8);
+			LangOverrides.Apply();
+			if (Lang.MenuText[6] != name6)
+			{
+				return Fail("an empty value erased the built-in text");
+			}
+			if (LangOverrides.AppliedCount != 0)
+			{
+				return Fail("an empty value was counted as applied");
+			}
+
+			// Leading spaces are load-bearing: death messages are the player's name + " wurde
+			// abgeleckt". The loader drops exactly one space (the separator) and keeps the rest,
+			// so "X =  leading" gives " leading" while "X = leading" gives "leading".
+			Lang.DeathText[0] = "builtin";
+			File.WriteAllText(path, "[DeathText]\r\n0 =  leading space\n", Encoding.UTF8);
+			LangOverrides.Apply();
+			if (Lang.DeathText[0] != " leading space")
+			{
+				return Fail("a leading space was not preserved: '" + Lang.DeathText[0] + "'");
+			}
+			Lang.DeathText[0] = "builtin";
+			File.WriteAllText(path, "[DeathText]\r\n0 = no leading space\n", Encoding.UTF8);
+			LangOverrides.Apply();
+			if (Lang.DeathText[0] != "no leading space")
+			{
+				return Fail("the separator space was not stripped: '" + Lang.DeathText[0] + "'");
+			}
+
+			// The command line accepts a code or a number, and refuses anything else instead of
+			// silently exporting the wrong language.
+			int parsed;
+			if (!LangOverrides.TryParse("de", out parsed) || parsed != 2 || !LangOverrides.TryParse("FR", out parsed) || parsed != 4
+				|| !LangOverrides.TryParse("auto", out parsed) || parsed != 0 || !LangOverrides.TryParse("5", out parsed) || parsed != 5)
+			{
+				return Fail("a language code did not parse");
+			}
+			if (LangOverrides.TryParse("klingon", out parsed))
+			{
+				return Fail("an unknown language code was accepted");
+			}
+
+			// Escapes round-trip, including the multi-line hint that contains '=' and newlines.
+			if (LangOverrides.Unescape(LangOverrides.Escape(name4)) != name4)
+			{
+				return Fail("the escape round trip lost the save-icon hint");
+			}
+			if (LangOverrides.Unescape("a\\\\b") != "a\\b")
+			{
+				return Fail("a literal backslash did not round-trip");
+			}
+			if (LangOverrides.Unescape("C:\\Games\\Terraria") != "C:\\Games\\Terraria")
+			{
+				return Fail("a Windows path was mangled by the escape reader");
+			}
+
+			// No file at all is a no-op, not a failure.
+			File.Delete(path);
+			Lang.MenuText[6] = name6;
+			LangOverrides.Apply();
+			if (LangOverrides.AppliedCount != 0 || LangOverrides.Problems.Count != 0)
+			{
+				return Fail("a missing translation file produced work or problems");
+			}
+
+			// The template must be a file the loader can read back: that is the whole point of
+			// shipping one to translators.
+			string error;
+			// A built-in string that begins with a space: death messages are the player's name
+			// followed by the rest of the sentence, so the template must not eat that space.
+			string death = " konnte das Antidot nicht finden.";
+			Lang.DeathText[0] = death;
+			string tip = Lang.TipText[0];
+			string text2 = LangOverrides.WriteTemplate(savedOption, out error);
+			if (text2 == null)
+			{
+				return Fail("the template could not be written: " + error);
+			}
+			if (!File.Exists(text2))
+			{
+				return Fail("the template was not written");
+			}
+			Lang.MenuText[6] = "before template";
+			LangOverrides.Apply();
+			if (Lang.MenuText[6] == "before template")
+			{
+				return Fail("the template did not restore the string it contains");
+			}
+			// Every table survives the round trip unchanged, not just the one entry checked
+			// above - this is what catches an escape that eats text or a key that shifts.
+			if (Lang.DeathText[0] != death || Lang.TipText[0] != tip)
+			{
+				return Fail("the template round trip changed a string: death '" + Lang.DeathText[0] + "' tip '" + Lang.TipText[0] + "'");
+			}
+			if (LangOverrides.Problems.Count != 0)
+			{
+				return Fail("the template reported " + LangOverrides.Problems.Count + " problem(s)");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("language override check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				if (backup != null)
+				{
+					File.WriteAllText(path, backup, Encoding.UTF8);
+				}
+				else if (File.Exists(path))
+				{
+					File.Delete(path);
+				}
+			}
+			catch
+			{
+			}
+			// Restore both the strings and the language state the rest of the suite expects.
+			// Last, because Restore re-applies the player's real override file (if any).
 			Language.Restore(savedChoice, savedOption);
 		}
 	}

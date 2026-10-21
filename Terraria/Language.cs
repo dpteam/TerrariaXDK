@@ -104,12 +104,14 @@ internal static class Language
 	{
 		// Auto means "the system already decided" - applying 0 here would call SetLang(0), which
 		// Lang treats as English, overriding a German system.
-		if (_saved <= Auto || _saved == Lang.LangOption)
+		if (_saved > Auto && _saved != Lang.LangOption)
 		{
-			return;
+			Lang.SetLang(_saved);
+			_saved = Lang.LangOption;
 		}
-		Lang.SetLang(_saved);
-		_saved = Lang.LangOption;
+		// Overrides go on top of whatever SetLang just filled, including the Auto case: a
+		// translator's file should apply whether the language came from the system or the menu.
+		LangOverrides.Apply();
 	}
 
 	public static void Save(Settings settings)
@@ -140,6 +142,8 @@ internal static class Language
 			Lang.SetLang(option);
 			_saved = option;
 		}
+		// SetLang refilled the built-in text; the override file for this language goes on top.
+		LangOverrides.Apply();
 		Persist();
 		return true;
 	}
@@ -176,9 +180,22 @@ internal static class Language
 	/// <summary>Restores the tables after the language check. Test hook, not used by the game.</summary>
 	internal static void Restore(int choice, int effective)
 	{
-		Lang.SetLang(effective);
+		// SetLang only refills the tables when the option changes, so a test that tainted one
+		// string would otherwise leave that text behind for the running session. Dropping the
+		// option to 0 first forces the refill whatever the effective value was.
+		Lang.LangOption = 0;
+		if (effective <= Auto)
+		{
+			Lang.SetSystemLang();
+		}
+		else
+		{
+			Lang.SetLang(effective);
+		}
 		_choice = choice;
 		_saved = choice;
+		// A player who really has a translation file must still have it applied afterwards.
+		LangOverrides.Apply();
 	}
 
 	/// <summary>

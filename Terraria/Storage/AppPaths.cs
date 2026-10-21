@@ -45,6 +45,12 @@ internal static class AppPaths
 
 	public static string Cache => Path.Combine(Root, "Cache");
 
+	/// <summary>
+	/// Translation overrides. Files here are read on top of the built-in strings, so a
+	/// translation can be corrected or a new language added without rebuilding the game.
+	/// </summary>
+	public static string Lang => Path.Combine(Root, "Lang");
+
 	public static string LogFile => Path.Combine(Logs, "terraria-debug.log");
 
 	public static string CrashLogFile => Path.Combine(Logs, "client-crashlog.txt");
@@ -74,9 +80,9 @@ internal static class AppPaths
 	/// <summary>Creates the directory tree. Safe to call more than once.</summary>
 	public static void EnsureDirectories()
 	{
-		string[] array = new string[7]
+		string[] array = new string[8]
 		{
-			Root, Saves, Logs, Mods, Backups, Config, Cache
+			Root, Saves, Logs, Mods, Backups, Config, Cache, Lang
 		};
 		foreach (string path in array)
 		{

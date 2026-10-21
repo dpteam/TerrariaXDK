@@ -93,6 +93,16 @@ dotnet build TerrariaXDK.csproj -v q --nologo     # 0 ошибок
 .\bin\Debug\net40\TerrariaXDK.exe --selftest       # 0 failed
 ```
 
+Код возврата `--selftest` — через `Start-Process -PassThru`:
+
+```powershell
+$p = Start-Process .\bin\Debug\net40\TerrariaXDK.exe -ArgumentList --selftest -Wait -PassThru
+$p.ExitCode                                       # 0 = всё прошло
+```
+
+`cmd /c "... & echo %ERRORLEVEL%"` для этого **не годится**: `%ERRORLEVEL%` подставляется
+при разборе всей строки, до запуска, поэтому всегда печатается старый код (обычно 0).
+
 `--selftest` **не** требует GPU и не требует ни `Content/`, ни нативных DLL: он намеренно
 не инициализирует `FNAPlatform` (`AppPaths.Headless`). Поэтому он гоняется везде, включая
 CI и чистый клон.
@@ -101,7 +111,8 @@ CI и чистый клон.
   `Headless/SelfTest.cs`, иначе тест «content orphans» начнёт ругаться (и это правильно).
 - Проверка, которая без чего-то не имеет смысла, обязана вызвать `Skip("причина")`, а не
   `Fail`. Пропуск виден в итоговой строке (`Skipped: N`) и в списке — он не засчитывается
-  как успех.
+  как успех. Если эта проверка ловит `Exception` у себя внутри, первой обязана стоять
+  ветка `catch (SkipCheckException) { throw; }`: иначе `Skip` превращается в `FAIL`.
 - Сборка должна проходить и с `-warnaserror`: новое предупреждение — это дефект, а не шум.
 
 Полноценный запуск игры возможен только там, где есть OpenGL 2.1+. Если графики нет,
@@ -144,10 +155,14 @@ CI и чистый клон.
 | Крашлог | `Storage/Logs/client-crashlog.txt` | `Program` |
 | Резервные копии | `Storage/Backups/<мир>_<дата>.wld` | `WorldBackups` |
 | Кэш сети | `Storage/Cache/servers.json`, `favorites.txt` | `MasterServerClient`, `ServerFavorites` |
-| Кэш | `Storage/Cache/` (атласы — задел) | `AppPaths` |
+| Кэш | `Storage/Cache/` (свободная папка: скретч, будущие кэши) | `AppPaths` |
+| Правки переводов | `Storage/Lang/<code>.txt` (EN/DE/IT/FR/ES) | `LangOverrides` |
 
 - **Никогда не хардкодьте пути.** Единственный источник — `Terraria/Storage/AppPaths.cs`.
   Нужна новая папка — добавьте свойство туда и в `EnsureDirectories()`.
+- **Чужой файл — только чтение.** `Settings.Close()` перезаписывает файл из памяти: для
+  `Settings.ini` это правильно, для файла, который правит игрок (`Storage/Lang/*.txt`), —
+  нет. Прочитали и закрыли → `Discard()`, а не `Close()`.
 - `StorageDevice.RootOverride` выставляется в `AppPaths.EnsureDirectories()`; не
   переопределяйте его в другом месте.
 - `Storage/` не коммитится. `Content/` — тоже (он рядом, вне git).

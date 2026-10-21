@@ -43,6 +43,15 @@ internal static class Program
 					Environment.ExitCode = Terraria.Headless.SelfTest.Run(args);
 					return;
 				}
+				if (text == "--lang-export")
+				{
+					// Writes a starting file for translators and exits. Headless on purpose: it
+					// only needs the string tables, and requiring a graphics device to export
+					// text would put the tool out of reach of the machines people translate on.
+					string text3 = (i + 1 < args.Length) ? args[i + 1] : null;
+					Environment.ExitCode = ExportLanguage(text3);
+					return;
+				}
 			}
 		}
 		InitLogger();
@@ -92,6 +101,39 @@ internal static class Program
 		_gameTimer.Stop();
 		LogSection($"SESSION ENDED ({_gameTimer.ElapsedMilliseconds} ms)");
 		CloseLogger();
+	}
+
+	/// <summary>
+	/// <c>--lang-export [code]</c>: writes <c>Storage/Lang/&lt;code&gt;.txt</c> for a translator to
+	/// edit and returns an exit code. Runs without a window or a graphics device, because the
+	/// machines people translate on should not need one.
+	/// </summary>
+	private static int ExportLanguage(string requested)
+	{
+		Terraria.Storage.AppPaths.Headless = true;
+		try
+		{
+			Terraria.Storage.AppPaths.EnsureDirectories();
+		}
+		catch
+		{
+		}
+		int num;
+		if (!Terraria.LangOverrides.TryParse(requested, out num))
+		{
+			Console.Error.WriteLine("Unknown language '" + requested + "'. Use auto, en, de, it, fr or es.");
+			return 2;
+		}
+		string error;
+		string text = Terraria.LangOverrides.WriteTemplate(num, out error);
+		if (text == null)
+		{
+			Console.Error.WriteLine("Could not write the template: " + error);
+			return 1;
+		}
+		Console.WriteLine("Wrote " + text);
+		Console.WriteLine("Edit it and start the game: the file is read on top of the built-in text.");
+		return 0;
 	}
 
 	private static void InitLogger()
