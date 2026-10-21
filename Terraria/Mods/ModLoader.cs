@@ -495,6 +495,86 @@ internal static class ModLoader
 		}
 	}
 
+	internal static void DispatchNpcSpawn(NPC npc)
+	{
+		for (int i = 0; i < LoadedMods.Count; i++)
+		{
+			Mod mod = LoadedMods[i];
+			if (BrokenMods.Contains(mod))
+			{
+				continue;
+			}
+			try
+			{
+				mod.OnNpcSpawn(npc);
+			}
+			catch (Exception ex)
+			{
+				OnModCrash(mod, ex);
+			}
+		}
+	}
+
+	internal static void DispatchNpcDeath(NPC npc)
+	{
+		for (int i = 0; i < LoadedMods.Count; i++)
+		{
+			Mod mod = LoadedMods[i];
+			if (BrokenMods.Contains(mod))
+			{
+				continue;
+			}
+			try
+			{
+				mod.OnNpcDeath(npc);
+			}
+			catch (Exception ex)
+			{
+				OnModCrash(mod, ex);
+			}
+		}
+	}
+
+	internal static void DispatchPlayerHurt(Player player, int damage)
+	{
+		for (int i = 0; i < LoadedMods.Count; i++)
+		{
+			Mod mod = LoadedMods[i];
+			if (BrokenMods.Contains(mod))
+			{
+				continue;
+			}
+			try
+			{
+				mod.OnPlayerHurt(player, damage);
+			}
+			catch (Exception ex)
+			{
+				OnModCrash(mod, ex);
+			}
+		}
+	}
+
+	internal static void DispatchLiquidChanged(int x, int y)
+	{
+		for (int i = 0; i < LoadedMods.Count; i++)
+		{
+			Mod mod = LoadedMods[i];
+			if (BrokenMods.Contains(mod))
+			{
+				continue;
+			}
+			try
+			{
+				mod.OnLiquidChanged(x, y);
+			}
+			catch (Exception ex)
+			{
+				OnModCrash(mod, ex);
+			}
+		}
+	}
+
 	public static void Unload()
 	{
 		for (int i = LoadedMods.Count - 1; i >= 0; i--)

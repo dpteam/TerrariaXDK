@@ -22,8 +22,9 @@ namespace ExampleMod;
 /// <item><see cref="OnGameUpdate"/> - per-frame game tick, independent of players;</item>
 /// <item><see cref="ModContext.SendPacket"/> plus <see cref="OnPacket"/> - mod-to-mod
 /// traffic without touching the game's own packet ids;</item>
-/// <item><see cref="OnTilePlaced"/>, <see cref="OnTileKilled"/>, <see cref="OnNpcHurt"/> -
-/// world events (suppressed during world generation).</item>
+/// <item><see cref="OnTilePlaced"/>, <see cref="OnTileKilled"/>, <see cref="OnNpcHurt"/>,
+/// <see cref="OnNpcSpawn"/>, <see cref="OnNpcDeath"/>, <see cref="OnPlayerHurt"/>,
+/// <see cref="OnLiquidChanged"/> - world events (suppressed during world generation).</item>
 /// </list>
 ///
 /// It deliberately changes no gameplay: copy it, rename it, and build from there.
@@ -142,13 +143,54 @@ public class ExampleMod : Mod
 		_npcsHurt++;
 		if (npc.Life <= 0)
 		{
+			// The last hit: still active here, so loot and death effects can still be changed.
 			_npcsKilled++;
 		}
+	}
+
+	/// <summary>An NPC appeared, fully initialised. Fires once per spawn.</summary>
+	public override void OnNpcSpawn(NPC npc)
+	{
+		_npcsSpawned++;
+	}
+
+	/// <summary>
+	/// An NPC died - exactly once per death, unlike OnNpcHurt. The slot is already cleared and
+	/// loot is already dropped, which is why this is for bookkeeping, not for changing drops.
+	/// </summary>
+	public override void OnNpcDeath(NPC npc)
+	{
+		_npcsDied++;
+	}
+
+	/// <summary>
+	/// A player lost health. <c>damage</c> is what was actually taken after defence.
+	/// </summary>
+	public override void OnPlayerHurt(Player player, int damage)
+	{
+		_playersHurt++;
+	}
+
+	/// <summary>
+	/// A player changed the liquid at these coordinates - a bucket, not the simulation. Natural
+	/// flow touches thousands of cells per frame, so it deliberately has no hook.
+	/// </summary>
+	public override void OnLiquidChanged(int x, int y)
+	{
+		_liquidsChanged++;
 	}
 
 	private int _tilesChanged;
 
 	private int _npcsHurt;
+
+	private int _npcsSpawned;
+
+	private int _npcsDied;
+
+	private int _playersHurt;
+
+	private int _liquidsChanged;
 
 	private int _npcsKilled;
 }

@@ -67,6 +67,53 @@ public abstract class Mod
 	}
 
 	/// <summary>
+	/// An NPC appeared: spawned by the world, a boss summon, a statue or a mod.
+	///
+	/// Fires once per spawn, after the NPC is fully initialised (type, position, life), so a mod
+	/// can read and change it. It does <b>not</b> fire for the NPC slots being recycled when an
+	/// NPC despawns - that is a disappearance, not a spawn.
+	/// </summary>
+	public virtual void OnNpcSpawn(NPC npc)
+	{
+	}
+
+	/// <summary>
+	/// An NPC died: <c>Life</c> reached zero and its slot was cleared.
+	///
+	/// Exactly once per death, which is why it exists next to <see cref="OnNpcHurt"/>: a
+	/// multi-hit weapon or a piercing projectile would otherwise look like several kills. Loot has
+	/// already been dropped and the slot is inactive when this runs, so a mod that wants to change
+	/// the loot must do it in <see cref="OnNpcHurt"/> while <c>Life &lt;= 0</c> and the NPC is
+	/// still active.
+	/// </summary>
+	public virtual void OnNpcDeath(NPC npc)
+	{
+	}
+
+	/// <summary>
+	/// A player lost health. <paramref name="damage"/> is the damage actually taken after
+	/// defence, so it is what the player saw in the combat text.
+	///
+	/// Fires on the machine that applied the damage. In multiplayer a client also receives the
+	/// host's version of the same hit, so check <c>Context.IsHost</c> before acting on it if the
+	/// action has to happen once.
+	/// </summary>
+	public virtual void OnPlayerHurt(Player player, int damage)
+	{
+	}
+
+	/// <summary>
+	/// A player changed the liquid at these coordinates - a bucket emptied or filled.
+	///
+	/// Only player actions, not the simulation: natural flow moves thousands of cells per frame,
+	/// and a hook on that would be a hook on the water itself. If a mod needs "the lake is
+	/// draining", it should sample the tiles it cares about in <see cref="OnGameUpdate"/> instead.
+	/// </summary>
+	public virtual void OnLiquidChanged(int x, int y)
+	{
+	}
+
+	/// <summary>
 	/// Called for every mod packet that arrives from another player. The payload is already
 	/// yours (the mod id was stripped), so this is not called for packets you sent.
 	///

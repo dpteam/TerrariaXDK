@@ -73,8 +73,8 @@ internal static class ModEvents
 
 	/// <summary>
 	/// An NPC took damage. <c>npc.Life</c> already reflects the hit, so a mod can detect a
-	/// kill by checking <c>npc.Life &lt;= 0</c>. There is no separate "killed" event: a
-	/// multi-hit weapon would otherwise fire it once per hit of the same death.
+	/// kill by checking <c>npc.Life &lt;= 0</c>. The separate "died" event
+	/// (<see cref="NpcDeath"/>) fires once per death; this one fires once per hit.
 	/// </summary>
 	public static void NpcHurt(NPC npc, int damage)
 	{
@@ -84,6 +84,57 @@ internal static class ModEvents
 		}
 		DispatchCount++;
 		ModLoader.DispatchNpcHurt(npc, damage);
+	}
+
+	/// <summary>An NPC appeared. Fires once, after it is fully initialised.</summary>
+	public static void NpcSpawn(NPC npc)
+	{
+		if (!IsActive || npc == null)
+		{
+			return;
+		}
+		DispatchCount++;
+		ModLoader.DispatchNpcSpawn(npc);
+	}
+
+	/// <summary>
+	/// An NPC died. Called from <c>CheckDead</c>, which already guarantees once-per-death: it
+	/// returns early for an inactive NPC and clears the slot at the end, so a piercing projectile
+	/// that lands three hits on the same frame cannot report three deaths.
+	/// </summary>
+	public static void NpcDeath(NPC npc)
+	{
+		if (!IsActive || npc == null)
+		{
+			return;
+		}
+		DispatchCount++;
+		ModLoader.DispatchNpcDeath(npc);
+	}
+
+	/// <summary>A player lost health; <paramref name="damage"/> is what was actually taken.</summary>
+	public static void PlayerHurt(Player player, int damage)
+	{
+		if (!IsActive || player == null)
+		{
+			return;
+		}
+		DispatchCount++;
+		ModLoader.DispatchPlayerHurt(player, damage);
+	}
+
+	/// <summary>
+	/// A player changed the liquid at these coordinates (bucket use). Deliberately not the
+	/// simulation: natural flow touches thousands of cells per frame.
+	/// </summary>
+	public static void LiquidChanged(int x, int y)
+	{
+		if (!IsActive)
+		{
+			return;
+		}
+		DispatchCount++;
+		ModLoader.DispatchLiquidChanged(x, y);
 	}
 
 	internal static void Reset()

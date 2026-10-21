@@ -16041,6 +16041,9 @@ public sealed class NPC
 			{
 				NetMessage.SendText(Main.NPCSet[num].TypeName, 16, 175, 75, 255, -1);
 			}
+			// Announced after the NPC is fully initialised (type, position, life), so a mod sees a
+			// usable NPC rather than a half-built one.
+			Terraria.Mods.ModEvents.NpcSpawn(Main.NPCSet[num]);
 		}
 		return num;
 	}
@@ -16244,6 +16247,9 @@ public sealed class NPC
 			Main.InvasionSize--;
 		}
 		Active = 0;
+		// After the slot is cleared, and exactly once per death: CheckDead returns early for an
+		// inactive NPC, so a piercing projectile cannot report the same kill three times.
+		Terraria.Mods.ModEvents.NpcDeath(this);
 	}
 
 	public unsafe void NPCLoot()

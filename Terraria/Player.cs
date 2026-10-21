@@ -5893,6 +5893,10 @@ public sealed class Player
 			{
 				num2 = Main.CalculateDamage(num, StatDefense);
 			}
+			// Once per hit, with the damage actually taken (after defence), which is the number
+			// the player saw. statLife is already updated, so a mod can tell "this killed me" from
+			// statLife <= 0 rather than guessing from the damage.
+			Terraria.Mods.ModEvents.PlayerHurt(this, (int)num2);
 			return num2;
 		}
 		return 0.0;

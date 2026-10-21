@@ -177,6 +177,23 @@ try
 	if (Test-Path $masterProject)
 	{
 		Write-Host "== build master server ($Configuration)" -ForegroundColor Cyan
+		# A running master server locks its own exe, and dotnet reports that as six retries and a
+		# generic failure. Say what is actually wrong: the fix is "stop it", not "look at the log".
+		$masterExe = Join-Path $root "tools\MasterServer\bin\$Configuration\net40\MasterServer.exe"
+		if (Test-Path $masterExe)
+		{
+			try
+			{
+				$stream = [System.IO.File]::Open($masterExe, 'Open', 'ReadWrite', 'None')
+				$stream.Close()
+			}
+			catch
+			{
+				$running = Get-Process -Name MasterServer -ErrorAction SilentlyContinue
+				$who = if ($running) { ' (process id ' + ($running.Id -join ', ') + ')' } else { '' }
+				Fail "the master server is running$who and locks $masterExe - stop it before building"
+			}
+		}
 		& dotnet build $masterProject -c $Configuration -v q --nologo
 		if ($LASTEXITCODE -ne 0)
 		{

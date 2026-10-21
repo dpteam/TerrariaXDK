@@ -3681,6 +3681,14 @@ internal static class SelfTest
 
 		public int NpcsHurt;
 
+		public int NpcsSpawned;
+
+		public int NpcsDied;
+
+		public int PlayersHurt;
+
+		public int LiquidsChanged;
+
 		public int LastX = -1;
 
 		public int LastY = -1;
@@ -3705,6 +3713,29 @@ internal static class SelfTest
 		{
 			NpcsHurt++;
 			LastDamage = damage;
+		}
+
+		public override void OnNpcSpawn(Terraria.NPC npc)
+		{
+			NpcsSpawned++;
+		}
+
+		public override void OnNpcDeath(Terraria.NPC npc)
+		{
+			NpcsDied++;
+		}
+
+		public override void OnPlayerHurt(Terraria.Player player, int damage)
+		{
+			PlayersHurt++;
+			LastDamage = damage;
+		}
+
+		public override void OnLiquidChanged(int x, int y)
+		{
+			LiquidsChanged++;
+			LastX = x;
+			LastY = y;
 		}
 	}
 
@@ -3802,6 +3833,53 @@ internal static class SelfTest
 			if (counter.NpcsHurt != 1)
 			{
 				return Fail("a null NPC was dispatched");
+			}
+
+			// Spawn, death and player damage carry their arguments and are gated the same way.
+			Terraria.NPC npc2 = new Terraria.NPC();
+			npc2.Active = 1;
+			npc2.Life = 10;
+			Terraria.Mods.ModEvents.NpcSpawn(npc2);
+			if (counter.NpcsSpawned != 1)
+			{
+				return Fail("an NPC spawn event was not delivered");
+			}
+			Terraria.Mods.ModEvents.NpcDeath(npc2);
+			if (counter.NpcsDied != 1)
+			{
+				return Fail("an NPC death event was not delivered");
+			}
+			// Null is ignored everywhere, not only on the damage path: these hooks sit in code
+			// that runs for every entity, and a null check that exists in one place only is a
+			// crash waiting for the one path nobody exercised.
+			Terraria.Mods.ModEvents.NpcSpawn(null);
+			Terraria.Mods.ModEvents.NpcDeath(null);
+			Terraria.Mods.ModEvents.PlayerHurt(null, 7);
+			if (counter.NpcsSpawned != 1 || counter.NpcsDied != 1 || counter.PlayersHurt != 0)
+			{
+				return Fail("a null entity was dispatched to a new event");
+			}
+			Terraria.Player player = new Terraria.Player();
+			Terraria.Mods.ModEvents.PlayerHurt(player, 37);
+			if (counter.PlayersHurt != 1 || counter.LastDamage != 37)
+			{
+				return Fail("a player damage event was not delivered");
+			}
+			// Liquid is a coordinate event, and it must not fire during generation either: the
+			// generator fills lakes cell by cell.
+			Terraria.Mods.ModEvents.LiquidChanged(12, 34);
+			if (counter.LiquidsChanged != 1 || counter.LastX != 12 || counter.LastY != 34)
+			{
+				return Fail("a liquid event was not delivered with its coordinates");
+			}
+			Terraria.WorldGen.Gen = true;
+			Terraria.Mods.ModEvents.LiquidChanged(1, 1);
+			Terraria.Mods.ModEvents.NpcSpawn(npc2);
+			Terraria.Mods.ModEvents.PlayerHurt(player, 1);
+			Terraria.WorldGen.Gen = false;
+			if (counter.LiquidsChanged != 1 || counter.NpcsSpawned != 1 || counter.PlayersHurt != 1)
+			{
+				return Fail("a new event fired during world generation");
 			}
 
 			// One mod throwing must not stop the others, and must not escape the event.
