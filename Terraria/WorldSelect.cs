@@ -386,11 +386,12 @@ public static class WorldSelect
 					s2 = Lang.MenuText[78] + joinableSession.PlayerCount.ToStringLookup() + "/" + Math.Max(1, maxPlayers2).ToStringLookup();
 					// Ping goes to the left of the player count: it is the first thing you look
 					// at when choosing between two servers, and it fits on the same line.
-					string pingLabel = Terraria.Net.ServerPing.Label(joinableSession.AvailableSession.EndPoint);
+					bool timedOut;
+					string pingLabel = Terraria.Net.ServerPing.Label(joinableSession.AvailableSession.EndPoint, out timedOut);
 					if (pingLabel.Length != 0)
 					{
 						s2 = pingLabel + "   " + s2;
-						Color pingColor = (pingLabel == "timeout") ? new Color(235, 130, 120) : color;
+						Color pingColor = timedOut ? new Color(235, 130, 120) : color;
 						UI.DrawStringRC(UI.BoldSmallFont, s2, destRect.Right, destRect.Center.Y, pingColor);
 					}
 					else
@@ -659,14 +660,14 @@ public static class WorldSelect
 		if (cursorX != 0)
 		{
 			// Only a local world can be restored; server rows have nothing to back up.
-			UI.MainUI.statusText = "Select a world on the left to see its backups";
+			UI.MainUI.statusText = Texts.Get("ui.world.backups.pick");
 			Main.PlaySound(11);
 			return;
 		}
 		string text = worldNames[selectedWorld];
 		if (string.IsNullOrEmpty(text))
 		{
-			UI.MainUI.statusText = "That world slot is empty";
+			UI.MainUI.statusText = Texts.Get("ui.world.slot.empty");
 			Main.PlaySound(11);
 			return;
 		}
@@ -681,7 +682,7 @@ public static class WorldSelect
 		catch (Exception ex)
 		{
 			Program.LogWarn("Backups", "could not open the backup list: " + ex.Message);
-			UI.MainUI.statusText = "Could not read the worlds folder";
+			UI.MainUI.statusText = Texts.Get("ui.world.folder.failed");
 		}
 	}
 
@@ -704,13 +705,13 @@ public static class WorldSelect
 		if (Terraria.Net.ServerFavorites.Contains(text))
 		{
 			Terraria.Net.ServerFavorites.Remove(text);
-			UI.MainUI.statusText = "Removed from saved servers: " + text;
+			UI.MainUI.statusText = Texts.Format("ui.server.removed", text);
 			Main.PlaySound(11);
 			return;
 		}
 		if (Terraria.Net.ServerFavorites.Add(text))
 		{
-			UI.MainUI.statusText = "Saved server: " + text;
+			UI.MainUI.statusText = Texts.Format("ui.server.saved", text);
 			Main.PlaySound(12);
 		}
 	}
@@ -755,7 +756,7 @@ public static class WorldSelect
 	/// </summary>
 	private static void AskForAddress()
 	{
-		Terraria.Input.VirtualKeyboard.Open("Server address (host or host:port)", Terraria.Net.NetworkConfig.JoinAddress, delegate(string text)
+		Terraria.Input.VirtualKeyboard.Open(Texts.Get("ui.server.address"), Terraria.Net.NetworkConfig.JoinAddress, delegate(string text)
 		{
 			if (string.IsNullOrWhiteSpace(text))
 			{
@@ -764,7 +765,7 @@ public static class WorldSelect
 			string error;
 			if (!Netplay.JoinDirect(text.Trim(), out error))
 			{
-				UI.Error("Connect", error);
+				UI.Error(Texts.Get("ui.connect.title"), error);
 				return;
 			}
 			session = Netplay.availableSessions[Netplay.availableSessions.Count - 1];

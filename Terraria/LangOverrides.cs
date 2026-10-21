@@ -42,6 +42,16 @@ internal static class LangOverrides
 	/// </summary>
 	public static IList<string> Problems => new List<string>(_problems);
 
+	/// <summary>
+	/// When set, <see cref="Apply"/> does nothing but clear the translation state.
+	///
+	/// The self-test needs it: it switches the language to check the built-in tables, and a
+	/// player who has their own override file would otherwise leak into the result - a file
+	/// holding English text for German would make the "translations differ" check fail on a
+	/// perfectly healthy install.
+	/// </summary>
+	internal static bool SuppressFiles;
+
 	private static readonly List<string> _problems = new List<string>();
 
 	/// <summary>
@@ -145,6 +155,10 @@ internal static class LangOverrides
 		// change, exactly like the built-in tables SetLang refills. Without this, switching
 		// from German to French would leave the German chat replies in place.
 		Texts.ClearOverrides();
+		if (SuppressFiles)
+		{
+			return;
+		}
 		try
 		{
 			if (!File.Exists(path))
@@ -327,6 +341,19 @@ internal static class LangOverrides
 				Problem(TextsSection + ": unknown key '" + text + "'");
 				continue;
 			}
+			// A translation that drops a placeholder silently loses the player's name or an item
+			// id. Reported, but still applied: a human may have reworded the sentence, and
+			// refusing the line would leave the English text with no explanation.
+			List<int> list2 = Texts.Placeholders(Texts.Default(text));
+			List<int> list3 = Texts.Placeholders(text2);
+			for (int j = 0; j < list2.Count; j++)
+			{
+				if (!list3.Contains(list2[j]))
+				{
+					Problem(TextsSection + ": '" + text + "' is missing the placeholder {" + list2[j] + "}");
+					break;
+				}
+			}
 			AppliedCount++;
 		}
 	}
@@ -495,7 +522,7 @@ internal static class LangOverrides
 				}
 				stringBuilder.AppendLine();
 				stringBuilder.Append('[').Append(TextsSection).AppendLine("]");
-				stringBuilder.AppendLine("; Chat replies of this port: cheats and host commands.");
+				stringBuilder.AppendLine("; Text this port added itself: chat replies and screen labels.");
 				stringBuilder.AppendLine("; {0}, {1}... are filled by the game; keep them in your translation.");
 				IList<string> keys = Texts.Keys;
 				for (int k = 0; k < keys.Count; k++)

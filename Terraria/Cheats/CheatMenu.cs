@@ -43,7 +43,7 @@ internal static class CheatMenu
 		}
 		if (flag)
 		{
-			array[num3] = "< page " + (_page + 1) + "/" + PageCount + " >";
+			array[num3] = Texts.Format("ui.cheats.page", _page + 1, PageCount);
 		}
 		return array;
 	}
@@ -53,41 +53,41 @@ internal static class CheatMenu
 		switch (action)
 		{
 		case 0:
-			return "God mode: " + OnOff(CheatState.GodMode);
+			return Texts.Format("ui.cheats.god", OnOff(CheatState.GodMode));
 		case 1:
-			return "No clip: " + OnOff(CheatState.NoClip);
+			return Texts.Format("ui.cheats.noclip", OnOff(CheatState.NoClip));
 		case 2:
-			return "Infinite mana: " + OnOff(CheatState.InfiniteMana);
+			return Texts.Format("ui.cheats.mana", OnOff(CheatState.InfiniteMana));
 		case 3:
-			return "Infinite buffs: " + OnOff(CheatState.InfiniteBuffs);
+			return Texts.Format("ui.cheats.buffs", OnOff(CheatState.InfiniteBuffs));
 		case 4:
-			return "No fall damage: " + OnOff(CheatState.NoFallDamage);
+			return Texts.Format("ui.cheats.fall", OnOff(CheatState.NoFallDamage));
 		case 5:
-			return "Heal and refill mana";
+			return Texts.Get("ui.cheats.heal");
 		case 6:
-			return "Max life and mana caps";
+			return Texts.Get("ui.cheats.caps");
 		case 7:
-			return "Time: dawn";
+			return Texts.Get("ui.cheats.dawn");
 		case 8:
-			return "Time: noon";
+			return Texts.Get("ui.cheats.noon");
 		case 9:
-			return "Time: dusk";
+			return Texts.Get("ui.cheats.dusk");
 		case 10:
-			return "Time: midnight";
+			return Texts.Get("ui.cheats.midnight");
 		case 11:
-			return "Blood moon: " + OnOff(Main.GameTime.IsBloodMoon);
+			return Texts.Format("ui.cheats.bloodmoon", OnOff(Main.GameTime.IsBloodMoon));
 		case 12:
-			return "Spawn Eye of Cthulhu";
+			return Texts.Get("ui.cheats.eye");
 		case 13:
-			return "Spawn Skeletron";
+			return Texts.Get("ui.cheats.skeletron");
 		case 14:
-			return "Kill all enemies";
+			return Texts.Get("ui.cheats.killall");
 		case 15:
-			return "Drop a meteor";
+			return Texts.Get("ui.cheats.meteor");
 		case 16:
-			return "Unlock all recipes: " + OnOff(Main.UnlockAllRecipes);
+			return Texts.Format("ui.cheats.recipes", OnOff(Main.UnlockAllRecipes));
 		case 17:
-			return "Save world and player";
+			return Texts.Get("ui.cheats.save");
 		default:
 			return "?";
 		}
@@ -95,7 +95,7 @@ internal static class CheatMenu
 
 	private static string OnOff(bool value)
 	{
-		return value ? "ON" : "OFF";
+		return Texts.Get(value ? "ui.common.on.upper" : "ui.common.off.upper");
 	}
 
 	/// <summary>Refreshes the cursor coordinates shared with the UI menu navigation.</summary>
@@ -133,7 +133,7 @@ internal static class CheatMenu
 		}
 		if (!CheatState.IsAvailable)
 		{
-			Main.NewText("Cheats are only available in single player", 255, 120, 120);
+			Main.NewText(Texts.Get("ui.cheats.single.only"), 255, 120, 120);
 			return;
 		}
 		Player activePlayer = UI.MainUI?.ActivePlayer;
@@ -207,7 +207,7 @@ internal static class CheatMenu
 			return;
 		}
 		Main.PlaySound(12);
-		Main.NewText("Cheats: " + Label(num), 50, 255, 130);
+		Main.NewText(Texts.Format("ui.cheats.status", Label(num)), 50, 255, 130);
 	}
 
 	public static void ResetPage()
@@ -234,7 +234,7 @@ internal static class CheatMenu
 				num++;
 			}
 		}
-		Main.NewText("Removed " + num + " enemies", 255, 120, 120);
+		Main.NewText(Texts.Format("ui.cheats.removed", num), 255, 120, 120);
 	}
 
 	/// <summary>Backdrop drawn before the generic menu rows.</summary>

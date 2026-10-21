@@ -77,35 +77,41 @@ internal static class HudMenu
 		case 0:
 			if (!HudSettings.AdjustZoom(direction))
 			{
-				SetStatus("Zoom: " + HudSettings.ZoomLabel + ((direction > 0) ? " (maximum)" : " (default)"));
+				SetStatus(Texts.Format((direction > 0) ? "ui.hud.zoom.max" : "ui.hud.zoom.min", HudSettings.ZoomLabel));
 				return;
 			}
-			SetStatus("Zoom: " + HudSettings.ZoomLabel);
+			SetStatus(Texts.Format("ui.hud.zoom", HudSettings.ZoomLabel));
 			break;
 		case 1:
 			HudSettings.ResetZoom();
-			SetStatus("Zoom reset to " + HudSettings.ZoomLabel);
+			SetStatus(Texts.Format("ui.hud.zoom.reset.done", HudSettings.ZoomLabel));
 			break;
 		case 2:
 			HudSettings.AlwaysWatch = !HudSettings.AlwaysWatch;
-			SetStatus("Clock: " + (HudSettings.AlwaysWatch ? "always on" : "only with a watch"));
+			SetStatus(Texts.Format("ui.hud.clock", WidgetState(HudSettings.AlwaysWatch, "ui.hud.with.watch")));
 			break;
 		case 3:
 			HudSettings.AlwaysDepth = !HudSettings.AlwaysDepth;
-			SetStatus("Depth: " + (HudSettings.AlwaysDepth ? "always on" : "only with a depth meter"));
+			SetStatus(Texts.Format("ui.hud.depth", WidgetState(HudSettings.AlwaysDepth, "ui.hud.with.depth")));
 			break;
 		case 4:
 			HudSettings.AlwaysCompass = !HudSettings.AlwaysCompass;
-			SetStatus("Compass: " + (HudSettings.AlwaysCompass ? "always on" : "only with a compass"));
+			SetStatus(Texts.Format("ui.hud.compass", WidgetState(HudSettings.AlwaysCompass, "ui.hud.with.compass")));
 			break;
 		case 5:
 			// Same spirit as the widgets above: an option that used to exist only in the file.
 			Main.HardmodeAlert = !Main.HardmodeAlert;
-			SetStatus("Hardmode alert: " + (Main.HardmodeAlert ? "On" : "Off"));
+			SetStatus(Texts.Format("ui.hud.hardmode", Texts.Get(Main.HardmodeAlert ? "ui.common.on" : "ui.common.off")));
 			break;
 		}
 		Main.PlaySound(12);
 		Persist();
+	}
+
+	/// <summary>The widget state: "always on", or what the player needs for it.</summary>
+	private static string WidgetState(bool always, string otherwise)
+	{
+		return Texts.Get(always ? "ui.hud.always" : otherwise);
 	}
 
 	private static void SetStatus(string text)
@@ -178,15 +184,15 @@ internal static class HudMenu
 		float num = Main.ScreenMultiplier;
 		Main.DrawSolidRect(new Rectangle(0, 0, Main.ResolutionWidth, Main.ResolutionHeight), new Color(0, 0, 0, 170));
 		Main.DrawSolidRect(new Rectangle(rectangle.X - (int)(10f * num), rectangle.Y - (int)(46f * num), rectangle.Width + (int)(20f * num), rectangle.Height + (int)(76f * num)), new Color(14, 18, 26, 240));
-		UI.DrawStringCC(UI.BigFont, "HUD", rectangle.Center.X, rectangle.Y - (int)(34f * num), Color.White);
+		UI.DrawStringCC(UI.BigFont, Texts.Get("ui.hud.title"), rectangle.Center.X, rectangle.Y - (int)(34f * num), Color.White);
 		string[] array = new string[Rows]
 		{
-			"Zoom: " + HudSettings.ZoomLabel,
-			"Reset zoom",
-			"Clock: " + (HudSettings.AlwaysWatch ? "always on" : "with a watch"),
-			"Depth: " + (HudSettings.AlwaysDepth ? "always on" : "with a depth meter"),
-			"Compass: " + (HudSettings.AlwaysCompass ? "always on" : "with a compass"),
-			"Hardmode alert: " + (Main.HardmodeAlert ? "On" : "Off")
+			Texts.Format("ui.hud.zoom", HudSettings.ZoomLabel),
+			Texts.Get("ui.hud.zoom.reset"),
+			Texts.Format("ui.hud.clock", WidgetState(HudSettings.AlwaysWatch, "ui.hud.with.watch")),
+			Texts.Format("ui.hud.depth", WidgetState(HudSettings.AlwaysDepth, "ui.hud.with.depth")),
+			Texts.Format("ui.hud.compass", WidgetState(HudSettings.AlwaysCompass, "ui.hud.with.compass")),
+			Texts.Format("ui.hud.hardmode", Texts.Get(Main.HardmodeAlert ? "ui.common.on" : "ui.common.off"))
 		};
 		for (int i = 0; i < Rows; i++)
 		{
@@ -198,8 +204,8 @@ internal static class HudMenu
 			UI.DrawStringLC(UI.BoldSmallFont, array[i], rectangle.X + (int)(10f * num), y + (int)(12f * num), Color.White);
 		}
 		int num2 = rectangle.Y + rectangle.Height + (int)(8f * num);
-		string text = _status ?? "LMB / Space - change    Esc - back";
+		string text = _status ?? Texts.Get("ui.hud.change.back");
 		UI.DrawStringCC(UI.SmallFont, text, rectangle.Center.X, num2, new Color(150, 160, 180));
-		UI.DrawStringCC(UI.SmallFont, "Zoom also works in game: + / - (or triggers while paused)", rectangle.Center.X, num2 + (int)(18f * num), new Color(120, 130, 150));
+		UI.DrawStringCC(UI.SmallFont, Texts.Get("ui.hud.hint.zoom"), rectangle.Center.X, num2 + (int)(18f * num), new Color(120, 130, 150));
 	}
 }

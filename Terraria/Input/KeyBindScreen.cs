@@ -89,7 +89,7 @@ internal static class KeyBindScreen
 				if (KeyboardMouseInput.LeftClicked)
 				{
 					_capturing = true;
-					_status = "Press a key for " + KeyBindings.Label(actions[_selected]) + " (Esc cancels)";
+					_status = Texts.Format("ui.keys.press.for", KeyBindings.Display(actions[_selected]));
 					_statusTime = 999999;
 				}
 			}
@@ -97,13 +97,13 @@ internal static class KeyBindScreen
 		if (KeyboardMouseInput.KeyPressed(Keys.Space) || ui.IsButtonTriggered(Buttons.A))
 		{
 			_capturing = true;
-			_status = "Press a key for " + KeyBindings.Label(actions[_selected]) + " (Esc cancels)";
+			_status = Texts.Format("ui.keys.press.for", KeyBindings.Display(actions[_selected]));
 			_statusTime = 999999;
 		}
 		if (KeyboardMouseInput.KeyPressed(Keys.R))
 		{
 			KeyBindings.ResetToDefaults();
-			_status = "Bindings reset to defaults";
+			_status = Texts.Get("ui.keys.reset");
 			_statusTime = 240;
 		}
 		return false;
@@ -114,7 +114,7 @@ internal static class KeyBindScreen
 		if (KeyboardMouseInput.KeyPressed(Keys.Escape))
 		{
 			_capturing = false;
-			_status = "Cancelled";
+			_status = Texts.Get("ui.keys.cancelled");
 			_statusTime = 120;
 			return false;
 		}
@@ -128,12 +128,12 @@ internal static class KeyBindScreen
 			}
 			if (KeyBindings.TrySet(actions[_selected], value))
 			{
-				_status = KeyBindings.Label(actions[_selected]) + " = " + value;
+				_status = Texts.Format("ui.keys.assigned", KeyBindings.Display(actions[_selected]), value);
 				Persist();
 			}
 			else
 			{
-				_status = value + " is already used by another action";
+				_status = Texts.Format("ui.keys.taken", value);
 			}
 			_statusTime = 180;
 			_capturing = false;
@@ -220,7 +220,7 @@ internal static class KeyBindScreen
 		int num3 = rectangle.Y;
 		int width = rectangle.Width;
 		Main.DrawSolidRect(new Rectangle(num2 - (int)(8f * num), num3 - (int)(40f * num), width + (int)(16f * num), rectangle.Height + (int)(86f * num)), new Color(0, 0, 0, 190));
-		UI.DrawStringCC(UI.BigFont, "Keyboard bindings", rectangle.Center.X, num3 - (int)(26f * num), Color.White);
+		UI.DrawStringCC(UI.BigFont, Texts.Get("ui.keys.title"), rectangle.Center.X, num3 - (int)(26f * num), Color.White);
 		int num4 = Math.Min(VisibleRows, actions.Length - _scroll);
 		for (int i = 0; i < num4; i++)
 		{
@@ -231,28 +231,28 @@ internal static class KeyBindScreen
 			{
 				Main.DrawSolidRect(new Rectangle(num2, y, width, (int)(RowHeight * num) - 2), new Color(40, 70, 120, 220));
 			}
-			string s = KeyBindings.Label(actions[num5]);
+			string s = KeyBindings.Display(actions[num5]);
 			UI.DrawStringLC(UI.BoldSmallFont, s, num2 + (int)(8f * num), y + (int)(8f * num), Color.White);
 			string text = KeyBindings.Get(actions[num5]).ToString();
 			Color color = KeyBindings.IsDefault(actions[num5]) ? new Color(200, 200, 200) : new Color(120, 230, 140);
 			if (flag && _capturing)
 			{
-				text = "press a key…";
+				text = Texts.Get("ui.keys.waiting");
 				color = new Color(255, 210, 120);
 			}
 			Vector2 vector = UI.BoldSmallFont.MeasureString(text);
 			UI.DrawStringLC(UI.BoldSmallFont, text, rectangle.Right - (int)vector.X - (int)(8f * num), y + (int)(8f * num), color);
 		}
 		int num6 = num3 + VisibleRows * (int)(RowHeight * num) + (int)(6f * num);
-		string text2 = _status ?? "LMB / Space - rebind   R - reset all   Esc - back";
+		string text2 = _status ?? Texts.Get("ui.keys.change.back");
 		UI.DrawStringCC(UI.SmallFont, text2, rectangle.Center.X, num6, new Color(150, 160, 180));
 		if (_scroll > 0)
 		{
-			UI.DrawStringCC(UI.SmallFont, "^ more", rectangle.Center.X, num3 - (int)(6f * num), new Color(150, 160, 180));
+			UI.DrawStringCC(UI.SmallFont, Texts.Get("ui.keys.more.up"), rectangle.Center.X, num3 - (int)(6f * num), new Color(150, 160, 180));
 		}
 		if (_scroll + VisibleRows < actions.Length)
 		{
-			UI.DrawStringCC(UI.SmallFont, "v more", rectangle.Center.X, num6 + (int)(16f * num), new Color(150, 160, 180));
+			UI.DrawStringCC(UI.SmallFont, Texts.Get("ui.keys.more.down"), rectangle.Center.X, num6 + (int)(16f * num), new Color(150, 160, 180));
 		}
 	}
 }

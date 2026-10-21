@@ -32,7 +32,13 @@ internal static class KeyBindings
 
 	private static readonly Dictionary<Action, Keys> Bound = new Dictionary<Action, Keys>();
 
-	/// <summary>Human-readable label per action, used by the rebind screen.</summary>
+	/// <summary>
+	/// Human-readable English label, used as the comment next to the value in Settings.ini.
+	///
+	/// Deliberately not translated: the comment belongs to the config file, which is read while
+	/// diagnosing a problem, and a file whose comments follow the in-game language would change
+	/// every time the player switches language. The rebind screen uses <see cref="Display"/>.
+	/// </summary>
 	internal static string Label(Action action)
 	{
 		switch (action)
@@ -70,6 +76,16 @@ internal static class KeyBindings
 		default:
 			return action.ToString();
 		}
+	}
+
+	/// <summary>
+	/// The label shown on the rebind screen. The key is derived from the enum name
+	/// (<c>ui.key.moveleft</c>), so adding an action cannot silently leave one English: an
+	/// unmapped name shows up as <c>&lt;ui.key.newthing&gt;</c> the first time the screen opens.
+	/// </summary>
+	internal static string Display(Action action)
+	{
+		return Texts.Get("ui.key." + action.ToString().ToLowerInvariant());
 	}
 
 	/// <summary>Settings.ini key name, kept stable so old configs keep working.</summary>

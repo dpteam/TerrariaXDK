@@ -5743,9 +5743,17 @@ internal static class SelfTest
 			{
 				return Fail("a closed port was reported as reachable");
 			}
-			if (ServerPing.Label(dead) != "timeout")
+			if (ServerPing.Label(dead) != Texts.Get("ui.server.timeout"))
 			{
 				return Fail("a dead server label is '" + ServerPing.Label(dead) + "'");
+			}
+			bool timedOut;
+			ServerPing.Label(dead, out timedOut);
+			if (!timedOut)
+			{
+				// The row is coloured from this flag, not from the text, so it cannot break when
+				// the label is translated.
+				return Fail("a dead server was not reported as timed out");
 			}
 
 			// Clear() forgets everything, so a new search does not show stale numbers.
@@ -6097,6 +6105,10 @@ internal static class SelfTest
 	{
 		int savedChoice = Language.Choice;
 		int savedOption = Lang.LangOption;
+		// The player's own Storage/Lang files must not leak into this check: it is about the
+		// built-in tables, and a file holding English text for German would fail it on an
+		// otherwise healthy install.
+		LangOverrides.SuppressFiles = true;
 		try
 		{
 			// Every option must fill the tables with non-empty text.
@@ -6209,6 +6221,7 @@ internal static class SelfTest
 		}
 		finally
 		{
+			LangOverrides.SuppressFiles = false;
 			// Restore both values: the rest of the suite and the player's own session depend on
 			// the strings being in the language that was selected before the test ran.
 			Language.Restore(savedChoice, savedOption);
@@ -6533,6 +6546,66 @@ internal static class SelfTest
 			if (Texts.Get("chat.cheats.god") != "god mode")
 			{
 				return Fail("an empty value blanked a message: '" + Texts.Get("chat.cheats.god") + "'");
+			}
+
+			// A translation that drops a placeholder is reported by key and placeholder number:
+			// "Kicked ." otherwise looks like a bug in the command, not in the file.
+			File.WriteAllText(path, "[Texts]\r\nchat.host.kick.done = {0} wurde entfernt.\r\nchat.host.ban.already = Schon gebannt.\r\n", Encoding.UTF8);
+			LangOverrides.Apply();
+			bool sawPlaceholder = false;
+			problems = LangOverrides.Problems;
+			for (int j = 0; j < problems.Count; j++)
+			{
+				if (problems[j].IndexOf("chat.host.ban.already", StringComparison.Ordinal) >= 0
+					&& problems[j].IndexOf("{0}", StringComparison.Ordinal) >= 0)
+				{
+					sawPlaceholder = true;
+				}
+			}
+			if (!sawPlaceholder)
+			{
+				return Fail("a translation that dropped a placeholder was not reported");
+			}
+			// ...but the line is still applied, and the readable one produced no complaint.
+			if (Texts.Get("chat.host.ban.already") != "Schon gebannt.")
+			{
+				return Fail("a translation with a missing placeholder was not applied");
+			}
+			if (problems.Count != 1)
+			{
+				return Fail("expected exactly 1 placeholder problem, got " + problems.Count);
+			}
+
+			// Screen labels are keys as well, and they must actually reach the screen: these are
+			// the strings that used to be English literals in the menus.
+			if (Texts.Format("ui.display.window", 1280, 720) != "Window size: 1280x720")
+			{
+				return Fail("the display row label did not format: '" + Texts.Format("ui.display.window", 1280, 720) + "'");
+			}
+			if (Texts.Format("ui.settings.display", 1280, 720) != "Display: 1280x720")
+			{
+				return Fail("the settings row did not format: '" + Texts.Format("ui.settings.display", 1280, 720) + "'");
+			}
+			if (Texts.Get("ui.backups.title") == null || Texts.Default("ui.backups.title").IndexOf("{0}", StringComparison.Ordinal) < 0)
+			{
+				return Fail("the backups title lost its placeholder");
+			}
+
+			// Every rebindable action needs a label, and the key is derived from the enum name.
+			// Adding an action without adding its text would otherwise show "<ui.key.foo>" on
+			// the rebind screen, in every language including English.
+			Terraria.Input.KeyBindings.Action[] actions = Terraria.Input.KeyBindings.All;
+			for (int k = 0; k < actions.Length; k++)
+			{
+				string key = "ui.key." + actions[k].ToString().ToLowerInvariant();
+				if (!Texts.Has(key))
+				{
+					return Fail("the rebind action " + actions[k] + " has no label (missing " + key + ")");
+				}
+			}
+			if (actions.Length < 15)
+			{
+				return Fail("only " + actions.Length + " rebindable actions are registered");
 			}
 
 			// No file at all: back to English, no leftovers from the previous language.

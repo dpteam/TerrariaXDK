@@ -51,7 +51,7 @@ internal static class BackupsMenu
 		_confirming = false;
 		if (string.IsNullOrEmpty(worldName))
 		{
-			_status = "This world has no name yet, so it has no backups.";
+			_status = Texts.Get("ui.backups.no.name");
 			_statusTime = 600;
 			Entries.Clear();
 			return;
@@ -61,7 +61,7 @@ internal static class BackupsMenu
 		{
 			// The player asked for something and got nothing; say why instead of showing an
 			// empty list that looks broken.
-			_status = "No backups yet - they are written when the world is saved.";
+			_status = Texts.Get("ui.backups.empty");
 			_statusTime = 600;
 		}
 	}
@@ -93,7 +93,7 @@ internal static class BackupsMenu
 			{
 				// Esc cancels the confirmation first, then leaves. One press must not do both.
 				_confirming = false;
-				_status = "Restore cancelled.";
+				_status = Texts.Get("ui.backups.cancelled");
 				_statusTime = 180;
 				return false;
 			}
@@ -132,7 +132,7 @@ internal static class BackupsMenu
 		if (KeyboardMouseInput.KeyPressed(Keys.R))
 		{
 			Reload();
-			_status = Entries.Count + " backup(s)";
+			_status = Texts.Format("ui.backups.count", Entries.Count);
 			_statusTime = 180;
 		}
 		return false;
@@ -147,7 +147,7 @@ internal static class BackupsMenu
 		if (!_confirming)
 		{
 			_confirming = true;
-			_status = "Overwrite '" + _worldName + "' with this backup? Space again to confirm.";
+			_status = Texts.Format("ui.backups.confirm", _worldName);
 			_statusTime = 600;
 			Main.PlaySound(12);
 			return;
@@ -156,13 +156,13 @@ internal static class BackupsMenu
 		string error;
 		if (!WorldBackups.Restore(Entries[_selected], _worldFile, out error))
 		{
-			_status = "Could not restore: " + error;
+			_status = Texts.Format("ui.backups.failed", error);
 			_statusTime = 600;
 			Main.PlaySound(11);
 			return;
 		}
 		Main.PlaySound(10);
-		_status = "Restored " + WorldBackups.Describe(Entries[_selected]) + " - reloading the world list";
+		_status = Texts.Format("ui.backups.restored", WorldBackups.Describe(Entries[_selected]));
 		_statusTime = 600;
 		// The save file changed underneath the list; reload so the world entry is accurate.
 		WorldSelect.LoadWorlds();
@@ -229,10 +229,10 @@ internal static class BackupsMenu
 		float num = Main.ScreenMultiplier;
 		Main.DrawSolidRect(new Rectangle(0, 0, Main.ResolutionWidth, Main.ResolutionHeight), new Color(0, 0, 0, 180));
 		Main.DrawSolidRect(new Rectangle(rectangle.X - (int)(10f * num), rectangle.Y - (int)(46f * num), rectangle.Width + (int)(20f * num), rectangle.Height + (int)(86f * num)), new Color(14, 18, 26, 245));
-		UI.DrawStringCC(UI.BigFont, "Backups: " + (_worldName ?? ""), rectangle.Center.X, rectangle.Y - (int)(34f * num), Color.White);
+		UI.DrawStringCC(UI.BigFont, Texts.Format("ui.backups.title", _worldName ?? ""), rectangle.Center.X, rectangle.Y - (int)(34f * num), Color.White);
 		if (Entries.Count == 0)
 		{
-			UI.DrawStringCC(UI.SmallFont, _status ?? "No backups.", rectangle.Center.X, rectangle.Y + (int)(10f * num), new Color(170, 170, 180));
+			UI.DrawStringCC(UI.SmallFont, _status ?? Texts.Get("ui.backups.none"), rectangle.Center.X, rectangle.Y + (int)(10f * num), new Color(170, 170, 180));
 			return;
 		}
 		int num2 = Math.Min(VisibleRows, Entries.Count - _scroll);
@@ -253,7 +253,7 @@ internal static class BackupsMenu
 			UI.DrawStringRC(UI.SmallFont, text2, rectangle.Right - (int)(10f * num), y + (int)(12f * num), new Color(150, 150, 160));
 		}
 		int num3 = rectangle.Y + rectangle.Height + (int)(8f * num);
-		UI.DrawStringCC(UI.SmallFont, _status ?? "LMB / Space - restore    R - rescan    Esc - back", rectangle.Center.X, num3, new Color(150, 160, 180));
+		UI.DrawStringCC(UI.SmallFont, _status ?? Texts.Get("ui.backups.change.back"), rectangle.Center.X, num3, new Color(150, 160, 180));
 	}
 
 	private static string DescribeSize(string path)

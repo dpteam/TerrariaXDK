@@ -2727,7 +2727,7 @@ public sealed class UI
 			if (!Main.IsTrial && Terraria.Cheats.CheatState.IsAvailable)
 			{
 				// Extra single-player-only entry appended after the stock pause options.
-				menuString[num2 + 5] = "Cheats";
+				menuString[num2 + 5] = Texts.Get("ui.menu.cheats");
 				MENU_PAUSE_COORDS[num2 + 5].X = ViewportHalfWidth;
 				menuHC[num2 + 5] = 0;
 				numMenuItems = (byte)(num2 + 6);
@@ -3366,22 +3366,22 @@ public sealed class UI
 			}
 			// In-game toggle for the cheat system. Previously the only way to change it was
 			// editing Settings.ini, which is not something a player should have to do.
-			menuString[3] = "Cheats: " + (Terraria.Cheats.CheatState.Enabled ? "On" : "Off");
+			menuString[3] = Texts.Format("ui.settings.cheats", Texts.Get(Terraria.Cheats.CheatState.Enabled ? "ui.common.on" : "ui.common.off"));
 			MENU_SETTINGS_COORDS[3].X = ViewportHalfWidth;
 			menuHC[3] = 0;
-			menuString[4] = "Keyboard bindings";
+			menuString[4] = Texts.Get("ui.settings.keys");
 			MENU_SETTINGS_COORDS[4].X = ViewportHalfWidth;
 			menuHC[4] = 0;
-			menuString[5] = "Mods: " + Terraria.Mods.ModLoader.ModCount + " loaded";
+			menuString[5] = Texts.Format("ui.settings.mods", Terraria.Mods.ModLoader.ModCount);
 			MENU_SETTINGS_COORDS[5].X = ViewportHalfWidth;
 			menuHC[5] = 0;
-			menuString[6] = "Display: " + Terraria.DisplaySettings.Width + "x" + Terraria.DisplaySettings.Height;
+			menuString[6] = Texts.Format("ui.settings.display", Terraria.DisplaySettings.Width, Terraria.DisplaySettings.Height);
 			MENU_SETTINGS_COORDS[6].X = ViewportHalfWidth;
 			menuHC[6] = 0;
-			menuString[7] = "Network: port " + Terraria.Net.NetworkConfig.Port;
+			menuString[7] = Texts.Format("ui.settings.network", Terraria.Net.NetworkConfig.Port);
 			MENU_SETTINGS_COORDS[7].X = ViewportHalfWidth;
 			menuHC[7] = 0;
-			menuString[8] = "HUD: zoom " + Terraria.HudSettings.ZoomLabel;
+			menuString[8] = Texts.Format("ui.settings.hud", Terraria.HudSettings.ZoomLabel);
 			MENU_SETTINGS_COORDS[8].X = ViewportHalfWidth;
 			menuHC[8] = 0;
 			if (selectedMenu == 8)

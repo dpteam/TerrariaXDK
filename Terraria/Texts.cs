@@ -177,6 +177,187 @@ internal static class Texts
 		Add(dictionary, "chat.host.usage.unban", "Usage: !unban <player|ip>");
 		Add(dictionary, "chat.host.unban.not", "'{0}' is not on the ban list.");
 		Add(dictionary, "chat.host.unban.done", "Unbanned {0}.");
+		Add(dictionary, "ui.common.on", "On");
+		Add(dictionary, "ui.common.off", "Off");
+		// The cheat list uses upper case, which some languages write as a separate word form.
+		Add(dictionary, "ui.common.on.upper", "ON");
+		Add(dictionary, "ui.common.off.upper", "OFF");
+		Add(dictionary, "ui.common.none", "(none)");
+		Add(dictionary, "ui.common.yes", "Yes");
+		Add(dictionary, "ui.common.no", "No");
+		Add(dictionary, "ui.common.change.back", "LMB / Left-Right - change    Esc - back");
+
+		// --- Cheat screen ---------------------------------------------------
+		Add(dictionary, "ui.cheats.title", "Cheats");
+		Add(dictionary, "ui.cheats.page", "< page {0}/{1} >");
+		Add(dictionary, "ui.cheats.god", "God mode: {0}");
+		Add(dictionary, "ui.cheats.noclip", "No clip: {0}");
+		Add(dictionary, "ui.cheats.mana", "Infinite mana: {0}");
+		Add(dictionary, "ui.cheats.buffs", "Infinite buffs: {0}");
+		Add(dictionary, "ui.cheats.fall", "No fall damage: {0}");
+		Add(dictionary, "ui.cheats.heal", "Heal and refill mana");
+		Add(dictionary, "ui.cheats.caps", "Max life and mana caps");
+		Add(dictionary, "ui.cheats.dawn", "Time: dawn");
+		Add(dictionary, "ui.cheats.noon", "Time: noon");
+		Add(dictionary, "ui.cheats.dusk", "Time: dusk");
+		Add(dictionary, "ui.cheats.midnight", "Time: midnight");
+		Add(dictionary, "ui.cheats.bloodmoon", "Blood moon: {0}");
+		Add(dictionary, "ui.cheats.eye", "Spawn Eye of Cthulhu");
+		Add(dictionary, "ui.cheats.skeletron", "Spawn Skeletron");
+		Add(dictionary, "ui.cheats.killall", "Kill all enemies");
+		Add(dictionary, "ui.cheats.meteor", "Drop a meteor");
+		Add(dictionary, "ui.cheats.recipes", "Unlock all recipes: {0}");
+		Add(dictionary, "ui.cheats.save", "Save world and player");
+		Add(dictionary, "ui.cheats.single.only", "Cheats are only available in single player");
+		Add(dictionary, "ui.cheats.removed", "Removed {0} enemies");
+		Add(dictionary, "ui.cheats.status", "Cheats: {0}");
+
+		// --- Mods screen ----------------------------------------------------
+		Add(dictionary, "ui.mods.title", "Mods");
+		Add(dictionary, "ui.mods.entry.on", "[on]  ");
+		Add(dictionary, "ui.mods.entry.off", "[off] ");
+		Add(dictionary, "ui.mods.signature", "signature {0}   {1} loaded");
+		Add(dictionary, "ui.mods.none", "No mods found in {0}");
+		Add(dictionary, "ui.mods.disabled.settings", "mods disabled in settings");
+		Add(dictionary, "ui.mods.rescanned", "Rescanned {0}");
+		Add(dictionary, "ui.mods.enabled", "{0} enabled - restart required");
+		Add(dictionary, "ui.mods.disabled", "{0} disabled - restart required");
+		Add(dictionary, "ui.mods.failed", "Could not change {0}: {1}");
+		Add(dictionary, "ui.mods.order.failed", "Could not save the load order");
+		Add(dictionary, "ui.mods.order.moved", "{0} moved {1} - restart required");
+		Add(dictionary, "ui.mods.moved.up", "up");
+		Add(dictionary, "ui.mods.moved.down", "down");
+		Add(dictionary, "ui.mods.change.back", "LMB / Space - enable   Left-Right - load order   R - rescan   Esc - back");
+		Add(dictionary, "ui.mods.hint.restart", "Changes apply after restarting the game");
+		Add(dictionary, "ui.mods.errors", "{0} load error(s) - see terraria-debug.log");
+
+		// --- Network screen -------------------------------------------------
+		Add(dictionary, "ui.net.title", "Network");
+		Add(dictionary, "ui.net.name.title", "Player name (what others see)");
+		Add(dictionary, "ui.net.name.usage", "Use 1-{0} characters");
+		Add(dictionary, "ui.net.name", "Name: {0}");
+		Add(dictionary, "ui.net.name.row", "Player name: {0}");
+		Add(dictionary, "ui.net.port.title", "Port (1-65535)");
+		Add(dictionary, "ui.net.port.invalid", "Port must be 1-65535");
+		Add(dictionary, "ui.net.port.set", "Port: {0} - applies when the next world is hosted");
+		Add(dictionary, "ui.net.port", "Port: {0}");
+		Add(dictionary, "ui.net.password.title", "Password (empty = anyone)");
+		Add(dictionary, "ui.net.password.set", "Password: set - applies when the next world is hosted");
+		Add(dictionary, "ui.net.master.title", "Master server (host:port)");
+		Add(dictionary, "ui.net.master.invalid", "Could not parse '{0}' - use host:port");
+		Add(dictionary, "ui.net.master.set", "Master server: {0}");
+		Add(dictionary, "ui.net.publish.on", "Publishing this world while hosting");
+		Add(dictionary, "ui.net.publish.off", "Not publishing");
+		Add(dictionary, "ui.net.publish", "Publish to master: {0}");
+		Add(dictionary, "ui.net.spawn.off", "Spawn protection: off");
+		Add(dictionary, "ui.net.spawn", "Spawn protection: {0} tiles");
+		Add(dictionary, "ui.net.build.disabled", "Building disabled for everyone but you");
+		Add(dictionary, "ui.net.build.allowed", "Building allowed");
+		Add(dictionary, "ui.net.build", "Disable building: {0}");
+		Add(dictionary, "ui.net.refresh.off", "Auto refresh: off");
+		Add(dictionary, "ui.net.refresh", "Auto refresh: {0} s");
+		Add(dictionary, "ui.net.off", "off");
+		Add(dictionary, "ui.net.hint.scope", "Port and password apply when the next world is hosted");
+
+		// --- Key bindings screen --------------------------------------------
+		Add(dictionary, "ui.keys.title", "Keyboard bindings");
+		Add(dictionary, "ui.keys.press.for", "Press a key for {0} (Esc cancels)");
+		Add(dictionary, "ui.keys.reset", "Bindings reset to defaults");
+		Add(dictionary, "ui.keys.cancelled", "Cancelled");
+		Add(dictionary, "ui.keys.assigned", "{0} = {1}");
+		Add(dictionary, "ui.keys.taken", "{0} is already used by another action");
+		Add(dictionary, "ui.keys.waiting", "press a key…");
+		Add(dictionary, "ui.keys.change.back", "LMB / Space - rebind   R - reset all   Esc - back");
+		Add(dictionary, "ui.keys.more.up", "^ more");
+		Add(dictionary, "ui.keys.more.down", "v more");
+		Add(dictionary, "ui.key.moveleft", "Move left");
+		Add(dictionary, "ui.key.moveright", "Move right");
+		Add(dictionary, "ui.key.moveup", "Move up");
+		Add(dictionary, "ui.key.movedown", "Move down");
+		Add(dictionary, "ui.key.jump", "Jump");
+		Add(dictionary, "ui.key.inventory", "Inventory");
+		Add(dictionary, "ui.key.throw", "Throw item");
+		Add(dictionary, "ui.key.smartcursor", "Smart cursor");
+		Add(dictionary, "ui.key.pause", "Pause / back");
+		Add(dictionary, "ui.key.map", "Map");
+		Add(dictionary, "ui.key.heal", "Quick heal");
+		Add(dictionary, "ui.key.mana", "Quick mana");
+		Add(dictionary, "ui.key.buff", "Quick buff");
+		Add(dictionary, "ui.key.grapple", "Grapple");
+		Add(dictionary, "ui.key.chat", "Chat");
+
+		// --- Backups screen -------------------------------------------------
+		Add(dictionary, "ui.backups.title", "Backups: {0}");
+		Add(dictionary, "ui.backups.none", "No backups.");
+		Add(dictionary, "ui.backups.change.back", "LMB / Space - restore    R - rescan    Esc - back");
+		Add(dictionary, "ui.backups.no.name", "This world has no name yet, so it has no backups.");
+		Add(dictionary, "ui.backups.empty", "No backups yet - they are written when the world is saved.");
+		Add(dictionary, "ui.backups.cancelled", "Restore cancelled.");
+		Add(dictionary, "ui.backups.count", "{0} backup(s)");
+		Add(dictionary, "ui.backups.confirm", "Overwrite '{0}' with this backup? Space again to confirm.");
+		Add(dictionary, "ui.backups.failed", "Could not restore: {0}");
+		Add(dictionary, "ui.backups.restored", "Restored {0} - reloading the world list");
+		Add(dictionary, "ui.settings.cheats", "Cheats: {0}");
+		Add(dictionary, "ui.settings.keys", "Keyboard bindings");
+		Add(dictionary, "ui.settings.mods", "Mods: {0} loaded");
+		Add(dictionary, "ui.settings.display", "Display: {0}x{1}");
+		Add(dictionary, "ui.settings.network", "Network: port {0}");
+		Add(dictionary, "ui.settings.hud", "HUD: zoom {0}");
+		Add(dictionary, "ui.menu.cheats", "Cheats");
+		Add(dictionary, "ui.world.backups.pick", "Select a world on the left to see its backups");
+		Add(dictionary, "ui.world.slot.empty", "That world slot is empty");
+		Add(dictionary, "ui.world.folder.failed", "Could not read the worlds folder");
+		Add(dictionary, "ui.server.removed", "Removed from saved servers: {0}");
+		Add(dictionary, "ui.server.saved", "Saved server: {0}");
+		Add(dictionary, "ui.server.address", "Server address (host or host:port)");
+		Add(dictionary, "ui.server.timeout", "timeout");
+		Add(dictionary, "ui.name.empty", "The name cannot be empty.");
+		Add(dictionary, "ui.name.too.long", "Use at most {0} characters.");
+		Add(dictionary, "ui.connect.title", "Connect");
+		Add(dictionary, "ui.modmismatch.title", "Mod mismatch");
+		Add(dictionary, "ui.modmismatch.text", "Player '{0}' uses a different mod set and cannot join.");
+
+		// --- Display screen -------------------------------------------------
+		Add(dictionary, "ui.display.title", "Display");
+		Add(dictionary, "ui.display.profile", "Profile: {0}");
+		Add(dictionary, "ui.display.window", "Window size: {0}x{1}");
+		Add(dictionary, "ui.display.fullscreen", "Fullscreen: {0}");
+		Add(dictionary, "ui.display.render", "Render scale: {0}");
+		Add(dictionary, "ui.display.fps", "FPS counter: {0}");
+		Add(dictionary, "ui.display.vsync", "VSync: {0}");
+		Add(dictionary, "ui.display.fpslimit", "Frame cap: {0}");
+		Add(dictionary, "ui.display.language", "Language: {0}");
+		Add(dictionary, "ui.display.hint.restart", "Render scale is applied on the next start");
+		Add(dictionary, "ui.display.status.window", "Window: {0}x{1}");
+		Add(dictionary, "ui.display.status.fullscreen", "Fullscreen");
+		Add(dictionary, "ui.display.status.windowed", "Windowed");
+		Add(dictionary, "ui.display.status.restart", "Render scale: {0} - restart required");
+		Add(dictionary, "ui.display.status.vsync.capped", "VSync: Off - overridden by the frame cap");
+		Add(dictionary, "ui.display.status.cap.off", "Frame cap: off (vsync only)");
+		Add(dictionary, "ui.display.status.cap", "Frame cap: {0} fps");
+		Add(dictionary, "ui.display.status.profile", "Profile: {0} - render scale applies on the next start");
+		Add(dictionary, "ui.display.failed", "Could not change the window: {0}");
+		Add(dictionary, "ui.display.cap.overridden", " (off via cap)");
+
+		// --- HUD screen -----------------------------------------------------
+		Add(dictionary, "ui.hud.title", "HUD");
+		Add(dictionary, "ui.hud.zoom", "Zoom: {0}");
+		Add(dictionary, "ui.hud.zoom.max", "Zoom: {0} (maximum)");
+		Add(dictionary, "ui.hud.zoom.min", "Zoom: {0} (default)");
+		Add(dictionary, "ui.hud.zoom.reset", "Reset zoom");
+		Add(dictionary, "ui.hud.zoom.reset.done", "Zoom reset to {0}");
+		Add(dictionary, "ui.hud.clock", "Clock: {0}");
+		Add(dictionary, "ui.hud.depth", "Depth: {0}");
+		Add(dictionary, "ui.hud.compass", "Compass: {0}");
+		Add(dictionary, "ui.hud.hardmode", "Hardmode alert: {0}");
+		// One phrase per widget state, shared by the row and the status line: two spellings
+		// ("with a watch" vs "only with a watch") read like two different settings.
+		Add(dictionary, "ui.hud.always", "always on");
+		Add(dictionary, "ui.hud.with.watch", "with a watch");
+		Add(dictionary, "ui.hud.with.depth", "with a depth meter");
+		Add(dictionary, "ui.hud.with.compass", "with a compass");
+		Add(dictionary, "ui.hud.change.back", "LMB / Space - change    Esc - back");
+		Add(dictionary, "ui.hud.hint.zoom", "Zoom also works in game: + / - (or triggers while paused)");
 		Add(dictionary, "chat.host.help",
 			"!kick <player> [reason], !ban/!unban <player|ip>, !bans, !who, !mute/!unmute <player>, "
 			+ "!whisper <player> <text>, !motd/!rules [text], !say <text>, !op/!deop <player> [group], "
@@ -280,7 +461,46 @@ internal static class Texts
 		return stringBuilder.ToString();
 	}
 
-	/// <summary>Installs a translation. Rejects unknown keys so a typo does not sit there silently.</summary>
+	/// <summary>The built-in English text for a key, regardless of any translation.</summary>
+	public static string Default(string key)
+	{
+		string text;
+		return (key != null && Defaults.TryGetValue(key, out text)) ? text : null;
+	}
+
+	/// <summary>
+	/// The placeholder numbers a string uses: "Kicked {0}." gives {0}.
+	///
+	/// Used to compare a translation with the English it replaces. A translator who drops
+	/// <c>{0}</c> produces "Kicked ." - a sentence that reads like a bug in the command, at the
+	/// one moment (someone being kicked) when the host has no patience for mysteries.
+	/// </summary>
+	internal static List<int> Placeholders(string text)
+	{
+		List<int> list = new List<int>();
+		if (string.IsNullOrEmpty(text))
+		{
+			return list;
+		}
+		for (int i = 0; i + 2 < text.Length; i++)
+		{
+			if (text[i] != '{' || text[i + 2] != '}')
+			{
+				continue;
+			}
+			char c = text[i + 1];
+			if (c >= '0' && c <= '9' && !list.Contains(c - '0'))
+			{
+				list.Add(c - '0');
+			}
+		}
+		list.Sort();
+		return list;
+	}
+
+	/// <summary>
+	/// Installs a translation. Rejects unknown keys so a typo does not sit there silently.
+	/// </summary>
 	internal static bool SetOverride(string key, string text)
 	{
 		if (!Has(key))

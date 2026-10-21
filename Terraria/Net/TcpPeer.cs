@@ -1180,7 +1180,7 @@ internal sealed class TcpPeer : IPeerTransport
 	{
 		try
 		{
-			UI.Error("Mod mismatch", "Player '" + gamertag + "' uses a different mod set and cannot join.");
+			UI.Error(Texts.Get("ui.modmismatch.title"), Texts.Format("ui.modmismatch.text", gamertag));
 		}
 		catch
 		{

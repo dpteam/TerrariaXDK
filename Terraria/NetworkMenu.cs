@@ -82,51 +82,51 @@ internal static class NetworkMenu
 		switch (row)
 		{
 		case 0:
-			VirtualKeyboard.Open("Player name (what others see)", PlayerIdentity.Current, delegate(string text)
+			VirtualKeyboard.Open(Texts.Get("ui.net.name.title"), PlayerIdentity.Current, delegate(string text)
 			{
 				if (!PlayerIdentity.Rename(text))
 				{
-					SetStatus("Use 1-" + PlayerIdentity.MaxLength + " characters");
+					SetStatus(Texts.Format("ui.net.name.usage", PlayerIdentity.MaxLength));
 					return;
 				}
-				SetStatus("Name: " + PlayerIdentity.Current);
+				SetStatus(Texts.Format("ui.net.name", PlayerIdentity.Current));
 			});
 			break;
 		case 1:
-			VirtualKeyboard.Open("Port (1-65535)", Terraria.Net.NetworkConfig.Port.ToString(), delegate(string text)
+			VirtualKeyboard.Open(Texts.Get("ui.net.port.title"), Terraria.Net.NetworkConfig.Port.ToString(), delegate(string text)
 			{
 				int result;
 				if (!int.TryParse(text, out result) || result <= 0 || result > 65535)
 				{
-					SetStatus("Port must be 1-65535");
+					SetStatus(Texts.Get("ui.net.port.invalid"));
 					return;
 				}
 				Terraria.Net.NetworkConfig.Port = result;
 				Persist();
-				SetStatus("Port: " + result + " - applies when the next world is hosted");
+				SetStatus(Texts.Format("ui.net.port.set", result));
 			});
 			break;
 		case 2:
-			VirtualKeyboard.Open("Password (empty = anyone)", Terraria.Net.NetworkConfig.Password ?? string.Empty, delegate(string text)
+			VirtualKeyboard.Open(Texts.Get("ui.net.password.title"), Terraria.Net.NetworkConfig.Password ?? string.Empty, delegate(string text)
 			{
 				Terraria.Net.NetworkConfig.Password = (text ?? string.Empty).Trim();
 				Persist();
-				SetStatus(string.IsNullOrEmpty(Terraria.Net.NetworkConfig.Password) ? "Password: off" : "Password: set - applies when the next world is hosted");
+				SetStatus(string.IsNullOrEmpty(Terraria.Net.NetworkConfig.Password) ? Texts.Format("ui.net.password", Texts.Get("ui.net.off")) : Texts.Get("ui.net.password.set"));
 			});
 			break;
 		case 3:
 			Change(row, 1);
 			break;
 		case 4:
-			VirtualKeyboard.Open("Master server (host:port)", Terraria.Net.MasterServerClient.PrimaryEndpoint, delegate(string text)
+			VirtualKeyboard.Open(Texts.Get("ui.net.master.title"), Terraria.Net.MasterServerClient.PrimaryEndpoint, delegate(string text)
 			{
 				if (!Terraria.Net.MasterServerClient.SetEndpoints(text))
 				{
-					SetStatus("Could not parse '" + text + "' - use host:port");
+					SetStatus(Texts.Format("ui.net.master.invalid", text));
 					return;
 				}
 				Persist();
-				SetStatus("Master server: " + Terraria.Net.MasterServerClient.PrimaryEndpoint);
+				SetStatus(Texts.Format("ui.net.master.set", Terraria.Net.MasterServerClient.PrimaryEndpoint));
 			});
 			break;
 		case 5:
@@ -147,7 +147,7 @@ internal static class NetworkMenu
 		{
 		case 3:
 			Terraria.Net.MasterServerClient.Publish = !Terraria.Net.MasterServerClient.Publish;
-			SetStatus(Terraria.Net.MasterServerClient.Publish ? "Publishing this world while hosting" : "Not publishing");
+			SetStatus(Terraria.Net.MasterServerClient.Publish ? Texts.Get("ui.net.publish.on") : Texts.Get("ui.net.publish.off"));
 			break;
 		case 6:
 		{
@@ -164,14 +164,14 @@ internal static class NetworkMenu
 			}
 			num2 = (num2 + direction + radii.Length) % radii.Length;
 			Terraria.Net.WorldProtection.SpawnRadius = radii[num2];
-			SetStatus(radii[num2] > 0 ? ("Spawn protection: " + radii[num2] + " tiles") : "Spawn protection: off");
+			SetStatus((radii[num2] > 0) ? Texts.Format("ui.net.spawn", radii[num2]) : Texts.Get("ui.net.spawn.off"));
 			Main.PlaySound(12);
 			Persist();
 			break;
 		}
 		case 7:
 			Terraria.Net.WorldProtection.DisableBuild = !Terraria.Net.WorldProtection.DisableBuild;
-			SetStatus(Terraria.Net.WorldProtection.DisableBuild ? "Building disabled for everyone but you" : "Building allowed");
+			SetStatus(Texts.Get(Terraria.Net.WorldProtection.DisableBuild ? "ui.net.build.disabled" : "ui.net.build.allowed"));
 			Main.PlaySound(12);
 			Persist();
 			break;
@@ -193,7 +193,7 @@ internal static class NetworkMenu
 			num = (num + direction + steps.Length) % steps.Length;
 			Terraria.Net.ServerListRefresh.IntervalSeconds = steps[num];
 			Terraria.Net.ServerListRefresh.Enabled = steps[num] > 0;
-			SetStatus(steps[num] > 0 ? ("Auto refresh: " + steps[num] + " s") : "Auto refresh: off");
+			SetStatus((steps[num] > 0) ? Texts.Format("ui.net.refresh", steps[num]) : Texts.Get("ui.net.refresh.off"));
 			break;
 		default:
 			return;
@@ -282,18 +282,18 @@ internal static class NetworkMenu
 		float num = Main.ScreenMultiplier;
 		Main.DrawSolidRect(new Rectangle(0, 0, Main.ResolutionWidth, Main.ResolutionHeight), new Color(0, 0, 0, 170));
 		Main.DrawSolidRect(new Rectangle(rectangle.X - (int)(10f * num), rectangle.Y - (int)(46f * num), rectangle.Width + (int)(20f * num), rectangle.Height + (int)(96f * num)), new Color(14, 18, 26, 240));
-		UI.DrawStringCC(UI.BigFont, "Network", rectangle.Center.X, rectangle.Y - (int)(34f * num), Color.White);
+		UI.DrawStringCC(UI.BigFont, Texts.Get("ui.net.title"), rectangle.Center.X, rectangle.Y - (int)(34f * num), Color.White);
 		string password = Terraria.Net.NetworkConfig.Password ?? string.Empty;
 		string[] array = new string[Rows]
 		{
-			"Player name: " + PlayerIdentity.Current,
-			"Port: " + Terraria.Net.NetworkConfig.Port,
-			"Password: " + (password.Length == 0 ? "off" : new string('*', Math.Min(password.Length, 12))),
-			"Publish to master: " + (Terraria.Net.MasterServerClient.Publish ? "On" : "Off"),
-			"Master server: " + Terraria.Net.MasterServerClient.PrimaryEndpoint,
-			"Auto refresh: " + ((Terraria.Net.ServerListRefresh.IntervalSeconds > 0) ? (Terraria.Net.ServerListRefresh.IntervalSeconds + " s") : "off"),
-			"Spawn protection: " + ((Terraria.Net.WorldProtection.SpawnRadius > 0) ? (Terraria.Net.WorldProtection.SpawnRadius + " tiles") : "off"),
-			"Disable building: " + (Terraria.Net.WorldProtection.DisableBuild ? "On" : "Off")
+			Texts.Format("ui.net.name.row", PlayerIdentity.Current),
+			Texts.Format("ui.net.port", Terraria.Net.NetworkConfig.Port),
+			Texts.Format("ui.net.password", (password.Length == 0) ? Texts.Get("ui.net.off") : new string('*', Math.Min(password.Length, 12))),
+			Texts.Format("ui.net.publish", Texts.Get(Terraria.Net.MasterServerClient.Publish ? "ui.common.on" : "ui.common.off")),
+			Texts.Format("ui.net.master.set", Terraria.Net.MasterServerClient.PrimaryEndpoint),
+			(Terraria.Net.ServerListRefresh.IntervalSeconds > 0) ? Texts.Format("ui.net.refresh", Terraria.Net.ServerListRefresh.IntervalSeconds) : Texts.Get("ui.net.refresh.off"),
+			(Terraria.Net.WorldProtection.SpawnRadius > 0) ? Texts.Format("ui.net.spawn", Terraria.Net.WorldProtection.SpawnRadius) : Texts.Get("ui.net.spawn.off"),
+			Texts.Format("ui.net.build", Texts.Get(Terraria.Net.WorldProtection.DisableBuild ? "ui.common.on" : "ui.common.off"))
 		};
 		for (int i = 0; i < Rows; i++)
 		{
@@ -305,8 +305,8 @@ internal static class NetworkMenu
 			UI.DrawStringLC(UI.BoldSmallFont, array[i], rectangle.X + (int)(10f * num), y + (int)(12f * num), Color.White);
 		}
 		int num2 = rectangle.Y + rectangle.Height + (int)(8f * num);
-		string text = _status ?? "LMB / Space - change    Esc - back";
+		string text = _status ?? Texts.Get("ui.common.change.back");
 		UI.DrawStringCC(UI.SmallFont, text, rectangle.Center.X, num2, new Color(150, 160, 180));
-		UI.DrawStringCC(UI.SmallFont, "Port and password apply when the next world is hosted", rectangle.Center.X, num2 + (int)(18f * num), new Color(120, 130, 150));
+		UI.DrawStringCC(UI.SmallFont, Texts.Get("ui.net.hint.scope"), rectangle.Center.X, num2 + (int)(18f * num), new Color(120, 130, 150));
 	}
 }

@@ -82,33 +82,37 @@ internal static class DisplayMenu
 		case 1:
 			DisplaySettings.NextWindowSize(direction);
 			ApplyWindow();
-			_status = "Window: " + DisplaySettings.Width + "x" + DisplaySettings.Height;
+			_status = Texts.Format("ui.display.status.window", DisplaySettings.Width, DisplaySettings.Height);
 			break;
 		case 2:
 			DisplaySettings.Fullscreen = !DisplaySettings.Fullscreen;
 			ApplyWindow();
-			_status = DisplaySettings.Fullscreen ? "Fullscreen" : "Windowed";
+			_status = Texts.Get(DisplaySettings.Fullscreen ? "ui.display.status.fullscreen" : "ui.display.status.windowed");
 			break;
 		case 3:
 			DisplaySettings.NextRenderScale(direction);
-			_status = "Render scale: " + (DisplaySettings.RenderScale == ScreenHeights.BASE ? "540p" : ((DisplaySettings.RenderScale == ScreenHeights.HD) ? "720p" : "1080p")) + " - restart required";
+			_status = Texts.Format("ui.display.status.restart", RenderScaleName());
 			break;
 		case 4:
 			// Lives here rather than only in Settings.ini: it is the first thing you want to
 			// turn on when measuring the effect of a render scale change.
 			DisplaySettings.ShowFPS = !DisplaySettings.ShowFPS;
 			Main.ShowFPS = DisplaySettings.ShowFPS;
-			_status = DisplaySettings.ShowFPS ? "FPS counter: On" : "FPS counter: Off";
+			_status = Texts.Format("ui.display.fps", OnOff(DisplaySettings.ShowFPS));
 			break;
 		case 5:
 			DisplaySettings.VSync = !DisplaySettings.VSync;
 			ApplyWindow();
-			_status = DisplaySettings.VSync ? "VSync: On" : "VSync: Off" + (DisplaySettings.FpsLimit > 0 ? " - overridden by the frame cap" : string.Empty);
+			_status = (DisplaySettings.VSync && DisplaySettings.FpsLimit > 0)
+				? Texts.Get("ui.display.status.vsync.capped")
+				: Texts.Format("ui.display.vsync", OnOff(DisplaySettings.VSync));
 			break;
 		case 6:
 			DisplaySettings.NextFpsLimit(direction);
 			ApplyWindow();
-			_status = (DisplaySettings.FpsLimit > 0) ? ("Frame cap: " + DisplaySettings.FpsLimit + " fps") : "Frame cap: off (vsync only)";
+			_status = (DisplaySettings.FpsLimit > 0)
+				? Texts.Format("ui.display.status.cap", DisplaySettings.FpsLimit)
+				: Texts.Get("ui.display.status.cap.off");
 			break;
 		case 7:
 		{
@@ -121,7 +125,7 @@ internal static class DisplayMenu
 				_status = error;
 				break;
 			}
-			_status = "Language: " + Language.CurrentLabel;
+			_status = Texts.Format("ui.display.language", Language.CurrentLabel);
 			break;
 		}
 		}
@@ -141,7 +145,19 @@ internal static class DisplayMenu
 			return;
 		}
 		ApplyWindow();
-		_status = "Profile: " + name + " - render scale applies on the next start";
+		_status = Texts.Format("ui.display.status.profile", name);
+	}
+
+	private static string OnOff(bool value)
+	{
+		return Texts.Get(value ? "ui.common.on" : "ui.common.off");
+	}
+
+	/// <summary>"540p" / "720p" / "1080p" - a number and a letter, the same in every language.</summary>
+	private static string RenderScaleName()
+	{
+		return (DisplaySettings.RenderScale == ScreenHeights.BASE) ? "540p"
+			: ((DisplaySettings.RenderScale == ScreenHeights.HD) ? "720p" : "1080p");
 	}
 
 	/// <summary>Pushes the window size / fullscreen to the graphics device right now.</summary>
@@ -159,7 +175,7 @@ internal static class DisplayMenu
 		catch (Exception ex)
 		{
 			Program.LogWarn("Display", "could not apply window change: " + ex.Message);
-			_status = "Could not change the window: " + ex.Message;
+			_status = Texts.Format("ui.display.failed", ex.Message);
 		}
 	}
 
@@ -225,17 +241,17 @@ internal static class DisplayMenu
 		float num = Main.ScreenMultiplier;
 		Main.DrawSolidRect(new Rectangle(0, 0, Main.ResolutionWidth, Main.ResolutionHeight), new Color(0, 0, 0, 170));
 		Main.DrawSolidRect(new Rectangle(rectangle.X - (int)(10f * num), rectangle.Y - (int)(46f * num), rectangle.Width + (int)(20f * num), rectangle.Height + (int)(76f * num)), new Color(14, 18, 26, 240));
-		UI.DrawStringCC(UI.BigFont, "Display", rectangle.Center.X, rectangle.Y - (int)(34f * num), Color.White);
+		UI.DrawStringCC(UI.BigFont, Texts.Get("ui.display.title"), rectangle.Center.X, rectangle.Y - (int)(34f * num), Color.White);
 		string[] array = new string[Rows]
 		{
-			"Profile: " + SettingsProfiles.Current,
-			"Window size: " + DisplaySettings.Width + "x" + DisplaySettings.Height,
-			"Fullscreen: " + (DisplaySettings.Fullscreen ? "On" : "Off"),
-			"Render scale: " + ((DisplaySettings.RenderScale == ScreenHeights.BASE) ? "540p" : ((DisplaySettings.RenderScale == ScreenHeights.HD) ? "720p" : "1080p")),
-			"FPS counter: " + (DisplaySettings.ShowFPS ? "On" : "Off"),
-			"VSync: " + (DisplaySettings.VSync ? "On" : "Off") + ((DisplaySettings.FpsLimit > 0) ? " (off via cap)" : string.Empty),
-			"Frame cap: " + ((DisplaySettings.FpsLimit > 0) ? (DisplaySettings.FpsLimit + " fps") : "off"),
-			"Language: " + Language.CurrentLabel
+			Texts.Format("ui.display.profile", SettingsProfiles.Current),
+			Texts.Format("ui.display.window", DisplaySettings.Width, DisplaySettings.Height),
+			Texts.Format("ui.display.fullscreen", OnOff(DisplaySettings.Fullscreen)),
+			Texts.Format("ui.display.render", RenderScaleName()),
+			Texts.Format("ui.display.fps", OnOff(DisplaySettings.ShowFPS)),
+			Texts.Format("ui.display.vsync", OnOff(DisplaySettings.VSync)) + ((DisplaySettings.FpsLimit > 0) ? Texts.Get("ui.display.cap.overridden") : string.Empty),
+			(DisplaySettings.FpsLimit > 0) ? Texts.Format("ui.display.status.cap", DisplaySettings.FpsLimit) : Texts.Get("ui.display.status.cap.off"),
+			Texts.Format("ui.display.language", Language.CurrentLabel)
 		};
 		for (int i = 0; i < Rows; i++)
 		{
@@ -247,8 +263,8 @@ internal static class DisplayMenu
 			UI.DrawStringLC(UI.BoldSmallFont, array[i], rectangle.X + (int)(10f * num), y + (int)(12f * num), Color.White);
 		}
 		int num2 = rectangle.Y + rectangle.Height + (int)(8f * num);
-		string text = _status ?? "LMB / Left-Right - change    Esc - back";
+		string text = _status ?? Texts.Get("ui.common.change.back");
 		UI.DrawStringCC(UI.SmallFont, text, rectangle.Center.X, num2, new Color(150, 160, 180));
-		UI.DrawStringCC(UI.SmallFont, "Render scale is applied on the next start", rectangle.Center.X, num2 + (int)(18f * num), new Color(120, 130, 150));
+		UI.DrawStringCC(UI.SmallFont, Texts.Get("ui.display.hint.restart"), rectangle.Center.X, num2 + (int)(18f * num), new Color(120, 130, 150));
 	}
 }

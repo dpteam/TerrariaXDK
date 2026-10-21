@@ -68,12 +68,12 @@ internal static class NameRules
 		error = null;
 		if (name.Length == 0)
 		{
-			error = "The name cannot be empty.";
+			error = Texts.Get("ui.name.empty");
 			return false;
 		}
 		if (name.Length > maxLength)
 		{
-			error = "Use at most " + maxLength + " characters.";
+			error = Texts.Format("ui.name.too.long", maxLength);
 			return false;
 		}
 		return true;

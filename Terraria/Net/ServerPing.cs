@@ -145,13 +145,32 @@ internal static class ServerPing
 	/// <summary>Short label for a list row: "42 ms", "timeout", or an empty string if unmeasured.</summary>
 	public static string Label(IPEndPoint endPoint)
 	{
+		bool flag;
+		return Label(endPoint, out flag);
+	}
+
+	/// <summary>
+	/// The label plus whether the host failed to answer.
+	///
+	/// The caller needs the fact, not the word: comparing the returned text against "timeout"
+	/// to colour the row red would break the moment the text is translated, and it reads as a
+	/// logic error that only shows up in one language.
+	/// </summary>
+	public static string Label(IPEndPoint endPoint, out bool timedOut)
+	{
+		timedOut = false;
 		int num;
 		bool flag;
 		if (!TryGet(endPoint, out num, out flag))
 		{
 			return string.Empty;
 		}
-		return flag ? (num + " ms") : "timeout";
+		if (flag)
+		{
+			return num + " ms";
+		}
+		timedOut = true;
+		return Texts.Get("ui.server.timeout");
 	}
 
 	/// <summary>Forgets everything, e.g. when the list is emptied on a fresh search.</summary>
