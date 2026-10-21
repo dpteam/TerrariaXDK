@@ -21,12 +21,16 @@ internal static class ServerFavorites
 
 	public static string FilePath => Path.Combine(Terraria.Storage.AppPaths.Cache, "favorites.txt");
 
+	/// <summary>
+	/// A snapshot of the saved addresses. A copy, not a live view: the network finder reads
+	/// this from its own thread while the UI can add or remove entries.
+	/// </summary>
 	public static IList<string> All
 	{
 		get
 		{
 			Load();
-			return Entries.AsReadOnly();
+			return new List<string>(Entries);
 		}
 	}
 

@@ -42,10 +42,12 @@ FNA/SDL2. Она принципиально отличается от ПК-ве�
    проверяться через `CheatState.IsAvailable` → `Main.NetMode == 0`. Никаких «протащу
    проверку по месту» — гейт один.
 6. **Сеть — только через `IPeerTransport`.** Не вызывайте `Lidgren` из игрового кода.
-   Всё, что нужно игре, уже умеет `NetworkSession`.
+   Всё, что нужно игре, уже умеет `NetworkSession`. Модам — `ModNet` (отдельный opcode
+   транспорта), а не `NetMessage`: его id зафиксированы консольным протоколом.
 7. **Потоки.** Игровая логика — один поток. Всё, что приходит из сети, кладём в очередь
    и применяем на игровом потоке (`TcpPeer.Drain` вызывается из `NetworkSession.Update`).
-   Из фонового потока **нельзя** трогать `Main.*`, `UI.*`, мир и игроков.
+   Из фонового потока **нельзя** трогать `Main.*`, `UI.*`, мир и игроков. Исключение —
+   `Mod.OnPacket`: он вызывается на сетевом потоке и обязан только складывать данные.
 
 ---
 
@@ -110,7 +112,8 @@ dotnet build TerrariaXDK.csproj -v q --nologo     # 0 ошибок
 | Отладочный лог | `Storage/Logs/terraria-debug.log` | `Program` |
 | Крашлог | `Storage/Logs/client-crashlog.txt` | `Program` |
 | Резервные копии | `Storage/Backups/<мир>_<дата>.wld` | `WorldBackups` |
-| Кэш | `Storage/Cache/` | (задел) |
+| Кэш сети | `Storage/Cache/servers.json`, `favorites.txt` | `MasterServerClient`, `ServerFavorites` |
+| Кэш | `Storage/Cache/` (атласы — задел) | `AppPaths` |
 
 - **Никогда не хардкодьте пути.** Единственный источник — `Terraria/Storage/AppPaths.cs`.
   Нужна новая папка — добавьте свойство туда и в `EnsureDirectories()`.
