@@ -148,8 +148,10 @@ internal static class VirtualKeyboard
 		_onCancel = null;
 		KeyboardMouseInput.TextInputActive = false;
 		UnhookTextInput();
-		// The key that closed the keyboard must not also reach the game.
-		KeyboardMouseInput.SuppressGameInput = true;
+		// The key that closed the keyboard must not also reach the game - and "the key" is the
+		// physical one, so the suppression lasts until it is released. One frame was not enough
+		// for character creation, where Enter is also "Start" and reopened this prompt.
+		KeyboardMouseInput.HoldUntilRelease();
 	}
 
 	/// <summary>
@@ -230,7 +232,7 @@ internal static class VirtualKeyboard
 		_open = false;
 		KeyboardMouseInput.TextInputActive = false;
 		UnhookTextInput();
-		KeyboardMouseInput.SuppressGameInput = true;
+		KeyboardMouseInput.HoldUntilRelease();
 		if (onCancel != null)
 		{
 			try
@@ -497,8 +499,25 @@ internal static class VirtualKeyboard
 	{
 		string result = Buffer.ToString();
 		Action<string> onAccept = _onAccept;
+		// Cleared before the callback so the callback reopening the prompt (a rejected name)
+		// is not immediately overwritten by this one finishing.
+		_onAccept = null;
 		Close();
-		onAccept?.Invoke(result);
+		if (onAccept == null)
+		{
+			return;
+		}
+		try
+		{
+			onAccept(result);
+		}
+		catch (Exception ex)
+		{
+			// Saving a new character happens inside this callback. An exception escaping here
+			// would leave the frame half-updated and take the game down from inside the
+			// keyboard's update, so it is logged where the keyboard can be blamed instead.
+			Program.LogWarn("VirtualKeyboard", "accept handler threw: " + ex.Message);
+		}
 	}
 
 	/// <summary>

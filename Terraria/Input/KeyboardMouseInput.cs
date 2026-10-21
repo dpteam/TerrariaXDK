@@ -100,9 +100,29 @@ internal static class KeyboardMouseInput
 	/// <summary>
 	/// Suppresses game input for the rest of the current frame. Set when a text field closes
 	/// on Escape/Enter, so the same keystroke cannot also open the pause menu or swing an item.
-	/// Cleared at the start of each <see cref="Update"/>.
+	/// Cleared at the start of each <see cref="Update"/> - unless <see cref="HoldUntilRelease"/>
+	/// was called, which keeps it set while the closing key is still physically held.
 	/// </summary>
 	public static bool SuppressGameInput { get; set; }
+
+	/// <summary>
+	/// Keeps input swallowed until every key and button that could have closed a modal is
+	/// released, instead of for a single frame.
+	///
+	/// Why it is needed: the on-screen keyboard closes on Enter/A, and the very next frame the
+	/// screen underneath sees a fresh edge on a key that is still down, because its previous
+	/// state was the zeroed pad from while the keyboard was open. In character creation Enter
+	/// means "Start", so accepting a name reopened the name prompt - and it looked like the
+	/// keyboard itself was broken. One frame of suppression is not enough; the key has to come
+	/// up first.
+	/// </summary>
+	public static void HoldUntilRelease()
+	{
+		SuppressGameInput = true;
+		_holdUntilRelease = true;
+	}
+
+	private static bool _holdUntilRelease;
 
 	/// <summary>Absolute mouse position in internal-resolution pixels (see <see cref="SetViewport"/>).</summary>
 	public static int MouseX { get; private set; }
@@ -182,7 +202,6 @@ internal static class KeyboardMouseInput
 			CursorOverride = false;
 			return;
 		}
-		SuppressGameInput = false;
 		_prevMouse = _mouse;
 		_prevKeys = _keys;
 		try
@@ -194,6 +213,13 @@ internal static class KeyboardMouseInput
 		{
 			// Windowing backend not ready yet (splash screens, shutdown).
 			return;
+		}
+		// The "swallow this frame" flag is cleared here, after the new state is known, because
+		// whether input may resume depends on whether the key that closed the modal is still down.
+		SuppressGameInput = _holdUntilRelease && ModalKeysDown();
+		if (!SuppressGameInput)
+		{
+			_holdUntilRelease = false;
 		}
 		MouseX = MapAxis(_mouse.X, _bufferWidth, _viewWidth);
 		MouseY = MapAxis(_mouse.Y, _bufferHeight, _viewHeight);
@@ -596,6 +622,50 @@ internal static class KeyboardMouseInput
 		float lt = Math.Max(physical.Triggers.Left, synthetic.Triggers.Left > TriggerThreshold ? synthetic.Triggers.Left : 0f);
 		float rt = Math.Max(physical.Triggers.Right, synthetic.Triggers.Right > TriggerThreshold ? synthetic.Triggers.Right : 0f);
 		return new GamePadState(new GamePadThumbSticks(left, right), new GamePadTriggers(lt, rt), new GamePadButtons(buttons), dpad);
+	}
+
+	/// <summary>
+	/// True while any key or button that could have closed a modal is still down. Confirm keys
+	/// and cancel keys together: the latch exists to wait for the release, not to judge intent.
+	/// </summary>
+	private static bool ModalKeysDown()
+	{
+		bool anyPad = false;
+		try
+		{
+			for (int i = 0; i < 4; i++)
+			{
+				GamePadState state = GamePad.GetState((PlayerIndex)i);
+				if (state.IsConnected && (state.IsButtonDown(Buttons.A) || state.IsButtonDown(Buttons.B) || state.IsButtonDown(Buttons.Start) || state.IsButtonDown(Buttons.Back)))
+				{
+					anyPad = true;
+					break;
+				}
+			}
+		}
+		catch
+		{
+			// No pad backend (headless); the keyboard half still answers.
+		}
+		return ModalInputDown(_keys, _mouse, anyPad);
+	}
+
+	/// <summary>
+	/// The device-independent half of <see cref="ModalKeysDown"/>: is any confirm or cancel
+	/// control still held? Pure so the headless suite can check the latch without a window.
+	/// </summary>
+	internal static bool ModalInputDown(KeyboardState keys, MouseState mouse, bool anyPadButtonDown)
+	{
+		if (keys.IsKeyDown(Keys.Enter) || keys.IsKeyDown(Keys.Escape) || keys.IsKeyDown(Keys.Space)
+			|| keys.IsKeyDown(Keys.E) || keys.IsKeyDown(Keys.B))
+		{
+			return true;
+		}
+		if (mouse.LeftButton == ButtonState.Pressed || mouse.RightButton == ButtonState.Pressed)
+		{
+			return true;
+		}
+		return anyPadButtonDown;
 	}
 
 	/// <summary>True when the physical pad shows real activity (stick, trigger or button).</summary>

@@ -919,6 +919,13 @@ public sealed class UI
 			SetTriggerState(Trigger.BackForSeconds);
 		}
 		AchievementTriggers.UpdateAchievements(SignedInGamer);
+		// Publish this player's achievements and counters so the master server can answer "how
+		// many players earned this" and rank the leaderboards. Throttled inside StatSync, and the
+		// snapshot is taken here, on the game thread - the background thread only owns the HTTP.
+		if (SignedInGamer != null)
+		{
+			Terraria.Net.StatSync.Report(Statistics, SignedInGamer.Gamertag);
+		}
 	}
 
 	public static void Initialize(Main game)
@@ -2921,7 +2928,10 @@ public sealed class UI
 			for (int num9 = 0; num9 < numMenuItems; num9++)
 			{
 				menuString[num9] = cheatRows[num9];
-				menuScale[num9] = 0.75f;
+				// Small font for the cheat list, like every other screen added in this port. The
+				// rows are 38px apart and the entries are long ("Infinite buffs: OFF", "Spawn Eye
+				// of Cthulhu"), so the big menu font overflowed the panel on both sides.
+				menuScale[num9] = 1f;
 				menuHC[num9] = 0;
 			}
 			menuTop = Terraria.Cheats.CheatMenu.MenuTop;
@@ -3168,8 +3178,19 @@ public sealed class UI
 				Player player = loadPlayer[numLoadPlayers];
 				player.CharacterName = name;
 				player.ui = this;
-				loadPlayerPath[numLoadPlayers] = nextLoadPlayer();
-				player.Save(loadPlayerPath[numLoadPlayers]);
+				// Only advance once the file is actually on disk. This used to ignore the result,
+				// so a failed save still took the player to the character list with a character
+				// that existed in memory only - and the keyboard re-opened on the next frame,
+				// which read as "the name prompt is broken".
+				string path = nextLoadPlayer();
+				if (path == null || !player.Save(path))
+				{
+					Program.LogWarn("UI", "could not save the new character");
+					ReadError();
+					PrevMenu();
+					return;
+				}
+				loadPlayerPath[numLoadPlayers] = path;
 				PrevMenu(-2);
 				selectedPlayer = numLoadPlayers;
 				showPlayer = numLoadPlayers;
@@ -3661,7 +3682,7 @@ public sealed class UI
 
 	private void DrawMenu()
 	{
-		if (CurMenuMode != MenuMode.CONTROLS && CurMenuMode != MenuMode.HARDMODE_UPSELL && CurMenuMode != MenuMode.MAP && CurMenuMode != MenuMode.HOW_TO_PLAY && CurMenuMode != MenuMode.LEADERBOARDS && CurMenuMode != MenuMode.ACHIEVEMENTS && CurMenuMode != MenuMode.WORLD_SELECT && CurMenuMode != MenuMode.CREATE_CHARACTER && CurMenuMode != MenuMode.CREDITS && CurMenuMode != MenuMode.UPSELL && CurMenuMode != MenuMode.CHEATS)
+		if (CurMenuMode != MenuMode.CONTROLS && CurMenuMode != MenuMode.HARDMODE_UPSELL && CurMenuMode != MenuMode.MAP && CurMenuMode != MenuMode.HOW_TO_PLAY && CurMenuMode != MenuMode.LEADERBOARDS && CurMenuMode != MenuMode.ACHIEVEMENTS && CurMenuMode != MenuMode.WORLD_SELECT && CurMenuMode != MenuMode.CREATE_CHARACTER && CurMenuMode != MenuMode.NAME_CHARACTER && CurMenuMode != MenuMode.CREDITS && CurMenuMode != MenuMode.UPSELL && CurMenuMode != MenuMode.CHEATS)
 		{
 			DrawLogo();
 		}
@@ -3815,8 +3836,11 @@ public sealed class UI
 		{
 			GameMode.Draw(CurrentView);
 		}
-		else if (CurMenuMode == MenuMode.CREATE_CHARACTER)
+		else if (CurMenuMode == MenuMode.CREATE_CHARACTER || CurMenuMode == MenuMode.NAME_CHARACTER)
 		{
+			// NAME_CHARACTER draws the creator too: the on-screen keyboard asks for the name on
+			// top of this screen, and blanking it to the logo behind the keyboard looked like
+			// the creator had crashed.
 			CurrentView.SetScreenViewWideCentered();
 			CreateCharacterGUI.Draw(CurrentView);
 			CurrentView.SetScreenView();
@@ -3916,6 +3940,10 @@ public sealed class UI
 			hardmodeUpsell.Draw();
 			CurrentView.SetScreenView();
 		}
+		// The cheat list is a column of sentences, not a menu of two-word entries: it gets the small
+		// font the settings screens use. Every place that measures or draws an entry has to agree,
+		// including the mouse hit-test below, which is why this is one variable.
+		SpriteFont menuFont = (CurMenuMode == MenuMode.CHEATS) ? BoldSmallFont : BigFont;
 		for (int i = 0; i < numMenuItems; i++)
 		{
 			if (menuString[i] != null)
@@ -3947,15 +3975,17 @@ public sealed class UI
 					num11 *= 1f + cursorAlpha * 0.1f;
 					c = new Color(CursorColour.A, CursorColour.A, 100, 255);
 				}
-				Vector2 pivot = MeasureString(BigFont, menuString[i]);
+				// One font for measuring, drawing and hit-testing. The cheat list uses the small
+				// font because its entries are long sentences rather than two-word menu items.
+				Vector2 pivot = MeasureString(menuFont, menuString[i]);
 				pivot.X *= 0.5f;
 				pivot.Y *= 0.5f;
 				num11 *= menuScale[i];
 				Vector2 vector = new Vector2(menuLeft, (float)menuTop * Main.ScreenMultiplier + (float)(int)menuSpace * Main.ScreenMultiplier * (float)i + pivot.Y * menuScale[i] + (float)menuY[i]);
-				DrawStringScaled(pos: vector, font: BigFont, s: menuString[i], c: c, pivot: pivot, scale: num11);
+				DrawStringScaled(pos: vector, font: menuFont, s: menuString[i], c: c, pivot: pivot, scale: num11);
 				// Record the real on-screen bounds so mouse hit-testing matches the text
 				// exactly instead of guessing "nearest entry" from a single point.
-				Vector2 vector2 = MeasureString(BigFont, menuString[i]) * num11;
+				Vector2 vector2 = MeasureString(menuFont, menuString[i]) * num11;
 				menuHitRects[i] = new Rectangle((int)(vector.X - vector2.X * 0.5f), (int)(vector.Y - vector2.Y * 0.5f), (int)vector2.X, (int)vector2.Y);
 				menuHitValid[i] = true;
 			}
@@ -5914,11 +5944,16 @@ public sealed class UI
 			// Wheel scrolls the hotbar, the way it does on the PC version. It used to be
 			// mapped onto the shoulder buttons, which meant the wheel and "switch inventory
 			// section" shared one action.
+			//
+			// Direction matches the PC build: scrolling down selects the next slot to the right.
+			// The PC code does `selectedItem -= scrollDelta / 120`, and a wheel-down gives a
+			// negative delta, so the sign is inverted on purpose - this is not a guess, it is that
+			// line (Player.cs in refs/T12 and T111M).
 			int wheel = Terraria.Input.KeyboardMouseInput.ConsumeWheelSteps();
 			if (wheel != 0)
 			{
 				sbyte selected = ActivePlayer.SelectedItem;
-				ActivePlayer.SelectedItem = (sbyte)Terraria.Input.WheelNav.Wrap(selected, wheel, 10);
+				ActivePlayer.SelectedItem = (sbyte)Terraria.Input.WheelNav.Wrap(selected, -wheel, 10);
 				if (ActivePlayer.SelectedItem != selected)
 				{
 					Main.PlaySound(12);
