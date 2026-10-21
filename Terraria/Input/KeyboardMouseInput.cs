@@ -55,6 +55,9 @@ internal static class KeyboardMouseInput
 	private static int _hotbarRequest = -1;
 	private static QuickAction _quickAction = QuickAction.None;
 
+	/// <summary>Inventory toggle requested this frame (E / I), see <see cref="ConsumeInventoryToggle"/>.</summary>
+	private static bool _inventoryToggle;
+
 	/// <summary>Set while the inventory (not a menu screen) is open.</summary>
 	private static bool _inventoryContext;
 
@@ -272,6 +275,15 @@ internal static class KeyboardMouseInput
 			CursorOverride = true;
 		}
 		_hotbarRequest = -1;
+		// One edge-triggered request for the inventory, handled by the UI as a toggle. This is
+		// not routed through Buttons.Y: Y means "open on release", "switch crafting section"
+		// and "show NPCs" in different places, so one press did two things.
+		_inventoryToggle = false;
+		if (!TextInputActive && !SuppressGameInput
+			&& (KeyPressed(KeyBindings.Get(KeyBindings.Action.Inventory)) || KeyPressed(Keys.I)))
+		{
+			_inventoryToggle = true;
+		}
 		if (!TextInputActive)
 		{
 			// Hotbar slots 1..9 and 0 map to the ten hotbar entries, like the PC version.
@@ -325,13 +337,30 @@ internal static class KeyboardMouseInput
 		_inventoryContext = ui.InventoryMode > 0;
 		_enterConfirms = ui.CurMenuMode == MenuMode.CREATE_CHARACTER;
 		// Only screens that consume the click themselves opt out of "left click = A".
-		MouseHandledByScreen = ui.CurMenuType != MenuType.NONE && (ui.CurMenuMode == MenuMode.CREATE_CHARACTER || ui.CurMenuMode == MenuMode.WORLD_SELECT);
+		MouseHandledByScreen = ui.CurMenuType != MenuType.NONE && (ui.CurMenuMode == MenuMode.CREATE_CHARACTER || ui.CurMenuMode == MenuMode.WORLD_SELECT || ui.CurMenuMode == MenuMode.MAP);
 		// A click that lands nowhere on a menu list must do nothing, not activate the
 		// previously highlighted entry.
 		if (!MouseHandledByScreen && ui.ClickOutsideMenuEntries)
 		{
 			MouseHandledByScreen = true;
 		}
+	}
+
+	/// <summary>
+	/// The inventory key (and I) was pressed this frame. Consumed by the UI, which toggles the
+	/// inventory itself.
+	///
+	/// Why this is not just "press Y": the console build uses Y for three different things
+	/// depending on where you are - open the inventory (on release), switch the crafting
+	/// section, toggle the NPC overlay. Mapping E onto Y meant a single press did two of them:
+	/// the inventory opened, and the section under it changed on the way. That is the "one
+	/// keypress, two actions" report.
+	/// </summary>
+	public static bool ConsumeInventoryToggle()
+	{
+		bool result = _inventoryToggle;
+		_inventoryToggle = false;
+		return result;
 	}
 
 	/// <summary>
@@ -484,10 +513,13 @@ internal static class KeyboardMouseInput
 		{
 			buttons |= Buttons.LeftStick; // BTN_JUMP2
 		}
-		// Inventory: the bound key plus I as a second, familiar binding.
-		if (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.Inventory)) || keys.IsKeyDown(Keys.I))
+		// Inventory: in character creation Y means "randomize", and the screen listens for it.
+		// Everywhere else the inventory key is an explicit toggle request (see
+		// ConsumeInventoryToggle) because Y also switches the crafting section and toggles the
+		// NPC overlay - one keypress used to do two of those at once.
+		if (enterConfirms && (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.Inventory)) || keys.IsKeyDown(Keys.I)))
 		{
-			buttons |= Buttons.Y; // inventory (character creation reuses Y for randomize)
+			buttons |= Buttons.Y; // randomize (character creation only)
 		}
 		if (enterConfirms)
 		{

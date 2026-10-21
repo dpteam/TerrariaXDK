@@ -99,6 +99,7 @@ internal static class SelfTest
 		RunCheck("pointer scaling", CheckPointerScaling);
 		RunCheck("modal input latch", CheckModalInputLatch);
 		RunCheck("menu hit table", CheckMenuHitTable);
+		RunCheck("map screen mouse", CheckMapScreenMouse);
 		RunCheck("screen geometry", CheckScreenGeometry);
 		RunCheck("master server live", CheckMasterServerLive);
 		RunCheck("achievement stats", CheckAchievementStats);
@@ -1040,13 +1041,33 @@ internal static class SelfTest
 		{
 			return Fail("Enter cycles categories instead of confirming in character creation");
 		}
+		// The inventory key is a toggle request, not a Y press. Y means "open on release" during
+		// play, "switch the crafting section" inside the inventory and "show NPCs" in the housing
+		// tab - so mapping E onto Y made one keypress do two things.
+		KeyboardState inventoryKey = new KeyboardState(new Keys[1] { Keys.E });
+		GamePadState inGameInventory = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], inventoryKey, false, false);
+		if (inGameInventory.IsButtonDown(Buttons.Y))
+		{
+			return Fail("the inventory key still presses Y during play (one press, two actions)");
+		}
+		GamePadState menuInventory = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], inventoryKey, true, false);
+		if (menuInventory.IsButtonDown(Buttons.Y))
+		{
+			return Fail("the inventory key presses Y in menus (Y opens the party overlay there)");
+		}
+		// Character creation does need Y: that is "randomize", and it is the only way to reach it
+		// from a keyboard.
+		GamePadState creatorInventory = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], inventoryKey, true, false, true, true);
+		if (!creatorInventory.IsButtonDown(Buttons.Y))
+		{
+			return Fail("the inventory key does not randomize in character creation");
+		}
 		// Typing must not feed the player.
 		KeyboardState movement = new KeyboardState(new Keys[2]
 		{
 			Keys.W,
 			Keys.D
-		});
-		GamePadState gamePadState9 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], movement, false, true);
+		});		GamePadState gamePadState9 = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], movement, false, true);
 		if (gamePadState9.ThumbSticks.Left.LengthSquared() > 0.001f || gamePadState9.Buttons.buttons != 0)
 		{
 			return Fail("movement is not suppressed while typing");
@@ -8525,8 +8546,69 @@ internal static class SelfTest
 		}
 	}
 
-	private static bool CheckModalInputLatch()
+	private static bool CheckMapScreenMouse()
 	{
+		try
+		{
+			// Five team dots, and three separate places that have to agree on their order: the
+			// drawing loop, the console cursor arithmetic and the mouse. A click on dot i must
+			// select team i, and the cursor must land on the dot the player clicked.
+			for (int i = 0; i < 5; i++)
+			{
+				int x;
+				int y;
+				Terraria.MapScreenMouse.CursorForDot(i, out x, out y);
+				if (x < 1 || x > 3 || y < 0 || y > 1)
+				{
+					return Fail("dot " + i + " points at an impossible cursor position " + x + "," + y);
+				}
+				int num = Terraria.MapScreenMouse.TeamForCursor(x, y);
+				if (num != i)
+				{
+					return Fail("dot " + i + " would select team " + num + " (cursor " + x + "," + y + ")");
+				}
+			}
+			// Every dot gets its own cursor cell: two dots on one cell would make the highlight
+			// jump to the wrong picture and the click act on the other.
+			for (int j = 0; j < 5; j++)
+			{
+				int x2;
+				int y2;
+				Terraria.MapScreenMouse.CursorForDot(j, out x2, out y2);
+				for (int k = j + 1; k < 5; k++)
+				{
+					int x3;
+					int y3;
+					Terraria.MapScreenMouse.CursorForDot(k, out x3, out y3);
+					if (x2 == x3 && y2 == y3)
+					{
+						return Fail("dots " + j + " and " + k + " share the cursor cell " + x2 + "," + y2);
+					}
+				}
+			}
+			// An out-of-range dot clamps instead of throwing: the click path reads it from a
+			// rectangle array and a stale record could produce anything.
+			int x4;
+			int y4;
+			Terraria.MapScreenMouse.CursorForDot(99, out x4, out y4);
+			if (x4 != 1 || y4 != 0)
+			{
+				return Fail("an out-of-range team dot did not clamp to the first cell");
+			}
+			Terraria.MapScreenMouse.ResetForTests();
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("map screen mouse check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	private static bool CheckModalInputLatch()	{
 		try
 		{
 			MouseState idleMouse = new MouseState();

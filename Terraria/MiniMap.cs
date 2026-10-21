@@ -108,8 +108,6 @@ public sealed class MiniMap
 
 	public void UpdateMap(UI ActiveUI)
 	{
-		int num = ActiveUI.CurrentView.SafeAreaOffsetLeft + MapLeftInset();
-		int num2 = ActiveUI.CurrentView.ViewWidth - ActiveUI.CurrentView.SafeAreaOffsetRight - num;
 		if (ActiveUI.IsAlternateLeftButtonDown())
 		{
 			MapX -= 8;
@@ -129,21 +127,67 @@ public sealed class MiniMap
 		float left = ActiveUI.PadState.Triggers.Left;
 		if (left > 0.125f)
 		{
-			MapScale -= 0.05f * left;
-			if (MapScale < 1f)
-			{
-				MapScale = 1f;
-			}
+			Scale(-0.05f * left * 20f, ActiveUI);
 		}
 		left = ActiveUI.PadState.Triggers.Right;
 		if (left > 0.125f)
 		{
-			MapScale += 0.05f * left;
-			if (MapScale > 4f)
-			{
-				MapScale = 4f;
-			}
+			Scale(0.05f * left * 20f, ActiveUI);
 		}
+		ClampPan(ActiveUI);
+	}
+
+	/// <summary>
+	/// The screen rectangle the map is drawn into. Same arithmetic as <see cref="DrawMap"/>, so a
+	/// pointer hit-test can never disagree with the picture.
+	/// </summary>
+	public Rectangle DestinationRect(WorldView View)
+	{
+		int num = View.SafeAreaOffsetLeft + MapLeftInset();
+		int num2 = View.ViewWidth - View.SafeAreaOffsetRight - num;
+		int num3 = Main.ResolutionHeight - View.SafeAreaOffsetTop - View.SafeAreaOffsetBottom - (int)(36f * Main.ScreenMultiplier);
+		return new Rectangle(num, View.SafeAreaOffsetTop, num2, num3);
+	}
+
+	/// <summary>Pans the map by screen pixels. Positive dx moves the view right.</summary>
+	public void Pan(int Dx, int Dy, UI ActiveUI)
+	{
+		MapX = (short)(MapX + Dx);
+		MapY = (short)(MapY + Dy);
+		ClampPan(ActiveUI);
+	}
+
+	/// <summary>
+	/// Zooms by a number of steps; one step is what the shoulder triggers do per frame at full
+	/// press. Keeps 1x (the whole map) as the floor, because zooming out past it shows nothing.
+	/// </summary>
+	public void Scale(float Steps, UI ActiveUI)
+	{
+		MapScale += 0.05f * Steps;
+		if (MapScale < 1f)
+		{
+			MapScale = 1f;
+		}
+		else if (MapScale > 4f)
+		{
+			MapScale = 4f;
+		}
+		ClampPan(ActiveUI);
+	}
+
+	/// <summary>Current zoom, 1x (whole map) to 4x.</summary>
+	public float ZoomLevel => MapScale;
+
+	/// <summary>Keeps the visible window inside the map at the current zoom.</summary>
+	private void ClampPan(UI ActiveUI)
+	{
+		if (ActiveUI == null || ActiveUI.CurrentView == null)
+		{
+			return;
+		}
+		int num = ActiveUI.CurrentView.SafeAreaOffsetLeft + MapLeftInset();
+		int num2 = ActiveUI.CurrentView.ViewWidth - ActiveUI.CurrentView.SafeAreaOffsetRight - num;
+		MapDestH = (short)(Main.ResolutionHeight - ActiveUI.CurrentView.SafeAreaOffsetTop - ActiveUI.CurrentView.SafeAreaOffsetBottom - (int)(36f * Main.ScreenMultiplier));
 		int num3 = (int)((double)((float)num2 * (1f / MapScale - 1f)) * 0.5);
 		int num4 = Width - num2 - num3;
 		if (MapX < num3)

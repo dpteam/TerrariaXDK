@@ -454,6 +454,39 @@ public sealed class UI
 	public bool ClickOutsideMenuEntries => menuHitAny && MenuEntryUnderPointer < 0;
 
 	/// <summary>
+	/// Moves the map screen's console cursor from the pointer, so the highlight follows the mouse
+	/// even though the cursor itself is only drawn once per frame.
+	/// </summary>
+	internal void SetMapCursor(int X, int Y)
+	{
+		mapScreenCursorX = X;
+		mapScreenCursorY = Y;
+	}
+
+	/// <summary>
+	/// Opens the player card for one row of the map screen's player list (0 = first row), for the
+	/// mouse. The console path does the same thing from the cursor position; both go through the
+	/// checks here so a click cannot reach a gamer card the gamepad could not.
+	/// </summary>
+	internal void OpenMapGamerCard(int Row)
+	{
+		if (!CanViewGamerCard() || Netplay.Session == null)
+		{
+			return;
+		}
+		GamerCollection<NetworkGamer> allGamers = Netplay.Session.AllGamers;
+		if (Row < 0 || Row >= allGamers.Count)
+		{
+			return;
+		}
+		NetworkGamer gamer = allGamers[Row];
+		if (gamer != null)
+		{
+			ShowGamerCard(gamer);
+		}
+	}
+
+	/// <summary>
 	/// Forgets every recorded entry. Called once per draw, before the entries of the current
 	/// screen are recorded, so no screen can inherit another screen's hit rectangles.
 	/// </summary>
@@ -3065,6 +3098,10 @@ public sealed class UI
 			}
 			else if (miniMap.IsThreadDone)
 			{
+				// Pointer first: dragging pans and the wheel zooms, which the stick path cannot
+				// express. Stick-driven movement still runs afterwards - it is zero when the
+				// sticks are at rest, which is the usual case with a mouse in hand.
+				MapScreenMouse.Update(this);
 				miniMap.UpdateMap(this);
 			}
 		}
@@ -5918,6 +5955,24 @@ public sealed class UI
 			Main.PlaySound(11);
 			CloseInventory();
 			return;
+		}
+		// E / I toggle the inventory, in both directions. The console build opens on Y *release*
+		// and closes on B, so on a keyboard the same key could only ever open: closing left the
+		// player hunting for Escape. One key, one action.
+		if (this == MainUI && !MessageBox.IsVisible() && Terraria.Input.KeyboardMouseInput.ConsumeInventoryToggle())
+		{
+			if (InventoryMode > 0)
+			{
+				Main.PlaySound(11);
+				CloseInventory();
+				return;
+			}
+			if (CurMenuType == MenuType.NONE && CurrentView != null && !ActivePlayer.ghost)
+			{
+				Main.PlaySound(10);
+				OpenInventory();
+				return;
+			}
 		}
 		if (CurMenuType == MenuType.NONE)
 		{
@@ -10166,8 +10221,7 @@ public sealed class UI
 	}
 
 	private void DrawMiniMap()
-	{
-		int safeAreaOffsetLeft = CurrentView.SafeAreaOffsetLeft;
+	{		int safeAreaOffsetLeft = CurrentView.SafeAreaOffsetLeft;
 		int safeAreaOffsetTop = CurrentView.SafeAreaOffsetTop;
 		int width = CurrentView.ViewWidth - CurrentView.SafeAreaOffsetLeft - CurrentView.SafeAreaOffsetRight;
 		int height = Main.ResolutionHeight - CurrentView.SafeAreaOffsetTop - CurrentView.SafeAreaOffsetBottom - (int)(36f * Main.ScreenMultiplier);
@@ -10175,6 +10229,12 @@ public sealed class UI
 		int num = (int)(31f * Main.ScreenMultiplier) + safeAreaOffsetLeft;
 		int num2 = (int)(2f * Main.ScreenMultiplier) + safeAreaOffsetTop;
 		Color white = Color.White;
+		// Click targets, recorded from the same numbers the widgets are drawn with. The pointer
+		// has no other way to know where the PvP box and the team dots ended up.
+		MapScreenMouse.RecordWidgets(
+			new Rectangle(num - (int)(10f * Main.ScreenMultiplier), num2 - (int)(10f * Main.ScreenMultiplier), (int)(52f * Main.ScreenMultiplier), (int)(52f * Main.ScreenMultiplier)),
+			TeamRectsForMouse(safeAreaOffsetLeft, safeAreaOffsetTop),
+			new Rectangle(safeAreaOffsetLeft - (int)(2f * Main.ScreenMultiplier), (int)(98f * Main.ScreenMultiplier) + safeAreaOffsetTop - (int)(2f * Main.ScreenMultiplier), (int)(44f * Main.ScreenMultiplier), (int)(8f * 44f * Main.ScreenMultiplier)));
 		if (mapScreenCursorX == 0 && mapScreenCursorY < 2)
 		{
 			DrawInventoryCursor(num, num2, Main.ScreenMultiplier);
@@ -10285,6 +10345,48 @@ public sealed class UI
 				DrawStringLT(BoldSmallFont, player2.Name, num6 + (int)(52f * Main.ScreenMultiplier), y, Main.TeamColors[player2.team]);
 			}
 		}
+	}
+
+	/// <summary>
+	/// The five team dots' click rectangles, from the same offsets the drawing loop uses. Written
+	/// as a separate function rather than returned from the loop because the pointer is tested
+	/// before the frame that records it: an unrecorded frame must not leave stale dots.
+	/// </summary>
+	private static Rectangle[] TeamRectsForMouse(int Left, int Top)
+	{
+		float num = Main.ScreenMultiplier;
+		int num2 = (int)(31f * num) + Left;
+		int num3 = num2 + (int)(123f * num);
+		int num4 = (int)(2f * num) + Top;
+		Rectangle[] array = new Rectangle[5];
+		for (int i = 0; i < 5; i++)
+		{
+			int num5 = num3;
+			int num6 = num4 + (int)(3f * num);
+			switch (i)
+			{
+			case 0:
+				num5 -= (int)(32f * num);
+				num6 += (int)(16f * num);
+				break;
+			case 2:
+				num5 += (int)(32f * num);
+				break;
+			case 3:
+				num6 += (int)(32f * num);
+				break;
+			case 4:
+				num5 += (int)(32f * num);
+				num6 += (int)(32f * num);
+				break;
+			}
+			num5 -= 8;
+			num6 -= 8;
+			// Sixteen physical pixels at 540p plus a few of slack: the dot is small, and asking
+			// for pixel accuracy on it is a worse experience than a slightly generous target.
+			array[i] = new Rectangle(num5 - (int)(4f * num), num6 - (int)(4f * num), (int)(24f * num), (int)(24f * num));
+		}
+		return array;
 	}
 
 	private bool AccCheck(ref Item newItem, int slot)
