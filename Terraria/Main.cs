@@ -720,6 +720,10 @@ public sealed class Main : Game
 		settings.Set("Network", "ProtectSpawnRadius", "16", "Tiles around the world spawn that remote players cannot modify (0 = no protection).");
 		Terraria.Net.HostModeration.Load(settings);
 		Terraria.Net.WorldProtection.Load(settings);
+		// The optional hosting profile wins over Settings.ini for the keys it defines. Applied
+		// after everything it can override, so a partial file is enough.
+		settings.Set("Network", "MaxPlayers", "7", "How many remote players the host accepts (1-255).");
+		Terraria.Net.ServerConfig.Apply();
 		settings.Set("Network", "AutoRefreshSeconds", "20", "Seconds between automatic server list refreshes while the list is open.\n; 0 disables it; manual refresh is F5 / LB.");
 		Terraria.Net.ServerListRefresh.Load(settings);
 		Terraria.Input.KeyBindings.Load(settings);

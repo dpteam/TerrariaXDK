@@ -56,6 +56,13 @@ internal static class AppPaths
 	/// </summary>
 	public static string SettingsFile => Path.Combine(Config, "Settings.ini");
 
+	/// <summary>
+	/// Optional hosting profile. When this file exists it wins over <see cref="SettingsFile"/>
+	/// for every key it defines, so a world can be hosted with its own policy without
+	/// touching the player's client settings.
+	/// </summary>
+	public static string ServerConfigFile => Path.Combine(Config, "ServerConfig.ini");
+
 	/// <summary>Creates the directory tree. Safe to call more than once.</summary>
 	public static void EnsureDirectories()
 	{

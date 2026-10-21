@@ -24,7 +24,7 @@ namespace Terraria.Net;
 internal static class HostCommands
 {
 	/// <summary>Every command name, for chat completion.</summary>
-	public static readonly string[] Names = new string[21]
+	public static readonly string[] Names = new string[22]
 	{
 		"!kick",
 		"!ban",
@@ -46,6 +46,7 @@ internal static class HostCommands
 		"!items",
 		"!stats",
 		"!world",
+		"!serverconfig",
 		"!help"
 	};
 
@@ -75,6 +76,8 @@ internal static class HostCommands
 		case "!stats":
 		case "!world":
 			return Permission.Inspect;
+		case "!serverconfig":
+			return Permission.Manage;
 		case "!kick":
 			return Permission.Kick;
 		case "!ban":
@@ -227,8 +230,41 @@ internal static class HostCommands
 		case "!world":
 			DoWorld();
 			return true;
+		case "!serverconfig":
+			DoServerConfig(rest, out error);
+			return true;
 		}
 		return false;
+	}
+
+	/// <summary>
+	/// <c>!serverconfig</c> shows which file is in charge; <c>!serverconfig create</c> writes the
+	/// hosting profile from the current values. Creating it is explicit because the file wins
+	/// over Settings.ini, and silently switching that over would lose the player's edits.
+	/// </summary>
+	private static void DoServerConfig(string rest, out string error)
+	{
+		error = null;
+		if (rest.Length == 0 || rest.Equals("show", StringComparison.OrdinalIgnoreCase))
+		{
+			Say(ServerConfig.Describe(), 200, 220, 255);
+			Say("Port " + NetworkConfig.Port + ", max " + NetworkConfig.MaxPlayers + ", password " + (string.IsNullOrEmpty(NetworkConfig.Password) ? "off" : "on")
+				+ ", publish " + (MasterServerClient.Publish ? "on" : "off") + ", spawn protection " + WorldProtection.SpawnRadius
+				+ ", building " + (WorldProtection.DisableBuild ? "disabled" : "allowed"), 200, 220, 255);
+			Say("!serverconfig create writes these values to " + ServerConfig.FileName + ".", 170, 180, 200);
+			return;
+		}
+		if (!rest.Equals("create", StringComparison.OrdinalIgnoreCase))
+		{
+			error = "Usage: !serverconfig [show|create]";
+			return;
+		}
+		if (!ServerConfig.Create(out error))
+		{
+			error = "Could not write " + ServerConfig.FileName + ": " + error;
+			return;
+		}
+		Say("Wrote " + ServerConfig.FileName + "; it now overrides Settings.ini for hosting.", 180, 230, 180);
 	}
 
 	private static void DoAddItem(string rest, out string error)
@@ -656,19 +692,11 @@ internal static class HostCommands
 		Broadcast("[Server] Rules: " + rest, 255, 235, 150);
 	}
 
-	/// <summary>Writes the MOTD and rules to Settings.ini so they outlive the session.</summary>
+	/// <summary>Writes the MOTD and rules to whichever config file is in charge.</summary>
 	private static void Persist()
 	{
-		try
-		{
-			Settings settings = new Settings(Terraria.Storage.AppPaths.SettingsFile);
-			HostModeration.Save(settings);
-			settings.Close();
-		}
-		catch (Exception ex)
-		{
-			Program.LogWarn("HostCommands", "could not save the server text: " + ex.Message);
-		}
+		Terraria.Net.ServerConfig.Persist("Motd", HostModeration.Motd, "Message shown to every player who joins this host.");
+		Terraria.Net.ServerConfig.Persist("Rules", HostModeration.Rules, "Rules shown to every player who joins this host.");
 	}
 
 	/// <summary>

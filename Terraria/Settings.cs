@@ -75,6 +75,23 @@ internal class Settings
 		Comments.Add(Comment);
 	}
 
+	/// <summary>
+	/// True when the key exists in the file, even with an empty value. <see cref="Get"/>
+	/// returns "" for both "missing" and "explicitly empty", and the difference matters: a
+	/// hosting profile with <c>Password=</c> means "turn the password off".
+	/// </summary>
+	internal bool HasKey(string Subsection, string Key)
+	{
+		for (int i = 0; i < Keys.Count; i++)
+		{
+			if (Subsections[i].Equals(Subsection) && Keys[i].Equals(Key))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	internal string Get(string Subsection, string Key)
 	{
 		for (int i = 0; i < Keys.Count; i++)

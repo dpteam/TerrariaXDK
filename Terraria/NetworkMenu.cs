@@ -212,12 +212,19 @@ internal static class NetworkMenu
 	{
 		try
 		{
+			// Hosting keys go through ServerConfig, which writes to whichever file is actually
+			// in charge. Writing straight to Settings.ini while a hosting profile overrides it
+			// would look exactly like "my change did not save".
+			Terraria.Net.ServerConfig.Persist("Port", Terraria.Net.NetworkConfig.Port.ToString(), "TCP port used when this game hosts a multiplayer world in-process.");
+			Terraria.Net.ServerConfig.Persist("Password", Terraria.Net.NetworkConfig.Password ?? string.Empty, "Password clients must send to join this host.\n; Leave empty to accept anyone.");
+			Terraria.Net.ServerConfig.Persist("MaxPlayers", Terraria.Net.NetworkConfig.MaxPlayers.ToString(), "How many remote players the host accepts (1-255).");
+			Terraria.Net.ServerConfig.Persist("DisableBuild", Terraria.Net.WorldProtection.DisableBuild ? "True" : "False", "While set, only the host can change the world.");
+			Terraria.Net.ServerConfig.Persist("ProtectSpawnRadius", Terraria.Net.WorldProtection.SpawnRadius.ToString(), "Tiles around spawn that remote players cannot modify (0 = off).");
+			// Client-side keys stay in Settings.ini: they are about this player's game, not the
+			// server's policy.
 			Settings settings = new Settings(Terraria.Storage.AppPaths.SettingsFile);
-			settings.Update("Network", "Port", Terraria.Net.NetworkConfig.Port.ToString(), "TCP port used when this game hosts a multiplayer world in-process.");
-			settings.Update("Network", "Password", Terraria.Net.NetworkConfig.Password ?? string.Empty, "Password clients must send to join this host.\n; Leave empty to accept anyone.");
 			Terraria.Net.MasterServerClient.Save(settings);
 			Terraria.Net.ServerListRefresh.Save(settings);
-			Terraria.Net.WorldProtection.Save(settings);
 			settings.Close();
 		}
 		catch (Exception ex)

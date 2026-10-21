@@ -76,6 +76,7 @@ internal static class SelfTest
 		RunCheck("world protection", CheckWorldProtection);
 		RunCheck("regions", CheckRegions);
 		RunCheck("item restrictions", CheckItemRestrictions);
+		RunCheck("server config", CheckServerConfig);
 		RunCheck("ban list", CheckBanList);
 		ReportMemory();
 		Console.WriteLine();
@@ -4821,9 +4822,9 @@ internal static class SelfTest
 					return Fail("'" + gated[j] + "' is not a known command");
 				}
 			}
-			if (HostCommands.Names.Length != 21)
+			if (HostCommands.Names.Length != 22)
 			{
-				return Fail("the command list has " + HostCommands.Names.Length + " entries, expected 21");
+				return Fail("the command list has " + HostCommands.Names.Length + " entries, expected 22");
 			}
 			// The chat packet helpers: the host recognises a client command by reading the line
 			// back out of the packet, so a round-trip mismatch would silently disable commands.
@@ -5400,6 +5401,161 @@ internal static class SelfTest
 			{
 			}
 			ItemRestrictions.Reload();
+		}
+	}
+
+	// --- Server config ------------------------------------------------------
+
+	/// <summary>
+	/// The optional hosting profile. The dangerous cases are all about precedence: a missing
+	/// file must change nothing, a partial file must override only what it defines, an empty
+	/// password must mean "no password" (not "fall back to the other file"), and a broken value
+	/// must be ignored rather than applied or crash the start.
+	/// </summary>
+	private static bool CheckServerConfig()
+	{
+		string backup = null;
+		bool had = System.IO.File.Exists(ServerConfig.FilePath);
+		int port = NetworkConfig.Port;
+		int maxPlayers = NetworkConfig.MaxPlayers;
+		string password = NetworkConfig.Password;
+		string publicAddress = NetworkConfig.PublicAddress;
+		bool publish = MasterServerClient.Publish;
+		string motd = HostModeration.Motd;
+		int spawnRadius = WorldProtection.SpawnRadius;
+		bool disableBuild = WorldProtection.DisableBuild;
+		try
+		{
+			if (had)
+			{
+				backup = System.IO.File.ReadAllText(ServerConfig.FilePath, Encoding.UTF8);
+			}
+			// No file: nothing changes and the profile is reported inactive.
+			if (System.IO.File.Exists(ServerConfig.FilePath))
+			{
+				System.IO.File.Delete(ServerConfig.FilePath);
+			}
+			NetworkConfig.Port = 7777;
+			ServerConfig.Apply();
+			if (ServerConfig.IsActive)
+			{
+				return Fail("a missing hosting profile was reported as active");
+			}
+			if (NetworkConfig.Port != 7777)
+			{
+				return Fail("a missing hosting profile changed the port");
+			}
+
+			// A partial file overrides only what it defines.
+			System.IO.File.WriteAllText(ServerConfig.FilePath, "[Network]\r\nPort=7001\r\nMotd=Welcome\r\n", Encoding.UTF8);
+			ServerConfig.Apply();
+			if (!ServerConfig.IsActive)
+			{
+				return Fail("an existing hosting profile was not applied");
+			}
+			if (NetworkConfig.Port != 7001)
+			{
+				return Fail("the port from the profile was not applied");
+			}
+			if (HostModeration.Motd != "Welcome")
+			{
+				return Fail("the MOTD from the profile was not applied");
+			}
+			// Keys it omits keep their previous value (max players stays untouched here).
+			if (NetworkConfig.MaxPlayers != maxPlayers)
+			{
+				return Fail("a key missing from the profile was changed anyway");
+			}
+
+			// An explicitly empty password turns the password off, rather than falling back.
+			NetworkConfig.Password = "secret";
+			System.IO.File.WriteAllText(ServerConfig.FilePath, "[Network]\r\nPassword=\r\n", Encoding.UTF8);
+			ServerConfig.Apply();
+			if (!string.IsNullOrEmpty(NetworkConfig.Password))
+			{
+				return Fail("an empty password in the profile did not disable the password");
+			}
+
+			// Broken values are ignored, with the rest of the file still applied.
+			System.IO.File.WriteAllText(ServerConfig.FilePath, "[Network]\r\nPort=99999\r\nMaxPlayers=abc\r\nPublishToMaster=True\r\n", Encoding.UTF8);
+			NetworkConfig.Port = 7777;
+			MasterServerClient.Publish = false;
+			ServerConfig.Apply();
+			if (NetworkConfig.Port != 7777)
+			{
+				return Fail("an out-of-range port from the profile was applied");
+			}
+			if (NetworkConfig.MaxPlayers != maxPlayers)
+			{
+				return Fail("a non-numeric max players was applied");
+			}
+			if (!MasterServerClient.Publish)
+			{
+				return Fail("a valid key was dropped because another key was broken");
+			}
+
+			// Create() writes the current values and switches to the file.
+			NetworkConfig.Port = 7010;
+			NetworkConfig.Password = "hunter2";
+			HostModeration.Motd = "Hello world";
+			if (!ServerConfig.Create(out string error))
+			{
+				return Fail("creating the hosting profile failed: " + error);
+			}
+			if (!ServerConfig.IsActive)
+			{
+				return Fail("the profile is not active after being created");
+			}
+			// Reload from scratch: the written values must come back.
+			NetworkConfig.Port = 7777;
+			NetworkConfig.Password = "";
+			HostModeration.Motd = "";
+			ServerConfig.Apply();
+			if (NetworkConfig.Port != 7010 || NetworkConfig.Password != "hunter2" || HostModeration.Motd != "Hello world")
+			{
+				return Fail("values written by Create() did not come back");
+			}
+
+			// Persist writes to the profile while it is in use, not to Settings.ini.
+			ServerConfig.Persist("ProtectSpawnRadius", "31", "test");
+			WorldProtection.SpawnRadius = 0;
+			ServerConfig.Apply();
+			if (WorldProtection.SpawnRadius != 31)
+			{
+				return Fail("Persist did not write to the active hosting profile");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("server config check threw: " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				if (backup != null)
+				{
+					System.IO.File.WriteAllText(ServerConfig.FilePath, backup, Encoding.UTF8);
+				}
+				else if (System.IO.File.Exists(ServerConfig.FilePath))
+				{
+					System.IO.File.Delete(ServerConfig.FilePath);
+				}
+			}
+			catch
+			{
+			}
+			NetworkConfig.Port = port;
+			NetworkConfig.MaxPlayers = maxPlayers;
+			NetworkConfig.Password = password;
+			NetworkConfig.PublicAddress = publicAddress;
+			MasterServerClient.Publish = publish;
+			HostModeration.Motd = motd;
+			WorldProtection.SpawnRadius = spawnRadius;
+			WorldProtection.DisableBuild = disableBuild;
+			// Restore the active flag to match reality, whichever file survived.
+			ServerConfig.Apply();
 		}
 	}
 
