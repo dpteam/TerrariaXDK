@@ -2316,10 +2316,14 @@ public sealed class UI
 		}
 		else if (CurMenuMode == MenuMode.LOAD_FAILED_NO_BACKUP)
 		{
-			numMenuItems = 1;
+			numMenuItems = 2;
 			menuString[0] = Lang.MenuText[9];
 			noFocus[0] = true;
-			menuTop = 300;
+			// The reason, when the file itself explains it. Saves a support round-trip: without
+			// this, a truncated save and a PC-edition world looked exactly the same.
+			menuString[1] = WorldSelect.LastLoadError;
+			noFocus[1] = true;
+			menuTop = (short)((WorldSelect.LastLoadError != null) ? 280 : 300);
 			if (IsBackButtonTriggered())
 			{
 				PrevMenu();

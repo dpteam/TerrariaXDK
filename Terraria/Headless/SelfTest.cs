@@ -7,6 +7,7 @@ using System.Threading;
 using Microsoft.Xna.Framework.Input;
 using Microsoft.Xna.Framework.Net;
 using Terraria.Net;
+using Terraria.World;
 
 namespace Terraria.Headless;
 
@@ -104,6 +105,7 @@ internal static class SelfTest
 		RunCheck("item restrictions", CheckItemRestrictions);
 		RunCheck("server config", CheckServerConfig);
 		RunCheck("sound routing", CheckSoundRouting);
+		RunCheck("world file inspector", CheckWorldFileInspector);
 		RunCheck("ban list", CheckBanList);
 		ReportMemory();
 		Console.WriteLine();
@@ -5917,6 +5919,149 @@ internal static class SelfTest
 		finally
 		{
 			Main.SoundVolume = volume;
+		}
+	}
+
+	// --- World file inspector -----------------------------------------------
+
+	/// <summary>
+	/// The inspector is what turns "the world did not load" into a reason. Its value depends
+	/// entirely on agreeing with the real loader, so it is checked against a world file the real
+	/// writer produced (<c>Content/Worlds/tutorial.wld</c>) - not only against files this test
+	/// builds. A synthetic file only proves the reader and the test's writer agree with each
+	/// other; the tutorial world proves they agree with the game.
+	/// </summary>
+	private static bool CheckWorldFileInspector()
+	{
+		string text = Path.Combine(ContentRoot, "Worlds", "tutorial.wld");
+		try
+		{
+			// A PC-edition world is recognised and reported instead of failing anonymously.
+			byte[] array = new byte[32];
+			BitConverter.GetBytes(279).CopyTo(array, 0);
+			WorldFileReport pc = WorldFileInspector.Inspect(new MemoryStream(array));
+			if (pc.Kind != WorldFileKind.Pc)
+			{
+				return Fail("a PC-edition world was not recognised (kind " + pc.Kind + ")");
+			}
+			if (pc.Version != 279)
+			{
+				return Fail("the PC version was not reported");
+			}
+			if (pc.Loadable)
+			{
+				return Fail("a PC-edition world was reported as loadable");
+			}
+			if (string.IsNullOrEmpty(pc.Summary) || pc.Summary.IndexOf("PC", StringComparison.OrdinalIgnoreCase) < 0)
+			{
+				return Fail("the PC summary does not mention PC: '" + pc.Summary + "'");
+			}
+
+			// Garbage and empty files are "unknown", not "truncated": the distinction tells the
+			// player whether to look for a backup or for the wrong file.
+			WorldFileReport empty = WorldFileInspector.Inspect(new MemoryStream(new byte[0]));
+			if (empty.Kind != WorldFileKind.Unknown || empty.Loadable)
+			{
+				return Fail("an empty file was not reported as unknown");
+			}
+			WorldFileReport nonsense = WorldFileInspector.Inspect(new MemoryStream(new byte[6] { 1, 2, 3, 4, 5, 6 }));
+			if (nonsense.Kind != WorldFileKind.Unknown || nonsense.Complete || nonsense.Loadable)
+			{
+				return Fail("a 6-byte file was reported as a world (kind " + nonsense.Kind + ", complete " + nonsense.Complete + ")");
+			}
+			if (string.IsNullOrEmpty(nonsense.Summary))
+			{
+				return Fail("a malformed file produced no explanation");
+			}
+			if (!WorldFileInspector.Inspect((Stream)null).Summary.StartsWith("No file", StringComparison.OrdinalIgnoreCase))
+			{
+				return Fail("a null stream was not reported");
+			}
+			if (!WorldFileInspector.Inspect(Path.Combine(ContentRoot, "no-such-world.wld")).Summary.StartsWith("Could not open", StringComparison.OrdinalIgnoreCase))
+			{
+				return Fail("a missing file was not reported");
+			}
+
+			if (!File.Exists(text))
+			{
+				Skip("no tutorial world to validate the inspector against");
+			}
+
+			// A real world produced by the real writer.
+			WorldFileReport real = WorldFileInspector.Inspect(text);
+			if (real.Kind != WorldFileKind.Console)
+			{
+				return Fail("the tutorial world was not recognised as a console world (kind " + real.Kind + ", version " + real.Version + ")");
+			}
+			if (!real.Complete)
+			{
+				return Fail("the tutorial world was reported as incomplete at byte " + real.StoppedAt + " of " + real.Length + ": " + real.Summary);
+			}
+			if (!real.Loadable)
+			{
+				return Fail("the tutorial world was reported as not loadable");
+			}
+			if (real.TilesX <= 0 || real.TilesY <= 0)
+			{
+				return Fail("the tutorial world has no size");
+			}
+			if (string.IsNullOrEmpty(real.Name))
+			{
+				return Fail("the tutorial world has no name");
+			}
+			if (real.Tiles != real.TilesX * real.TilesY)
+			{
+				return Fail("the tile count (" + real.Tiles + ") does not match " + real.TilesX + "x" + real.TilesY);
+			}
+			// It must consume the whole file: a reader with the wrong field sizes might still
+			// stop "without error" while sitting at a plausible offset.
+			if (real.StoppedAt != real.Length)
+			{
+				return Fail("the inspector stopped at byte " + real.StoppedAt + " of " + real.Length + ", so it misread the structure");
+			}
+
+			// A truncated copy of the same file: the reason must be "truncated", not silence.
+			string text2 = Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-truncated.wld");
+			byte[] array2 = File.ReadAllBytes(text);
+			int num = Math.Min(array2.Length / 2, 200000);
+			byte[] array3 = new byte[num];
+			Buffer.BlockCopy(array2, 0, array3, 0, num);
+			File.WriteAllBytes(text2, array3);
+			try
+			{
+				WorldFileReport truncated = WorldFileInspector.Inspect(text2);
+				if (truncated.Complete)
+				{
+					return Fail("a truncated copy was reported as complete");
+				}
+				if (truncated.Loadable)
+				{
+					return Fail("a truncated copy was reported as loadable");
+				}
+				if (truncated.Summary.IndexOf("truncated", StringComparison.OrdinalIgnoreCase) < 0)
+				{
+					return Fail("the truncation was not named: '" + truncated.Summary + "'");
+				}
+				if (truncated.TilesX != real.TilesX)
+				{
+					return Fail("the header was lost in the truncated copy");
+				}
+			}
+			finally
+			{
+				try
+				{
+					File.Delete(text2);
+				}
+				catch
+				{
+				}
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("world file inspector check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 

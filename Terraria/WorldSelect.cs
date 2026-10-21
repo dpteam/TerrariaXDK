@@ -26,6 +26,12 @@ public static class WorldSelect
 
 	public static bool isLocalWorld;
 
+	/// <summary>
+	/// Why the last world load failed, when the file itself explains it (truncated save,
+	/// damaged header, PC-edition file). Null when the reason is unknown.
+	/// </summary>
+	public static string LastLoadError;
+
 	public static string worldPathName;
 
 	private static string[] worldNames = new string[16];

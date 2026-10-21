@@ -1311,6 +1311,18 @@ internal static class WorldGen
 			{
 				using StorageContainer storageContainer = UI.MainUI.OpenPlayerStorage("Worlds");
 				using Stream file2 = storageContainer.OpenFile(WorldSelect.worldPathName, FileMode.Open);
+				// Remember what the file looks like before loading: the loader reports only
+				// "false", so a truncated save, a damaged header and a PC-edition world would
+				// otherwise all fail with the same unhelpful menu.
+				WorldSelect.LastLoadError = null;
+				using (Stream probe = storageContainer.OpenFile(WorldSelect.worldPathName, FileMode.Open))
+				{
+					Terraria.World.WorldFileReport worldFileReport = Terraria.World.WorldFileInspector.Inspect(probe);
+					if (!worldFileReport.Loadable)
+					{
+						WorldSelect.LastLoadError = worldFileReport.Summary;
+					}
+				}
 				flag = loadWorld(file2);
 			}
 			catch (ThreadAbortException)
