@@ -119,14 +119,15 @@ internal class AchievementsUI
 				compiledText.Draw(Main.SpriteBatch, new Rectangle(vector2i.X, vector2i.Y, num, Main.ResolutionHeight), Color.White, new Color(255, 212, 64, 255));
 				compiledText2.Draw(Main.SpriteBatch, new Rectangle(vector2i2.X, vector2i2.Y, num2, Main.ResolutionHeight), Color.White, new Color(255, 212, 64, 255));
 				compiledText3.Draw(Main.SpriteBatch, new Rectangle(vector2i3.X, vector2i3.Y, num, Main.ResolutionHeight), Color.White, accentColour);
-				// "Reported by 12 of 40 players", under the description. Absent when the master
-				// server has no answer - a row that says "0 of 0" is worse than a row that stays
-				// quiet, because it looks like a fact.
+				// "Reported by 12 of 40 players", on its own line under "Earned:". In the name
+				// column, not under the description: descriptions wrap and would overlap it.
+				// Absent when the master server has no answer - a row that says "0 of 0" is worse
+				// than a row that stays quiet, because it looks like a fact.
 				string text2 = Terraria.Net.StatSync.AchievementLabel(num3 - 1);
 				if (text2 != null)
 				{
-					CompiledText compiledText4 = new CompiledText(text2, num2, UI.BoldSmallTextStyle);
-					compiledText4.Draw(Main.SpriteBatch, new Rectangle(vector2i2.X, vector2i3.Y, num2, Main.ResolutionHeight), new Color(180, 180, 180, 255), Color.White);
+					CompiledText compiledText4 = new CompiledText(text2, num, UI.BoldSmallTextStyle);
+					compiledText4.Draw(Main.SpriteBatch, new Rectangle(vector2i3.X, (int)(vector.Y + 36f * Main.ScreenMultiplier), num, Main.ResolutionHeight), new Color(180, 180, 180, 255), Color.White);
 				}
 			}
 			vector.Y += 99f * Main.ScreenMultiplier;
