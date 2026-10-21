@@ -74,6 +74,14 @@ internal static class Texts
 		Add(dictionary, "chat.cheats.help.meteor", "drop a meteor");
 		Add(dictionary, "chat.cheats.help.killall", "remove all enemies");
 		Add(dictionary, "chat.cheats.help.help", "list commands");
+#if DEBUG
+		// Only referenced by the Debug-only commands, so only compiled there.
+		Add(dictionary, "chat.debugkit.help", "give a test character with the tools to get anywhere");
+		Add(dictionary, "chat.debugkit.given", "test kit");
+		Add(dictionary, "chat.debugkit.allitems", "fill the inventory with one page of every item id");
+		Add(dictionary, "chat.debugkit.usage", "Usage: !allitems [page 0-{0}]");
+		Add(dictionary, "chat.debugkit.items", "gave {0} item(s) from page {1} of 0-{2}");
+#endif
 		Add(dictionary, "chat.host.not.hosting", "Commands only work while hosting a multiplayer world.");
 		Add(dictionary, "chat.host.forbidden", "{0} may not use {1}.");
 		Add(dictionary, "chat.host.you", "You");

@@ -43,7 +43,7 @@
 
 | Препятствие | Где | Что нужно |
 |---|---|---|
-| `TargetFramework=net40` | `TerrariaXDK.csproj` | multi-target на `net40` + `net8.0` (или Mono), и `.NET Framework` API, которых нет в Core |
+| `TargetFramework=net40` | `TerrariaXDK.csproj` | **остаётся** `net40` — решение зафиксировано: нужна совместимость с Windows XP+, а современные рантаймы её не дают. Сторонние нативные библиотеки при этом не нужны: цель — свой бэкенд поверх системных API (`user32`, `d3d9`, `dsound` / `libX11`, `libGL`, `libasound`), см. `IDEAS.md` |
 | `UseWindowsForms=True`, `OutputType=WinExe` | csproj | `WinExe` → `Exe` для Unix; WinForms используется только для иконки/DPI — проверить |
 | Нативные библиотеки `*.dll` | `tools/build.ps1`, `README` | на Linux — `libSDL2-2.0.so.0`, `libFNA3D.so`, `libFAudio.so`, `libtheorafile.so`; FNA грузит их по своим именам |
 | Скрипт сборки — PowerShell | `tools/build.ps1` | отдельный `build.sh` (или `dotnet` + `make`) |

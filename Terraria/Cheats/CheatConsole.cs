@@ -80,6 +80,33 @@ internal static class CheatConsole
 					Echo("  !" + command.Name + " " + command.Args + " - " + Texts.Get(command.Help), value: true);
 				}
 			})
+#if DEBUG
+			// Developer commands. Compiled only into Debug builds: a Release binary must not
+			// contain a way to hand yourself every item, and the preprocessor guarantees that
+			// rather than a setting someone can flip.
+			,
+			new Command("debugkit", "", "chat.debugkit.help", delegate(string[] a)
+			{
+				DebugKit.ApplyEssentials(UI.MainUI.ActivePlayer);
+				Echo(Texts.Get("chat.debugkit.given"), value: true);
+			}),
+			new Command("allitems", "[page]", "chat.debugkit.allitems", delegate(string[] a)
+			{
+				int result = 0;
+				if (a.Length != 0 && !int.TryParse(a[0], out result))
+				{
+					Main.NewText(Texts.Format("chat.debugkit.usage", DebugKit.PageCount - 1), 255, 200, 120);
+					return;
+				}
+				int num = DebugKit.GivePage(UI.MainUI.ActivePlayer, result);
+				if (num == 0)
+				{
+					Main.NewText(Texts.Format("chat.debugkit.usage", DebugKit.PageCount - 1), 255, 200, 120);
+					return;
+				}
+				Echo(Texts.Format("chat.debugkit.items", num, result, DebugKit.PageCount - 1), value: true);
+			})
+#endif
 		};
 	}
 

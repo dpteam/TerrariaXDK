@@ -1921,6 +1921,23 @@ public sealed class Main : Game
 		{
 			GraphicsGame.ToggleFullScreen();
 		}
+#if DEBUG
+		// Debug-only developer console. F12 rather than a printable key so it cannot collide with
+		// typing in chat, and it is not in Release at all (the call itself is compiled out).
+		if (HasKeyBeenPressed(Keys.F12))
+		{
+			if (Terraria.Cheats.DebugConsole.IsOpen)
+			{
+				Terraria.Cheats.DebugConsole.Close();
+			}
+			else
+			{
+				Terraria.Cheats.DebugConsole.Open();
+			}
+		}
+		// Commands typed in the console run here, on the game thread.
+		Terraria.Cheats.DebugConsole.Drain();
+#endif
 		if (IsGameStarted)
 		{
 			// Zoom lives in HudSettings, so the value shown in the menu, the keys and what the

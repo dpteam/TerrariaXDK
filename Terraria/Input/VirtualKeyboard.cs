@@ -70,6 +70,12 @@ internal static class VirtualKeyboard
 
 	private static bool _prevBack;
 
+	/// <summary>
+	/// True while this keyboard has asked FNA to report typed characters. Tracked separately
+	/// from <see cref="IsOpen"/> so the handler can be detached exactly once.
+	/// </summary>
+	private static bool _textInputHooked;
+
 	public static bool IsOpen => _open;
 
 	public static string Text => Buffer.ToString();
@@ -120,6 +126,11 @@ internal static class VirtualKeyboard
 		_onAccept = onAccept;
 		_onCancel = onCancel;
 		KeyboardMouseInput.TextInputActive = true;
+		// The on-screen grid is for a gamepad. With a keyboard attached the player should be able
+		// to just type: the field was unreachable ("the keyboard opens but I cannot type into
+		// it") because TextInputActive suppresses the synthetic pad and nothing else read keys.
+		// FNA reports real characters, so the OS layout and dead keys work.
+		HookTextInput();
 		// Take the current pad state as "already down" so the frame that opens the keyboard
 		// does not immediately register a press on whatever button opened it.
 		_prevA = true;
@@ -136,8 +147,77 @@ internal static class VirtualKeyboard
 		_onAccept = null;
 		_onCancel = null;
 		KeyboardMouseInput.TextInputActive = false;
+		UnhookTextInput();
 		// The key that closed the keyboard must not also reach the game.
 		KeyboardMouseInput.SuppressGameInput = true;
+	}
+
+	/// <summary>
+	/// Starts receiving typed characters. Idempotent: opening twice must not double every letter,
+	/// which is exactly the bug chat had before it centralised on <see cref="TextInputEXT"/>.
+	/// </summary>
+	private static void HookTextInput()
+	{
+		if (_textInputHooked)
+		{
+			return;
+		}
+		_textInputHooked = true;
+		TextInputEXT.TextInput += OnTextInput;
+		try
+		{
+			TextInputEXT.StartTextInput();
+		}
+		catch
+		{
+			// No window yet (headless test, shutdown): the grid still works with the pad.
+		}
+	}
+
+	private static void UnhookTextInput()
+	{
+		if (!_textInputHooked)
+		{
+			return;
+		}
+		_textInputHooked = false;
+		TextInputEXT.TextInput -= OnTextInput;
+		try
+		{
+			TextInputEXT.StopTextInput();
+		}
+		catch
+		{
+		}
+	}
+
+	/// <summary>
+	/// Printable characters, backspace and delete. Enter and Escape are deliberately ignored here:
+	/// they are handled by the key loop in <see cref="Update"/>, which also knows whether the
+	/// keyboard is confirming or cancelling, so handling them twice would submit twice.
+	/// </summary>
+	private static void OnTextInput(char c)
+	{
+		if (!_open)
+		{
+			return;
+		}
+		switch (c)
+		{
+		case '\b':
+		case '\u007f':
+			DeleteLast();
+			return;
+		case '\r':
+		case '\n':
+		case '\t':
+			return;
+		}
+		if (c < ' ')
+		{
+			return;
+		}
+		TypeChar(c);
 	}
 
 	/// <summary>Closes the keyboard and reports the cancellation to whoever opened it.</summary>
@@ -149,6 +229,7 @@ internal static class VirtualKeyboard
 		_onAccept = null;
 		_open = false;
 		KeyboardMouseInput.TextInputActive = false;
+		UnhookTextInput();
 		KeyboardMouseInput.SuppressGameInput = true;
 		if (onCancel != null)
 		{
@@ -160,6 +241,124 @@ internal static class VirtualKeyboard
 			{
 				Program.LogWarn("VirtualKeyboard", "cancel handler threw: " + ex.Message);
 			}
+		}
+	}
+
+	/// <summary>
+	/// Selects the cell under the pointer and presses it, as A would. Returns false when the
+	/// click missed the grid, so the caller can ignore it rather than acting on a stale cell.
+	/// </summary>
+	internal static bool ClickCell(int x, int y)
+	{
+		if (!_open)
+		{
+			return false;
+		}
+		string[] page = CurrentPage();
+		for (int i = 0; i < page.Length; i++)
+		{
+			for (int j = 0; j < page[i].Length; j++)
+			{
+				if (CellRect(j, i).Contains(x, y))
+				{
+					_row = i;
+					_col = j;
+					ActivateCurrentCell();
+					return true;
+				}
+			}
+		}
+		int num = page.Length;
+		// Reverse order: later cells are drawn on top, so they win the hit-test.
+		if (CellRect(5, num).Contains(x, y))
+		{
+			_row = num;
+			_col = 5;
+		}
+		else if (CellRect(4, num).Contains(x, y))
+		{
+			_row = num;
+			_col = 4;
+		}
+		else if (CellRect(3, num).Contains(x, y))
+		{
+			_row = num;
+			_col = 3;
+		}
+		else if (CellRect(2, num).Contains(x, y))
+		{
+			_row = num;
+			_col = 2;
+		}
+		else if (CellRect(0, num, wide: true).Contains(x, y))
+		{
+			_row = num;
+			_col = 0;
+		}
+		else
+		{
+			return false;
+		}
+		ActivateCurrentCell();
+		return true;
+	}
+
+	/// <summary>
+	/// Presses the cell the cursor is on. Extracted so the pad, the mouse and the tests all run
+	/// the same code: two copies of this switch is how the bottom row ended up with `del`
+	/// overlapping `space`.
+	/// </summary>
+	private static void ActivateCurrentCell()
+	{
+		string[] page = CurrentPage();
+		if (_row >= 0 && _row < page.Length)
+		{
+			if (_col < 0 || _col >= page[_row].Length)
+			{
+				return;
+			}
+			char c = page[_row][_col];
+			if (_shift)
+			{
+				c = char.ToUpperInvariant(c);
+			}
+			if (Buffer.Length < 200)
+			{
+				Buffer.Append(c);
+			}
+			Main.PlaySound(12);
+			return;
+		}
+		if (_row != page.Length)
+		{
+			return;
+		}
+		switch (_col)
+		{
+		case 0:
+			if (Buffer.Length < 200)
+			{
+				Buffer.Append(' ');
+			}
+			Main.PlaySound(12);
+			break;
+		case 2:
+			if (Buffer.Length > 0)
+			{
+				Buffer.Length--;
+			}
+			Main.PlaySound(12);
+			break;
+		case 3:
+			_shift = !_shift;
+			Main.PlaySound(12);
+			break;
+		case 4:
+			Accept();
+			break;
+		case 5:
+			Cancel();
+			break;
 		}
 	}
 
@@ -204,6 +403,26 @@ internal static class VirtualKeyboard
 			// before asking (for example, a name it was about to commit).
 			Cancel();
 			return;
+		}
+		// Keyboard: Enter confirms, Escape cancels, and a click on a key presses it. Handled
+		// before the pad so a keyboard player is not stuck with a grid they cannot reach.
+		if (KeyboardMouseInput.Enabled)
+		{
+			if (KeyboardMouseInput.KeyPressed(Keys.Enter))
+			{
+				Accept();
+				return;
+			}
+			if (KeyboardMouseInput.KeyPressed(Keys.Escape))
+			{
+				Cancel();
+				return;
+			}
+			if (KeyboardMouseInput.LeftClicked)
+			{
+				ClickCell(KeyboardMouseInput.MouseX, KeyboardMouseInput.MouseY);
+				return;
+			}
 		}
 		if (flag11)
 		{
@@ -263,49 +482,9 @@ internal static class VirtualKeyboard
 
 		if (flag7)
 		{
-			string[] page = CurrentPage();
-			if (_row >= 0 && _row < page.Length && _col < page[_row].Length)
-			{
-				char c = page[_row][_col];
-				if (_shift)
-				{
-					c = char.ToUpperInvariant(c);
-				}
-				if (Buffer.Length < 200)
-				{
-					Buffer.Append(c);
-				}
-				Main.PlaySound(12);
-			}
-			else if (_row == page.Length)
-			{
-				// Bottom row: space / backspace / accept / cancel.
-				switch (_col)
-				{
-				case 0:
-					if (Buffer.Length < 200)
-					{
-						Buffer.Append(' ');
-					}
-					break;
-				case 1:
-					if (Buffer.Length > 0)
-					{
-						Buffer.Length--;
-					}
-					break;
-				case 2:
-					_shift = !_shift;
-					break;
-				case 3:
-					Accept();
-					return;
-				case 4:
-					Cancel();
-					return;
-				}
-				Main.PlaySound(12);
-			}
+			// One implementation for pad and mouse; the accept/cancel cases may close the
+			// keyboard, which is why this is a call rather than inline code.
+			ActivateCurrentCell();
 		}
 		if (flag8 && Buffer.Length > 0)
 		{
@@ -432,12 +611,37 @@ internal static class VirtualKeyboard
 		}
 		int num6 = page.Length;
 		DrawCell(num3, num4, 0, num6, "space", _row == num6 && _col == 0, wide: true);
-		DrawCell(num3, num4, 1, num6, "del", _row == num6 && _col == 1);
-		DrawCell(num3, num4, 2, num6, _shift ? "CAPS" : "caps", _row == num6 && _col == 2);
-		DrawCell(num3, num4, 3, num6, "OK", _row == num6 && _col == 3);
-		DrawCell(num3, num4, 4, num6, "X", _row == num6 && _col == 4);
+		DrawCell(num3, num4, 2, num6, "del", _row == num6 && _col == 2);
+		DrawCell(num3, num4, 3, num6, _shift ? "CAPS" : "caps", _row == num6 && _col == 3);
+		DrawCell(num3, num4, 4, num6, "OK", _row == num6 && _col == 4);
+		DrawCell(num3, num4, 5, num6, "X", _row == num6 && _col == 5);
 		string text3 = _symbols ? "Y - letters    X - delete    B - back    Start - confirm" : "Y - symbols    X - delete    B - back    Start - confirm";
 		UI.DrawStringCC(UI.SmallFont, text3, num3 + (int)((float)num2 * num / 2f), num4 + (int)(((float)(num6 + 1) * CellHeight + 12f) * num), new Color(150, 160, 180));
+		if (KeyboardMouseInput.Enabled)
+		{
+			// A keyboard-and-mouse player can type, but the hint should not claim the pad is the
+			// only way in.
+			UI.DrawStringCC(UI.SmallFont, "Type directly, Enter - confirm, Esc - cancel, or click a key",
+				num3 + (int)((float)num2 * num / 2f), num4 + (int)(((float)(num6 + 1) * CellHeight + 30f) * num), new Color(120, 190, 140));
+		}
+	}
+
+	/// <summary>
+	/// The on-screen rectangle of one cell, in the same coordinates the grid is drawn in. Shared
+	/// by the drawing code and by the mouse hit-test, so a click cannot land on a different key
+	/// than the one it is over.
+	/// </summary>
+	internal static Rectangle CellRect(int col, int row, bool wide = false)
+	{
+		float num = Main.ScreenMultiplier;
+		int num2 = Columns * CellWidth;
+		int num3 = (Main.ResolutionWidth - (int)((float)num2 * num)) / 2;
+		int num4 = (int)(90f * num);
+		return new Rectangle(
+			num3 + (int)((float)(col * CellWidth) * num),
+			num4 + (int)((float)(row * CellHeight) * num),
+			(int)((float)((wide ? CellWidth * 2 : CellWidth) - 3) * num),
+			(int)((float)(CellHeight - 3) * num));
 	}
 
 	private static void DrawCell(int originX, int originY, int col, int row, string label, bool selected, bool wide = false)

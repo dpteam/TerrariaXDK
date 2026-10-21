@@ -94,6 +94,12 @@ internal static class SelfTest
 		RunCheck("png corpus", CheckPngCorpus);
 		RunCheck("atlas overrides", CheckAtlasOverrides);
 		RunCheck("anti-cheat", CheckAntiCheat);
+		RunCheck("menu tables", CheckMenuTables);
+		RunCheck("text entry", CheckTextEntry);
+#if DEBUG
+		RunCheck("debug kit", CheckDebugKit);
+		RunCheck("debug console", CheckDebugConsole);
+#endif
 		RunCheck("hud settings", CheckHudSettings);
 		RunCheck("direct connect", CheckDirectConnect);
 		RunCheck("session record", CheckSessionRecord);
@@ -8125,6 +8131,421 @@ internal static class SelfTest
 		}
 		return false;
 	}
+
+	// --- Menu tables --------------------------------------------------------
+
+	/// <summary>
+	/// The menu arrays are indexed by <see cref="MenuMode"/>, which is a byte enum that keeps
+	/// growing as screens are added. Every one of these was sized by hand, and one of them was
+	/// left at 40 while the enum reached 47 - so Cheats, Keyboard bindings, Mods, Display,
+	/// Network, HUD and Backups all threw <c>IndexOutOfRangeException</c> the moment they opened,
+	/// with a stack trace that pointed at SetMenu and said nothing about the real cause.
+	///
+	/// The fix was to size them from the enum; this check is what stops it from happening again.
+	/// It costs nothing, runs without a graphics device, and covers every mode that exists now
+	/// or is added later.
+	/// </summary>
+	private static bool CheckMenuTables()
+	{
+		int num = (int)MenuMode.NUM_MENUS;
+		// The tables are sized from UI.MenuSlots, so one comparison covers both of them.
+		if (UI.MenuSlots < num)
+		{
+			return Fail("UI.MenuSlots is " + UI.MenuSlots + " but MenuMode has " + num + " entries - screens past "
+				+ UI.MenuSlots + " would crash on entry");
+		}
+		// Naming the screens that broke makes a future failure say which one, not just "too small".
+		MenuMode[] added = new MenuMode[7]
+		{
+			MenuMode.CHEATS,
+			MenuMode.KEYBINDS,
+			MenuMode.MODS,
+			MenuMode.DISPLAY,
+			MenuMode.NETWORK,
+			MenuMode.HUD,
+			MenuMode.BACKUPS
+		};
+		for (int i = 0; i < added.Length; i++)
+		{
+			if ((int)added[i] >= UI.MenuSlots)
+			{
+				return Fail(added[i] + " (index " + (int)added[i] + ") does not fit in " + UI.MenuSlots + " menu slots");
+			}
+		}
+		// The enum is a byte, so the largest legal value is 255; a table far larger than the enum
+		// would mean the size is no longer derived from it.
+		if (UI.MenuSlots > 256)
+		{
+			return Fail("UI.MenuSlots is " + UI.MenuSlots + ", which is not derived from the byte enum");
+		}
+		Console.WriteLine("    menu modes: " + num + ", slots " + UI.MenuSlots + ", highest screen " + added[added.Length - 1] + " = " + (int)added[added.Length - 1]);
+		return true;
+	}
+
+	// --- Text entry ---------------------------------------------------------
+
+	/// <summary>
+	/// Typing into the on-screen keyboard, and clicking it.
+	///
+	/// The bug this covers: the virtual keyboard was the only way to enter text without a
+	/// controller, yet with a keyboard attached it could not be typed into at all - opening it
+	/// sets <c>TextInputActive</c>, which deliberately suppresses the synthetic pad, and nothing
+	/// else read the keys. So the field was unreachable exactly for the players who do have a
+	/// keyboard.
+	///
+	/// Characters arrive through <see cref="TextInputEXT"/>, the same source chat uses, so the OS
+	/// layout applies. The test drives that event directly, which is what FNA does when a key is
+	/// pressed.
+	/// </summary>
+	private static bool CheckTextEntry()
+	{
+		try
+		{
+			string accepted = null;
+			int cancels = 0;
+			Terraria.Input.VirtualKeyboard.Open("Test", "",
+				delegate(string text) { accepted = text; },
+				delegate { cancels++; });
+			if (!Terraria.Input.VirtualKeyboard.IsOpen)
+			{
+				return Fail("the keyboard did not open");
+			}
+			if (!Terraria.Input.KeyboardMouseInput.TextInputActive)
+			{
+				return Fail("opening the keyboard did not claim text input");
+			}
+			// Printable characters append.
+			string text = "abc123";
+			for (int i = 0; i < text.Length; i++)
+			{
+				TextInputEXT.OnTextInput(text[i]);
+			}
+			if (Terraria.Input.VirtualKeyboard.Text != "abc123")
+			{
+				return Fail("typing produced '" + Terraria.Input.VirtualKeyboard.Text + "'");
+			}
+			// Backspace and delete both delete, and neither underflows.
+			TextInputEXT.OnTextInput('\b');
+			if (Terraria.Input.VirtualKeyboard.Text != "abc12")
+			{
+				return Fail("backspace produced '" + Terraria.Input.VirtualKeyboard.Text + "'");
+			}
+			TextInputEXT.OnTextInput('\u007f');
+			if (Terraria.Input.VirtualKeyboard.Text != "abc1")
+			{
+				return Fail("delete produced '" + Terraria.Input.VirtualKeyboard.Text + "'");
+			}
+			// Enter must NOT reach the buffer: it is handled as "confirm" by the key loop, and
+			// appending it as well would insert a newline the player never asked for.
+			TextInputEXT.OnTextInput('\r');
+			if (Terraria.Input.VirtualKeyboard.Text != "abc1")
+			{
+				return Fail("Enter was inserted into the text: '" + Terraria.Input.VirtualKeyboard.Text + "'");
+			}
+			// Control characters are ignored.
+			TextInputEXT.OnTextInput('\u0001');
+			if (Terraria.Input.VirtualKeyboard.Text != "abc1")
+			{
+				return Fail("a control character was inserted");
+			}
+			// The 200 character limit holds.
+			for (int j = 0; j < 300; j++)
+			{
+				TextInputEXT.OnTextInput('x');
+			}
+			if (Terraria.Input.VirtualKeyboard.Text.Length != 200)
+			{
+				return Fail("the length limit is " + Terraria.Input.VirtualKeyboard.Text.Length + ", expected 200");
+			}
+			// Committing closes it and hands the text over exactly once.
+			Terraria.Input.VirtualKeyboard.SetText("host:7777");
+			if (!Terraria.Input.VirtualKeyboard.Commit())
+			{
+				return Fail("Commit reported nothing was listening");
+			}
+			if (accepted != "host:7777")
+			{
+				return Fail("Commit handed over '" + accepted + "'");
+			}
+			if (Terraria.Input.VirtualKeyboard.IsOpen || Terraria.Input.KeyboardMouseInput.TextInputActive)
+			{
+				return Fail("the keyboard stayed open after Commit");
+			}
+			// Characters arriving after it closed must not reach anything.
+			TextInputEXT.OnTextInput('z');
+			// Reopen: cancel runs the cancel handler and does not accept.
+			int num = cancels;
+			Terraria.Input.VirtualKeyboard.Open("Test", "seed", null, delegate { cancels++; });
+			if (!Terraria.Input.VirtualKeyboard.CancelEXT())
+			{
+				return Fail("Cancel reported nothing was open");
+			}
+			if (cancels != num + 1)
+			{
+				return Fail("the cancel handler did not run");
+			}
+			if (Terraria.Input.VirtualKeyboard.IsOpen)
+			{
+				return Fail("the keyboard stayed open after cancel");
+			}
+
+			// --- clicking a key ---------------------------------------------
+			// The grid must map a click to the key drawn there. CellRect is shared with the
+			// drawing code, so a mismatch here would mean a click lands on a different letter.
+			// The layout reads Main's resolution, which the headless suite never initialises
+			// (Main is not constructed), so it is set here to the 540p preset and restored after.
+			int savedWidth = Main.ResolutionWidth;
+			int savedHeight = Main.ResolutionHeight;
+			float savedMultiplier = Main.ScreenMultiplier;
+			Main.ResolutionWidth = 960;
+			Main.ResolutionHeight = 720;
+			Main.ScreenMultiplier = 1f;
+			try
+			{
+				Terraria.Input.VirtualKeyboard.Open("Test", "", delegate { }, null);
+				Rectangle letter = Terraria.Input.VirtualKeyboard.CellRect(0, 0);
+				if (letter.Width <= 0 || letter.Height <= 0)
+				{
+					return Fail("a key cell has no size");
+				}
+				if (!Terraria.Input.VirtualKeyboard.ClickCell(letter.Center.X, letter.Center.Y))
+				{
+					return Fail("a click on the first key was not handled");
+				}
+				// Row 0 column 0 of the letters page is '1'.
+				if (Terraria.Input.VirtualKeyboard.Text != "1")
+				{
+					return Fail("clicking the first key produced '" + Terraria.Input.VirtualKeyboard.Text + "'");
+				}
+				// A click outside the grid does nothing and reports so.
+				if (Terraria.Input.VirtualKeyboard.ClickCell(-50, -50))
+				{
+					return Fail("a click outside the grid was treated as a key");
+				}
+				// Space is two cells wide, and `del` starts after it: they must not overlap, which
+				// was the old layout bug (one key drew on top of another).
+				Rectangle space = Terraria.Input.VirtualKeyboard.CellRect(0, 4, wide: true);
+				Rectangle del = Terraria.Input.VirtualKeyboard.CellRect(2, 4);
+				if (space.Right > del.X + 4 && del.X < space.Right)
+				{
+					return Fail("the space key overlaps the delete key");
+				}
+				Terraria.Input.VirtualKeyboard.CancelEXT();
+			}
+			finally
+			{
+				Main.ResolutionWidth = savedWidth;
+				Main.ResolutionHeight = savedHeight;
+				Main.ScreenMultiplier = savedMultiplier;
+			}
+
+			// --- the volume slider geometry ---------------------------------
+			// A click at 25% of the bar must set 25%, not "one step from wherever it was". The
+			// texture is null on purpose: Bounds and SetFromPointer are pure geometry, and this
+			// must be checkable without a graphics device.
+			Terraria.Slider slider = new Terraria.Slider(null,
+				new Rectangle(0, 0, 244, 58), new Rectangle(0, 116, 244, 58), new Vector2(100f, 200f));
+			Rectangle bar = slider.Bounds;
+			if (bar.X != 100 || bar.Y != 200 || bar.Width != 244 || bar.Height != 58)
+			{
+				return Fail("the slider bounds are " + bar + ", expected 100,200 244x58");
+			}
+			slider.SetFromPointer(100 + 61);
+			if (Math.Abs(slider.SliderProgress - 0.25f) > 0.02f)
+			{
+				return Fail("a click at 25% of the bar set " + slider.SliderProgress.ToString("0.00"));
+			}
+			// A click left of the bar clamps to 0, right of it to 1, and neither throws.
+			slider.SetFromPointer(0);
+			if (slider.SliderProgress != 0f)
+			{
+				return Fail("a click left of the bar set " + slider.SliderProgress);
+			}
+			slider.SetFromPointer(10000);
+			if (slider.SliderProgress != 1f)
+			{
+				return Fail("a click right of the bar set " + slider.SliderProgress);
+			}
+			// The bounds must not grow as progress is split into filled and empty parts.
+			slider.SetFromPointer(100 + 122);
+			if (slider.Bounds.Width != 244)
+			{
+				return Fail("the slider bounds changed width with progress: " + slider.Bounds.Width);
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("text entry check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Input.VirtualKeyboard.CancelEXT();
+		}
+	}
+
+#if DEBUG
+	// --- Debug kit ----------------------------------------------------------
+
+	/// <summary>
+	/// The debug-build item paging. Only compiled in Debug, alongside the feature it tests, so a
+	/// Release build has neither.
+	///
+	/// What matters here is the arithmetic around the ranges, because that is where paging code
+	/// goes wrong: the first page must start at item 1 (id 0 is "no item"), the last page must
+	/// not run past the enum's sentinel, and a page number of 999 must not wrap into a useless
+	/// "gave 0 items" without saying anything.
+	/// </summary>
+	private static bool CheckDebugKit()
+	{
+		try
+		{
+			int num = Terraria.Cheats.DebugKit.ItemCount;
+			if (num < 100)
+			{
+				return Fail("only " + num + " item ids are known - the enum is not being read");
+			}
+			if (Terraria.Cheats.DebugKit.PageCount <= 0)
+			{
+				return Fail("the debug kit reports no pages for " + num + " items");
+			}
+			// Page 0 starts at id 1: item id 0 means "empty slot", so handing it out would look
+			// like the command silently did nothing.
+			int num2;
+			int num3;
+			Terraria.Cheats.DebugKit.RangeForPage(0, out num2, out num3);
+			if (num2 != 1 || num3 <= num2)
+			{
+				return Fail("page 0 covers " + num2 + ".." + num3);
+			}
+			// The last page must stop at the sentinel, not include it.
+			Terraria.Cheats.DebugKit.RangeForPage(Terraria.Cheats.DebugKit.PageCount - 1, out num2, out num3);
+			if (num3 > num)
+			{
+				return Fail("the last page runs to " + num3 + ", past the " + num + " known ids");
+			}
+			if (num3 != num)
+			{
+				return Fail("the last page stops at " + num3 + " instead of covering up to " + num);
+			}
+			// Out-of-range pages clamp rather than throwing or producing an empty range.
+			Terraria.Cheats.DebugKit.RangeForPage(-5, out num2, out num3);
+			if (num2 != 1)
+			{
+				return Fail("a negative page did not clamp to the first");
+			}
+			Terraria.Cheats.DebugKit.RangeForPage(9999, out num2, out num3);
+			if (num2 <= 0 || num3 <= num2)
+			{
+				return Fail("an out-of-range page produced the empty range " + num2 + ".." + num3);
+			}
+			if (Terraria.Cheats.DebugKit.ClampPage(-1) != 0 || Terraria.Cheats.DebugKit.ClampPage(9999) != Terraria.Cheats.DebugKit.PageCount - 1)
+			{
+				return Fail("ClampPage does not clamp to the first/last page");
+			}
+			// The whole range of ids must be covered exactly once across all pages.
+			int num4 = 0;
+			for (int i = 0; i < Terraria.Cheats.DebugKit.PageCount; i++)
+			{
+				Terraria.Cheats.DebugKit.RangeForPage(i, out num2, out num3);
+				num4 += num3 - num2;
+			}
+			if (num4 != num - 1)
+			{
+				// Ids 1..ItemCount-1 inclusive: that is ItemCount-1 ids.
+				return Fail("the pages cover " + num4 + " ids, expected " + (num - 1));
+			}
+
+			// Applying the kit to a fresh player must actually change something and stay in bounds.
+			Player player = new Player();
+			player.Inventory = new Item[49];
+			for (int j = 0; j < player.Inventory.Length; j++)
+			{
+				player.Inventory[j].Init();
+			}
+			Terraria.Cheats.DebugKit.ApplyEssentials(player);
+			if (player.StatLifeMax < 400 || player.statLife != player.StatLifeMax)
+			{
+				return Fail("the kit did not raise life: max " + player.StatLifeMax + ", current " + player.statLife);
+			}
+			int num5 = 0;
+			for (int k = 0; k < player.Inventory.Length; k++)
+			{
+				if (player.Inventory[k].Type > 0)
+				{
+					num5++;
+				}
+			}
+			if (num5 < 5)
+			{
+				return Fail("the kit placed only " + num5 + " item(s)");
+			}
+			// Paging must not overwrite what is already there.
+			int num6 = Terraria.Cheats.DebugKit.GivePage(player, 0);
+			if (num6 <= 0)
+			{
+				return Fail("page 0 placed nothing");
+			}
+			if (num6 > 49 - num5)
+			{
+				// It filled free slots only; more items than free slots would mean overwriting.
+				return Fail("page 0 placed " + num6 + " items into " + (49 - num5) + " free slot(s)");
+			}
+			Console.WriteLine("    debug kit: " + num + " item ids, " + Terraria.Cheats.DebugKit.PageCount
+				+ " pages, " + num6 + " placed on page 0");
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("debug kit check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	// --- Debug console ------------------------------------------------------
+
+	/// <summary>
+	/// The debug console's command path, minus the window.
+	///
+	/// The window itself needs a desktop, so the headless suite does not open it. What it does
+	/// check is the part that can be wrong: a typed line must land in the queue and stay there
+	/// until the game thread drains it (touching game state from the UI thread is the one thing
+	/// the console must never do), and an unknown command must not throw.
+	/// </summary>
+	private static bool CheckDebugConsole()
+	{
+		try
+		{
+			int num = Terraria.Cheats.DebugConsole.PendingCount;
+			Terraria.Cheats.DebugConsole.EnqueueForTests("!help");
+			if (Terraria.Cheats.DebugConsole.PendingCount != num + 1)
+			{
+				return Fail("a typed command was not queued");
+			}
+			Terraria.Cheats.DebugConsole.Drain();
+			if (Terraria.Cheats.DebugConsole.PendingCount != 0)
+			{
+				return Fail("Drain left " + Terraria.Cheats.DebugConsole.PendingCount + " command(s) queued");
+			}
+			// Neither an unknown command nor an empty line may throw or leave work behind.
+			Terraria.Cheats.DebugConsole.RunCommand("!definitely-not-a-command");
+			Terraria.Cheats.DebugConsole.RunCommand("nonsense");
+			Terraria.Cheats.DebugConsole.RunCommand("");
+			if (Terraria.Cheats.DebugConsole.PendingCount != 0)
+			{
+				return Fail("an unknown command left something queued");
+			}
+			if (Terraria.Cheats.DebugKit.PageCount <= 0)
+			{
+				return Fail("the debug kit is not available from the console build");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("debug console check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+#endif
 
 	private static bool Fail(string message)
 	{

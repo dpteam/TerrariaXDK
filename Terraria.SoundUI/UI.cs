@@ -1,3 +1,4 @@
+using System;
 using System.Text;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -100,6 +101,15 @@ internal class UI
 
 	public void Update()
 	{
+		// Mouse first: a click on a bar selects that row and jumps to the position clicked, and
+		// holding the button drags it. Before this the volume screen was the only settings screen
+		// that ignored the pointer, so with keyboard+mouse the only way to change the volume was
+		// the arrow keys.
+		if (HandleMouse())
+		{
+			ParentUI.SettingsDirty = true;
+			return;
+		}
 		if (UIDelay > 0)
 		{
 			UIDelay--;
@@ -136,6 +146,68 @@ internal class UI
 			ParentUI.SettingsDirty = true;
 			Main.PlaySound(12);
 		}
+	}
+
+	/// <summary>
+	/// Mouse control: a click selects the bar under the pointer and sets it to the position
+	/// clicked; holding the button drags it. Returns true when it did something, so the caller
+	/// knows the value changed and can mark the settings dirty.
+	///
+	/// The bar is thin, so the hit area is padded vertically - aiming a 58px bar exactly is
+	/// fussy, and nothing else on this screen is clickable.
+	/// </summary>
+	private bool HandleMouse()
+	{
+		if (!Terraria.Input.KeyboardMouseInput.Enabled)
+		{
+			return false;
+		}
+		bool flag = Terraria.Input.KeyboardMouseInput.LeftPressed;
+		if (!flag)
+		{
+			return false;
+		}
+		int num = Terraria.Input.KeyboardMouseInput.MouseX;
+		int num2 = Terraria.Input.KeyboardMouseInput.MouseY;
+		if (Hit(SoundSlider, num, num2))
+		{
+			if (Selected != SoundSlider)
+			{
+				SelectSoundSlider();
+			}
+			SoundSlider.SetFromPointer(num);
+			ApplyVolumes();
+			return true;
+		}
+		if (Hit(MusicSlider, num, num2))
+		{
+			if (Selected != MusicSlider)
+			{
+				SelectMusicSlider();
+			}
+			MusicSlider.SetFromPointer(num);
+			ApplyVolumes();
+			return true;
+		}
+		return false;
+	}
+
+	/// <summary>True when the pointer is on a bar, with a little vertical slack.</summary>
+	private static bool Hit(ActivatableSlider slider, int x, int y)
+	{
+		Rectangle bounds = slider.Bounds;
+		int num = Math.Max(8, bounds.Height / 2);
+		return bounds.X <= x && x < bounds.Right
+			&& (bounds.Y - num) <= y && y < (bounds.Bottom + num);
+	}
+
+	/// <summary>Pushes both slider values into the game and the saved settings.</summary>
+	private void ApplyVolumes()
+	{
+		UIDelay = 6;
+		Main.SoundVolume = (ParentUI.SoundVolume = SoundSlider.Progress);
+		Main.MusicVolume = (ParentUI.MusicVolume = MusicSlider.Progress);
+		ParentUI.SettingsDirty = true;
 	}
 
 	public void Draw(SpriteBatch screen)

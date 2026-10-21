@@ -84,6 +84,13 @@ FNA/SDL2. Она принципиально отличается от ПК-ве�
 ## 3. Стиль кода
 
 - Язык — C#, `net40`, `LangVersion=latest`, `PlatformTarget=x64`, `AllowUnsafeBlocks`.
+- **Код только для разработчика — под `#if DEBUG`, а не под флагом в настройках.**
+  Отладочные команды, консоль и наборы предметов живут в файлах, целиком обёрнутых в
+  `#if DEBUG` (`Terraria/Cheats/DebugKit.cs`, `Terraria/Cheats/DebugConsole.cs`). Причина:
+  читерская возможность, которая «есть, но выключена», всё равно есть и включается правкой
+  файла. Препроцессор гарантирует, что в Release её нет ни в каком виде — ни кода, ни строк.
+  Проверка после сборки: в Release-`exe` не должно находиться строк вроде `allitems`.
+  Тесты для такого кода тоже под `#if DEBUG`, иначе Release-сборка не соберётся.
 - Скобки — новая строка (как в существующих файлах).
 - Отступ — **табы**.
 - Приватные поля — `_camelCase`, статические — `PascalCase`.
@@ -97,12 +104,19 @@ FNA/SDL2. Она принципиально отличается от ПК-ве�
 ## 4. Обязательные проверки перед коммитом
 
 ```powershell
-tools\build.ps1                                   # build + self-test одним шагом
+tools\build.ps1                                   # Release: build + self-test одним шагом
+tools\build.ps1 -Configuration Debug              # Debug: то же плюс отладочные проверки
 # или вручную:
 dotnet build TerrariaXDK.csproj -v q --nologo     # 0 ошибок
 # staging: Content + нативные DLL рядом с exe
 .\bin\Debug\net40\TerrariaXDK.exe --selftest       # 0 failed
 ```
+
+**Число проверок зависит от конфигурации, и это нормально:** Debug-сборка содержит
+`debug kit` и `debug console` (они под `#if DEBUG`), поэтому даёт 64 проверки, Release — 62.
+`tools\build.ps1` по умолчанию собирает Release, то есть CI проверяет 62; отладочный код
+проверяется только в Debug-конфигурации. Не «исправляйте» это, добавляя отладочные проверки в
+Release: их там быть не должно.
 
 Код возврата `--selftest` — через `Start-Process -PassThru`:
 

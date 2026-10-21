@@ -252,6 +252,25 @@ internal static class Program
 		Write(LogLevel.Debug, category, message);
 	}
 
+	/// <summary>
+	/// Receives every log line that reaches the destination. Used by the debug console (Debug
+	/// builds only): it lives in its own file behind <c>#if DEBUG</c>, so in a Release build
+	/// nothing ever subscribes and this stays null.
+	/// </summary>
+	internal static Action<string> LogSink
+	{
+		get
+		{
+			return _logSink;
+		}
+		set
+		{
+			_logSink = value;
+		}
+	}
+
+	private static Action<string> _logSink;
+
 	/// <summary>Major phase marker: a titled separator that makes the log skimmable.</summary>
 	public static void LogSection(string title)
 	{
@@ -270,6 +289,20 @@ internal static class Program
 		}
 		message = Sanitize(message);
 		string text = BuildLine(level, category, message);
+		// The debug console subscribes here. Null in Release, and nulling it is what keeps a
+		// detached window from holding a reference to a disposed form.
+		Action<string> sink = _logSink;
+		if (sink != null)
+		{
+			try
+			{
+				sink(text);
+			}
+			catch
+			{
+				// A broken listener must never break logging.
+			}
+		}
 		lock (_logLock)
 		{
 			try

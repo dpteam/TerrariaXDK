@@ -344,7 +344,22 @@ public sealed class UI
 
 	public MenuMode CurMenuMode = MenuMode.WELCOME;
 
-	public MenuMode[] prevMenuMode = new MenuMode[16];
+	/// <summary>
+	/// How many slots the per-mode tables need. One place, derived from the enum, so a screen
+	/// added later cannot leave an array behind - which is exactly what happened: the tables were
+	/// hand-sized at 40, the enum grew to 47, and every screen added after CHEATS (Cheats,
+	/// Keyboard bindings, Mods, Display, Network, HUD, Backups) crashed on entry with
+	/// IndexOutOfRangeException pointing at SetMenu.
+	///
+	/// Declared before its uses on purpose: static field initialisers run in declaration order.
+	/// </summary>
+	internal static readonly int MenuSlots = (int)MenuMode.NUM_MENUS;
+
+	/// <summary>
+	/// Back-navigation stack. Sized from the enum as well: a deep path through the settings
+	/// screens could overflow a fixed 16, and the failure was the same crash.
+	/// </summary>
+	public MenuMode[] prevMenuMode = new MenuMode[MenuSlots];
 
 	public float Progress;
 
@@ -366,7 +381,8 @@ public sealed class UI
 
 	public Location[] uiCoords;
 
-	private Location[] uiPos = new Location[40];
+	// One slot per MenuMode, indexed by the mode's own value.
+	private Location[] uiPos = new Location[MenuSlots];
 
 	public int cursorHighlight;
 
@@ -443,6 +459,15 @@ public sealed class UI
 	private float invMouseCell;
 
 	private bool invMouseLayoutValid;
+
+	/// <summary>
+	/// On-screen rectangles of the five inventory tabs, recorded while drawing. Clicking a tab
+	/// is the most obvious thing a mouse user will try, and it was the one part of the inventory
+	/// that had no hit-testing at all.
+	/// </summary>
+	private readonly Rectangle[] inventorySectionRects = new Rectangle[5];
+
+	private readonly bool[] inventorySectionRectValid = new bool[5];
 
 	public float[] inventoryMenuSectionScale = new float[5] { 0.75f, 0.75f, 1f, 0.75f, 0.75f };
 
@@ -1875,6 +1900,11 @@ public sealed class UI
 		uiY = (short)((numLoadPlayers <= 0) ? 5 : 0);
 	}
 
+	/// <summary>
+	/// Per-mode UI position, indexed by the MenuMode value. Exposed so the self-test can assert
+	/// it still covers every mode: it was a fixed 40 while the enum grew to 47, and every screen
+	/// added after CHEATS crashed on entry with IndexOutOfRangeException.
+	/// </summary>
 	public void SetMenu(MenuMode mode, bool rememberPrevious = true, bool reset = false)
 	{
 		if (SettingsDirty)
@@ -1945,7 +1975,12 @@ public sealed class UI
 			}
 			if (rememberPrevious)
 			{
-				prevMenuMode[menuDepth++] = CurMenuMode;
+				// Guarded: the table is sized from MenuMode, so this should never trigger, but a
+				// menu that pushes without ever popping must not be able to crash the game.
+				if (menuDepth < prevMenuMode.Length)
+				{
+					prevMenuMode[menuDepth++] = CurMenuMode;
+				}
 			}
 			uiPos[(uint)CurMenuMode].X = uiX;
 			uiPos[(uint)CurMenuMode].Y = uiY;
@@ -2108,7 +2143,7 @@ public sealed class UI
 		focusMenu = -1;
 		uiX = 0;
 		uiY = 0;
-		uiPos = new Location[40];
+		uiPos = new Location[MenuSlots];
 		worldFade = 0f;
 		worldFadeTarget = 1f;
 		isStopping = false;
@@ -2305,6 +2340,16 @@ public sealed class UI
 			blockFocus[i] = false;
 			menuY[i] = 0;
 			menuScale[i] = 1f;
+		}
+		// Move the selection to whatever the pointer is on BEFORE any branch below consumes a
+		// click. UpdateMouse (which also does this) runs after UpdateMenu in UI.Update, so the
+		// click used to be handled against last frame's highlight: clicking "Start Game" then hit
+		// whichever row had been highlighted a frame earlier, and a menu looked like it was stuck
+		// to the previous entry. Hit rectangles come from the last Draw, which is exactly what the
+		// pointer was looking at.
+		if (Terraria.Input.KeyboardMouseInput.Enabled && Terraria.Input.KeyboardMouseInput.CursorOverride)
+		{
+			SelectMenuEntryUnderPointer();
 		}
 		if (CurMenuMode == MenuMode.ERROR)
 		{
@@ -5330,12 +5375,21 @@ public sealed class UI
 
 	/// <summary>
 	/// PC parity: the slot under the pointer becomes the active slot, instead of having to
-	/// walk a console cursor there with the D-Pad. Only the main 10x4 item grid is handled;
-	/// the ammo/coin rows and the trash slot keep their keyboard navigation.
-	/// Returns true when the pointer is over a slot, so the caller knows a click belongs here.
+	/// walk a console cursor there with the D-Pad. Returns true when the pointer is over
+	/// something this method handled.
+	///
+	/// Two cases: the five tabs (any section, since they are how you change section at all) and
+	/// the main 10x4 item grid (only while the items tab is shown, because the grid is elsewhere
+	/// in the other tabs).
 	/// </summary>
 	private bool UpdateInventoryMouseHover()
 	{
+		// Tabs first: they sit above the grid and are valid in every section.
+		InventorySection inventorySection;
+		if (TryInventorySectionUnderPointer(out inventorySection))
+		{
+			return true;
+		}
 		if (!invMouseLayoutValid || invMouseCell <= 0f || ActiveInvSection != InventorySection.ITEMS)
 		{
 			return false;
@@ -5359,6 +5413,36 @@ public sealed class UI
 		inventoryItemX = (sbyte)num3;
 		inventoryItemY = (sbyte)num4;
 		return true;
+	}
+
+	/// <summary>
+	/// True when the pointer is over a tab, which is then made the active section. Unavailable
+	/// tabs (no chest open, no crafting stations) are ignored rather than selected, so a click
+	/// cannot land the player in a section the console build would never have shown.
+	/// </summary>
+	private bool TryInventorySectionUnderPointer(out InventorySection section)
+	{
+		section = ActiveInvSection;
+		for (int i = 0; i < inventorySectionRects.Length; i++)
+		{
+			if (!inventorySectionRectValid[i] || !inventorySectionRects[i].Contains(MouseX, MouseY))
+			{
+				continue;
+			}
+			InventorySection inventorySection = (InventorySection)i;
+			if (!IsInventorySectionAvailable(inventorySection))
+			{
+				return false;
+			}
+			section = inventorySection;
+			if (ActiveInvSection != inventorySection)
+			{
+				ActiveInvSection = inventorySection;
+				Main.PlaySound(12);
+			}
+			return true;
+		}
+		return false;
 	}
 
 	private void UpdateMouse()
@@ -9499,6 +9583,15 @@ public sealed class UI
 			int y = (int)((float)safeAreaOffsetTop + 22f * Main.ScreenMultiplier * (1f - num4));
 			int num5 = (int)(65f + 180f * num4);
 			num4 *= Main.ScreenMultiplier;
+			// Remember where the tab was drawn, so a click can select it. The tabs are the most
+			// obvious thing to click in the inventory and were the one part that ignored the
+			// pointer: opening the inventory and clicking "crafting" did nothing.
+			if (i >= 0 && i < inventorySectionRects.Length)
+			{
+				int num6 = (int)(52f * num4);
+				inventorySectionRects[i] = new Rectangle(num3, y, num6, (int)(52f * num4));
+				inventorySectionRectValid[i] = true;
+			}
 			if (i == activeInvSection2)
 			{
 				c.R = 200;
