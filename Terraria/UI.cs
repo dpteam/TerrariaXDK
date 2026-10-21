@@ -19,6 +19,7 @@ using Terraria.Hardmode;
 using Terraria.HowToPlay;
 using Terraria.Leaderboards;
 using Terraria.SoundUI;
+using Terraria.Storage;
 
 namespace Terraria;
 
@@ -268,13 +269,39 @@ public sealed class UI
 
 	private List<string> transferredPlayerStorage = new List<string>(3);
 
-	public sbyte numLoadPlayers;
+	/// <summary>Number of saved characters (used slots), not the size of the arrays.</summary>
+	public int numLoadPlayers;
 
 	public string playerPathName;
 
-	public Player[] loadPlayer = new Player[5];
+	/// <summary>
+	/// One entry per save slot. Grown as needed and never shrunk, so slot indices stay equal to
+	/// the file numbers (<c>player3.plr</c>) - a deleted slot keeps its index and is reused by the
+	/// next character. The old fixed five meant the sixth character simply had nowhere to go.
+	/// </summary>
+	public Player[] loadPlayer = new Player[0];
 
-	public string[] loadPlayerPath = new string[5];
+	/// <summary>File name per slot; null marks a free slot.</summary>
+	public string[] loadPlayerPath = new string[0];
+
+	/// <summary>Slot indices of the rows currently drawn (saved characters only, in file order).</summary>
+	private readonly List<int> charRows = new List<int>();
+
+	/// <summary>First visible row, so a list longer than the screen can be scrolled.</summary>
+	private int charScroll;
+
+	/// <summary>Rows that fit on screen this frame.</summary>
+	private int charVisible = 6;
+
+	/// <summary>Coordinates for the gamepad cursor, rebuilt to match the visible rows.</summary>
+	private Location[] charCoords = new Location[0];
+
+	/// <summary>
+	/// Save slot the character currently being created will be written into. Chosen when "New"
+	/// is pressed, because the name prompt runs one frame later and by then the free slot could
+	/// have changed if the list were rescanned.
+	/// </summary>
+	private int creatingPlayerSlot = -1;
 
 	private float logoRotation;
 
@@ -792,16 +819,6 @@ public sealed class UI
 		new Location(Main.ResolutionWidth / 2, 497)
 	};
 
-	private static Location[] MENU_SELECT_COORDS = new Location[6]
-	{
-		new Location(Main.ResolutionWidth / 2, 216),
-		new Location(Main.ResolutionWidth / 2, 253),
-		new Location(Main.ResolutionWidth / 2, 291),
-		new Location(Main.ResolutionWidth / 2, 329),
-		new Location(Main.ResolutionWidth / 2, 367),
-		new Location(Main.ResolutionWidth / 2, 410)
-	};
-
 	private static Location[] MENU_CONFIRM_DELETE_COORDS = new Location[2]
 	{
 		new Location(Main.ResolutionWidth / 2, 356),
@@ -1008,8 +1025,88 @@ public sealed class UI
 		}
 	}
 
-	public void Initialize(PlayerIndex controller)
+	/// <summary>
+	/// Grows the save-slot arrays to at least <paramref name="Count"/> entries, filling new slots
+	/// with empty players. Never shrinks: a slot index is a file number, and renumbering it would
+	/// point at somebody else's save.
+	/// </summary>
+	private void EnsurePlayerSlots(int Count)
 	{
+		if (Count <= loadPlayer.Length)
+		{
+			return;
+		}
+		int num = loadPlayer.Length;
+		Array.Resize(ref loadPlayer, Count);
+		Array.Resize(ref loadPlayerPath, Count);
+		for (int i = num; i < Count; i++)
+		{
+			loadPlayer[i] = new Player();
+			loadPlayerPath[i] = null;
+		}
+	}
+
+	/// <summary>Number of rows on the character screen: saved characters plus "New".</summary>
+	private int CharacterRowCount()
+	{
+		return charRows.Count + 1;
+	}
+
+	/// <summary>
+	/// First free save slot: the lowest slot with no file, or one past the end so the list can
+	/// grow. Gaps are reused, which is what makes deleting a character and creating a new one
+	/// leave the same number of files rather than ever-higher numbers.
+	/// </summary>
+	private int NextFreePlayerSlot()
+	{
+		for (int i = 0; i < loadPlayerPath.Length; i++)
+		{
+			if (string.IsNullOrEmpty(loadPlayerPath[i]))
+			{
+				return i;
+			}
+		}
+		return loadPlayerPath.Length;
+	}
+
+	/// <summary>
+	/// How many character rows fit between the top of the list and the control hints. The list
+	/// used to be six fixed rows, so the fifth character filled it and the sixth was impossible.
+	/// </summary>
+	private int CharacterVisibleRows()
+	{
+		int num = (int)(menuSpace * Main.ScreenMultiplier);
+		int num2 = Main.ResolutionHeight - (int)(menuTop * Main.ScreenMultiplier) - (int)(90f * Main.ScreenMultiplier);
+		// The menu row arrays hold 14 entries; drawing more would need a wider table, and 14 rows
+		// is already more than fits on any preset.
+		int num3 = SaveSlots.VisibleRows(num2, num);
+		return Math.Min(num3, 14);
+	}
+
+	/// <summary>
+	/// Rebuilds the gamepad cursor positions for the character rows. Same numbers as the drawing
+	/// loop (menuTop/menuSpace), because the stick path moves the pointer to these and the mouse
+	/// path hit-tests the drawn rectangles - if the two disagree, the cursor lands between rows.
+	///
+	/// One entry per row, not per visible row: the cursor is an absolute row index and the window
+	/// follows it, so a list longer than the screen can still be walked with the D-pad. The rows
+	/// that are scrolled out have coordinates outside the screen, which is harmless - they are
+	/// only read when the cursor is on them, and then the window has already moved.
+	/// </summary>
+	private void BuildCharacterCoords(int Rows)
+	{
+		if (charCoords.Length != Rows)
+		{
+			charCoords = new Location[Rows];
+		}
+		for (int i = 0; i < Rows; i++)
+		{
+			charCoords[i] = new Location(ViewportHalfWidth,
+				(short)((menuTop + menuSpace * i) * Main.ScreenMultiplier + (int)(16f * Main.ScreenMultiplier)));
+		}
+	}
+
+	public void Initialize(PlayerIndex controller)	{
 		this.controller = controller;
 		CurrentUI = this;
 		if (MainUI == null)
@@ -1020,10 +1117,9 @@ public sealed class UI
 		{
 			menuItemScale[num] = 0.8f;
 		}
-		for (int num2 = 4; num2 >= 0; num2--)
-		{
-			loadPlayer[num2] = new Player();
-		}
+		// Five empty slots up front: the console build always showed six rows (five characters and
+		// "New"), and an empty list should look the same now.
+		EnsurePlayerSlots(5);
 		CreateCharacterGUI = Terraria.CreateCharacter.UI.Create(this);
 		soundUI = Terraria.SoundUI.UI.Create(this);
 		howtoUI = Terraria.HowToPlay.UI.Create(this);
@@ -1981,7 +2077,11 @@ public sealed class UI
 	private void ResetPlayerMenuSelection()
 	{
 		uiX = 0;
-		uiY = (short)((numLoadPlayers <= 0) ? 5 : 0);
+		// Row 0 is the first saved character, or "New" when there are none.
+		uiY = 0;
+		charScroll = 0;
+		selectedMenu = -1;
+		focusMenu = -1;
 	}
 
 	/// <summary>
@@ -2089,8 +2189,12 @@ public sealed class UI
 			return;
 		case MenuMode.CHARACTER_SELECT:
 			uiWidth = 1;
-			uiHeight = 6;
-			uiCoords = MENU_SELECT_COORDS;
+			// Row count and coordinates come from the character list itself, which is built in
+			// UpdateMenu because the number of rows depends on how many fit on screen. This is the
+			// first frame's value; the branch rebuilds both before any input is read.
+			uiHeight = (sbyte)Math.Max(1, Math.Min(127, Math.Max(CharacterRowCount(), charCoords.Length)));
+			BuildCharacterCoords(uiHeight);
+			uiCoords = charCoords;
 			initCharacterSelectCoordinates();
 			return;
 		case MenuMode.CONFIRM_LEAVE_CREATE_CHARACTER:
@@ -3124,71 +3228,102 @@ public sealed class UI
 			menuLeft += 80;
 			menuTop = 200;
 			menuSpace = 40;
-			for (int l = 0; l < 5; l++)
+			// Rows: one per saved character, then "New character". Built from the slots rather
+			// than from a fixed array, so the list has no ceiling and a deleted character leaves
+			// a reusable slot instead of a hole nobody can fill.
+			charRows.Clear();
+			for (int slot = 0; slot < loadPlayerPath.Length; slot++)
 			{
-				if (l < numLoadPlayers)
+				if (!string.IsNullOrEmpty(loadPlayerPath[slot]) && loadPlayer[slot] != null)
 				{
-					menuString[l] = loadPlayer[l].CharacterName;
-					menuHC[l] = loadPlayer[l].difficulty;
-					MENU_SELECT_COORDS[l].X = ViewportHalfWidth;
-					if (loadPlayer[l].difficulty == 67)
-					{
-						menuString[l] = "Unsupported";
-						menuHC[l] = 3;
-					}
-				}
-				else
-				{
-					menuString[l] = null;
-					MENU_SELECT_COORDS[l].X = 0;
+					charRows.Add(slot);
 				}
 			}
-			if (numLoadPlayers == 5)
+			int numRows = CharacterRowCount();
+			charVisible = CharacterVisibleRows();
+			// The cursor is an absolute row; the window follows it.
+			if (uiY < 0)
 			{
-				blockFocus[5] = true;
-				menuString[5] = null;
-				MENU_SELECT_COORDS[5].X = 0;
+				uiY = 0;
 			}
-			else
+			if (uiY >= numRows)
 			{
-				menuString[5] = Lang.MenuText[16];
-				MENU_SELECT_COORDS[5].X = ViewportHalfWidth;
+				uiY = (short)(numRows - 1);
 			}
-			numMenuItems = 6;
-			for (int m = 0; m < 6; m++)
+			charScroll = SaveSlots.ClampScroll(charScroll, uiY, charVisible, numRows);
+			for (int i = 0; i < charVisible; i++)
 			{
-				menuScale[m] = 0.8f;
+				int num = charScroll + i;
+				if (num >= numRows)
+				{
+					menuString[i] = null;
+					menuHC[i] = 0;
+					continue;
+				}
+				menuScale[i] = 0.8f;
+				if (num == charRows.Count)
+				{
+					menuString[i] = Lang.MenuText[16];
+					menuHC[i] = 0;
+					continue;
+				}
+				int num2 = charRows[num];
+				menuString[i] = loadPlayer[num2].CharacterName;
+				menuHC[i] = loadPlayer[num2].difficulty;
+				if (loadPlayer[num2].difficulty == 67)
+				{
+					menuString[i] = "Unsupported";
+					menuHC[i] = 3;
+				}
 			}
+			numMenuItems = (byte)Math.Min(charVisible, numRows);
+			// The cursor walks all rows (so the D-pad can leave the window); only the visible ones
+			// are drawn. Height is a byte in the legacy navigation code, so very long lists stop
+			// being reachable by stick at 127 - the pointer still reaches them.
+			int num4 = Math.Min(numRows, 127);
+			BuildCharacterCoords(num4);
+			uiWidth = 1;
+			uiHeight = (sbyte)num4;
+			uiCoords = charCoords;
+			// Visible row -> absolute row -> save slot. Everything below works on the slot; the
+			// menu indices only mean "row on screen".
+			int selectedRow = ((selectedMenu >= 0) ? (charScroll + selectedMenu) : -1);
+			int focusedRow = ((focusMenu >= 0) ? (charScroll + focusMenu) : -1);
+			int selectedSlot = ((selectedRow >= 0 && selectedRow < charRows.Count) ? charRows[selectedRow] : -1);
+			int focusedSlot = ((focusedRow >= 0 && focusedRow < charRows.Count) ? charRows[focusedRow] : -1);
 			if (IsBackButtonTriggered() && (Netplay.gamersWhoReceivedInvite.Count < 2 || !Netplay.gamersWhoReceivedInvite.Contains(SignedInGamer)))
 			{
 				CancelInvite(SignedInGamer);
 				SetMenu(MenuMode.TITLE, rememberPrevious: false, reset: true);
 			}
-			else if (selectedMenu == 5)
+			else if (selectedRow == charRows.Count)
 			{
 				Main.PlaySound(10);
-				loadPlayer[numLoadPlayers] = new Player();
-				loadPlayer[numLoadPlayers].CharacterName = SignedInGamer.Gamertag;
-				loadPlayer[numLoadPlayers].Inventory[0].SetDefaults("Copper Shortsword");
-				loadPlayer[numLoadPlayers].Inventory[0].SetPrefix(-1);
-				loadPlayer[numLoadPlayers].Inventory[1].SetDefaults("Copper Pickaxe");
-				loadPlayer[numLoadPlayers].Inventory[1].SetPrefix(-1);
-				loadPlayer[numLoadPlayers].Inventory[2].SetDefaults("Copper Axe");
-				loadPlayer[numLoadPlayers].Inventory[2].SetPrefix(-1);
-				CreateCharacterGUI.ApplyDefaultAttributes(loadPlayer[numLoadPlayers]);
+				int num3 = NextFreePlayerSlot();
+				EnsurePlayerSlots(num3 + 1);
+				loadPlayer[num3] = new Player();
+				loadPlayer[num3].CharacterName = SignedInGamer.Gamertag;
+				loadPlayer[num3].Inventory[0].SetDefaults("Copper Shortsword");
+				loadPlayer[num3].Inventory[0].SetPrefix(-1);
+				loadPlayer[num3].Inventory[1].SetDefaults("Copper Pickaxe");
+				loadPlayer[num3].Inventory[1].SetPrefix(-1);
+				loadPlayer[num3].Inventory[2].SetDefaults("Copper Axe");
+				loadPlayer[num3].Inventory[2].SetPrefix(-1);
+				CreateCharacterGUI.ApplyDefaultAttributes(loadPlayer[num3]);
+				// numLoadPlayers+1 counts the character being created: the name prompt saves it
+				// into this slot and only then does it become part of the list.
+				numLoadPlayers = Math.Max(numLoadPlayers, num3 + 1);
+				creatingPlayerSlot = num3;
 				SetMenu(MenuMode.CREATE_CHARACTER);
 			}
-			else if (selectedMenu >= 0 && selectedMenu < numLoadPlayers)
+			else if (selectedSlot >= 0)
 			{
-				// selectedMenu, not focusMenu: the two are the same while the pointer confirms a
-				// row, but focusMenu can be the "New" slot (index 5) while selectedMenu is a real
-				// character, and loadPlayer has five entries.
-				if (loadPlayer[selectedMenu].difficulty != 67)
+				if (loadPlayer[selectedSlot].difficulty != 67)
 				{
-					selectedPlayer = selectedMenu;
+					selectedPlayer = (sbyte)selectedSlot;
 					Main.PlaySound(10);
-					SetPlayer(loadPlayer[selectedPlayer].DeepCopy());
-					playerPathName = loadPlayerPath[selectedPlayer];
+					SetPlayer(loadPlayer[selectedSlot].DeepCopy());
+					playerPathName = loadPlayerPath[selectedSlot];
 					if (Netplay.isJoiningRemoteInvite)
 					{
 						SetMenu(MenuMode.NETPLAY);
@@ -3204,18 +3339,18 @@ public sealed class UI
 					}
 				}
 			}
-			else if (focusMenu >= 0 && focusMenu < numLoadPlayers)
+			else if (focusedSlot >= 0)
 			{
 				if (IsButtonTriggered(Buttons.X))
 				{
-					selectedPlayer = focusMenu;
+					selectedPlayer = (sbyte)focusedSlot;
 					Main.PlaySound(10);
 					SetMenu(MenuMode.CONFIRM_DELETE_CHARACTER);
 				}
 				else
 				{
-					showPlayer = focusMenu;
-					if (loadPlayer[focusMenu].difficulty == 67)
+					showPlayer = (sbyte)focusedSlot;
+					if (loadPlayer[focusedSlot].difficulty == 67)
 					{
 						showPlayer = -1;
 					}
@@ -3224,16 +3359,17 @@ public sealed class UI
 		}
 		else if (CurMenuMode == MenuMode.CREATE_CHARACTER)
 		{
-			// Five slots, as on the console. Reaching this screen with the array full used to be
-			// an IndexOutOfRangeException from inside UpdateMenu, which reads as "the game closed
-			// while I was creating a character" with nothing to act on.
-			if (numLoadPlayers >= loadPlayer.Length)
+			if (creatingPlayerSlot < 0 || creatingPlayerSlot >= loadPlayer.Length)
 			{
-				Program.LogWarn("UI", "character creation with all " + loadPlayer.Length + " slots used");
-				PrevMenu();
-				return;
+				// Reached without a chosen slot (a save file that vanished, a menu re-entry).
+				// Falling back to a fresh slot is better than indexing past the array.
+				int num = NextFreePlayerSlot();
+				EnsurePlayerSlots(num + 1);
+				loadPlayer[num] = new Player();
+				CreateCharacterGUI.ApplyDefaultAttributes(loadPlayer[num]);
+				creatingPlayerSlot = num;
 			}
-			CreateCharacterGUI.Update(loadPlayer[numLoadPlayers]);
+			CreateCharacterGUI.Update(loadPlayer[creatingPlayerSlot]);
 		}
 		else if (CurMenuMode == MenuMode.CONFIRM_LEAVE_CREATE_CHARACTER)
 		{
@@ -3266,17 +3402,15 @@ public sealed class UI
 			NamePrompt.Ask(MenuMode.NAME_CHARACTER, "Character name", defaultName, NameRules.MaxCharacterLength, delegate(string name)
 			{
 				Main.PlaySound(10);
-				// The slot check lives here too, not only in the branch above: this callback runs
-				// from the on-screen keyboard, one frame later, and by then the array could have
-				// been filled from another view.
-				if (numLoadPlayers >= loadPlayer.Length || numLoadPlayers >= loadPlayerPath.Length)
+				int num = creatingPlayerSlot;
+				if (num < 0 || num >= loadPlayer.Length || num >= loadPlayerPath.Length || loadPlayer[num] == null)
 				{
-					Program.LogWarn("UI", "no free character slot to save into");
+					Program.LogWarn("UI", "no slot to save the new character into");
 					ReadError();
 					PrevMenu();
 					return;
 				}
-				Player player = loadPlayer[numLoadPlayers];
+				Player player = loadPlayer[num];
 				player.CharacterName = name;
 				player.ui = this;
 				// Only advance once the file is actually on disk. This used to ignore the result,
@@ -3291,13 +3425,23 @@ public sealed class UI
 					PrevMenu();
 					return;
 				}
-				loadPlayerPath[numLoadPlayers] = path;
+				loadPlayerPath[num] = path;
 				PrevMenu(-2);
-				selectedPlayer = numLoadPlayers;
-				showPlayer = numLoadPlayers;
-				uiY = numLoadPlayers;
-				MENU_SELECT_COORDS[uiY].X = ViewportHalfWidth;
-				numLoadPlayers++;
+				selectedPlayer = (sbyte)num;
+				showPlayer = (sbyte)num;
+				// Put the cursor on the new character's row. Its row index is "how many saved slots
+				// come before it", which is what the list will show on the next frame.
+				int num2 = 0;
+				for (int i = 0; i < num; i++)
+				{
+					if (!string.IsNullOrEmpty(loadPlayerPath[i]))
+					{
+						num2++;
+					}
+				}
+				charScroll = 0;
+				uiY = (short)num2;
+				numLoadPlayers = CountSavedPlayers();
 			}, delegate
 			{
 				// Cancelled: back to character creation, character not saved.
@@ -4339,21 +4483,9 @@ public sealed class UI
 
 	private void initCharacterSelectCoordinates()
 	{
-		if (numLoadPlayers == 0)
-		{
-			return;
-		}
-		for (int i = 0; i < 5; i++)
-		{
-			if (i < numLoadPlayers)
-			{
-				MENU_SELECT_COORDS[i].X = ViewportHalfWidth;
-			}
-			else
-			{
-				MENU_SELECT_COORDS[i].X = 0;
-			}
-		}
+		// The character list is built in UpdateMenu (it depends on how many rows fit on screen),
+		// so there is nothing fixed to initialise here. Kept as a named no-op for the SetMenu case
+		// below: the coordinates are rebuilt on the first frame of the screen, before any input.
 	}
 
 	private void DrawControls()
@@ -4467,14 +4599,23 @@ public sealed class UI
 					Main.StrBuilder.Append(' ');
 					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.BACK));
 				}
-				if (uiY < numLoadPlayers && loadPlayer[uiY].difficulty == 67)
+				// uiY is an absolute row index here (the cursor scrolls, the menu entries are the
+				// visible slice), so it names the character directly.
+				int num = uiY;
+				bool flag = num >= 0 && num < charRows.Count;
+				if (flag && loadPlayer[charRows[num]].difficulty == 67)
 				{
 					Main.StrBuilder.Remove(0, 8);
 				}
-				if (uiY != 5 && focusMenu < numLoadPlayers)
+				if (flag)
 				{
 					Main.StrBuilder.Append(' ');
 					Main.StrBuilder.Append(Lang.MenuText[17]);
+				}
+				if (CharacterRowCount() > charVisible)
+				{
+					Main.StrBuilder.Append(' ');
+					Main.StrBuilder.Append(Texts.Format("ui.page.counter", charScroll + charVisible, CharacterRowCount()));
 				}
 				break;
 			case MenuMode.WORLD_SELECT:
@@ -5479,7 +5620,10 @@ public sealed class UI
 			{
 				int num10 = Math.Max(1, (int)uiWidth);
 				uiX = (short)(num % num10);
-				uiY = (short)(num / num10);
+				// Menu entries are the *visible* rows; the cursor is an absolute row so the list
+				// can scroll. Without the offset the pointer would point at the wrong character
+				// once the list is scrolled.
+				uiY = (short)(num / num10 + ((CurMenuMode == MenuMode.CHARACTER_SELECT) ? charScroll : 0));
 			}
 			return;
 		}
@@ -6538,50 +6682,64 @@ public sealed class UI
 
 	public void LoadPlayers()
 	{
+		numLoadPlayers = 0;
 		if (HasPlayerStorage())
 		{
-			numLoadPlayers = 0;
 			try
 			{
 				using StorageContainer storageContainer = MainUI.OpenPlayerStorage("Characters");
-				bool flag;
-				do
+				// "player*.plr", not "player?.plr": the single-character wildcard capped the list
+				// at nine files no matter what the rest of the code allowed.
+				string[] fileNames = storageContainer.GetFileNames("player*.plr");
+				int num = SaveSlots.SlotCount(fileNames, "player", ".plr");
+				EnsurePlayerSlots(num);
+				// Forget which slots had a file last time: a deleted character must not keep a row.
+				for (int i = 0; i < loadPlayerPath.Length; i++)
 				{
-					flag = true;
-					string[] fileNames = storageContainer.GetFileNames("player?.plr");
-					int num = fileNames.Length;
-					if (num > 5)
+					loadPlayerPath[i] = null;
+				}
+				for (int j = 0; j < fileNames.Length; j++)
+				{
+					int num2;
+					if (SaveSlots.TryParseIndex(fileNames[j], "player", ".plr", out num2))
 					{
-						num = 5;
-					}
-					int num2 = 0;
-					while (true)
-					{
-						if (num2 < 5)
-						{
-							if (num2 < num)
-							{
-								loadPlayerPath[num2] = fileNames[num2];
-								loadPlayer[num2].Load(storageContainer, loadPlayerPath[num2]);
-								if (loadPlayer[num2].Name == null)
-								{
-									MessageBox.Show(controller, Lang.MenuText[9], Lang.MenuText[12], new string[1] { Lang.MenuText[90] });
-									flag = false;
-									break;
-								}
-							}
-							else
-							{
-								loadPlayer[num2] = new Player();
-							}
-							num2++;
-							continue;
-						}
-						numLoadPlayers = (sbyte)num;
-						break;
+						EnsurePlayerSlots(num2 + 1);
+						loadPlayerPath[num2] = fileNames[j];
 					}
 				}
-				while (!flag);
+				for (int k = 0; k < loadPlayerPath.Length; k++)
+				{
+					if (loadPlayerPath[k] == null)
+					{
+						if (loadPlayer[k] == null)
+						{
+							loadPlayer[k] = new Player();
+						}
+						continue;
+					}
+					if (loadPlayer[k] == null)
+					{
+						loadPlayer[k] = new Player();
+					}
+					try
+					{
+						loadPlayer[k].Load(storageContainer, loadPlayerPath[k]);
+						if (loadPlayer[k].Name == null)
+						{
+							// Loaded, but without a name: the file is intact enough to exist and
+							// damaged enough to be unusable. Say so once and keep the row, so the
+							// player can delete it instead of wondering where it went.
+							MessageBox.Show(controller, Lang.MenuText[9], Lang.MenuText[12], new string[1] { Lang.MenuText[90] });
+							loadPlayer[k].CharacterName = loadPlayerPath[k];
+						}
+					}
+					catch (Exception ex)
+					{
+						Program.LogWarn("UI", "could not load " + loadPlayerPath[k] + ": " + ex.Message);
+						loadPlayer[k].CharacterName = loadPlayerPath[k];
+					}
+				}
+				numLoadPlayers = CountSavedPlayers();
 			}
 			catch (IOException)
 			{
@@ -6593,14 +6751,24 @@ public sealed class UI
 				numLoadPlayers = 0;
 			}
 		}
-		else
-		{
-			numLoadPlayers = 0;
-		}
 		if (CurMenuMode == MenuMode.CHARACTER_SELECT)
 		{
 			ResetPlayerMenuSelection();
 		}
+	}
+
+	/// <summary>Saved characters on disk, which is what the counters and guards actually mean.</summary>
+	private int CountSavedPlayers()
+	{
+		int num = 0;
+		for (int i = 0; i < loadPlayerPath.Length; i++)
+		{
+			if (!string.IsNullOrEmpty(loadPlayerPath[i]))
+			{
+				num++;
+			}
+		}
+		return num;
 	}
 
 	public void SaveSettings()
@@ -6805,7 +6973,7 @@ public sealed class UI
 
 	public void ErasePlayer(int i)
 	{
-		if (HasPlayerStorage())
+		if (HasPlayerStorage() && i >= 0 && i < loadPlayerPath.Length && !string.IsNullOrEmpty(loadPlayerPath[i]))
 		{
 			Main.ShowSaveIcon();
 			try
@@ -6822,9 +6990,15 @@ public sealed class UI
 			}
 			Main.HideSaveIcon();
 		}
-		numLoadPlayers--;
-		loadPlayer[i] = loadPlayer[numLoadPlayers];
-		loadPlayerPath[i] = loadPlayerPath[numLoadPlayers];
+		if (i < 0 || i >= loadPlayerPath.Length)
+		{
+			return;
+		}
+		// The slot is emptied, not shifted: slot numbers are file numbers, so moving the last
+		// character into the hole would rename it into somebody else's save on the next load.
+		loadPlayerPath[i] = null;
+		loadPlayer[i] = new Player();
+		numLoadPlayers = CountSavedPlayers();
 	}
 
 	private string nextLoadPlayer()
@@ -6835,14 +7009,20 @@ public sealed class UI
 			try
 			{
 				using StorageContainer storageContainer = OpenPlayerStorage("Characters");
-				int num = 0;
+				// Ask for a free slot, then make sure the file really is free: the list in memory
+				// can be older than the directory (another view saved in between).
+				int num = NextFreePlayerSlot();
 				do
 				{
+					result = "player" + num.ToStringLookup() + ".plr";
+					if (!storageContainer.FileExists(result))
+					{
+						return result;
+					}
 					num++;
-					result = "player" + num + ".plr";
 				}
-				while (storageContainer.FileExists(result));
-				return result;
+				while (num < 4096);
+				return null;
 			}
 			catch (IOException)
 			{

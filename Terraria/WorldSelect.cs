@@ -7,16 +7,27 @@ using Microsoft.Xna.Framework.GamerServices;
 using Microsoft.Xna.Framework.Input;
 using Microsoft.Xna.Framework.Net;
 using Microsoft.Xna.Framework.Storage;
+using Terraria.Storage;
 
 namespace Terraria;
 
 public static class WorldSelect
 {
-	private const int MAX_WORLDS = 16;
+	/// <summary>
+	/// Saved worlds, one entry per slot. Grown from the directory listing, not fixed at sixteen:
+	/// the limit used to live in this array, so a full list simply stopped offering new rows.
+	/// A null entry is an empty slot, drawn as "Create new world".
+	/// </summary>
+	private static string[] worldNames = new string[0];
 
-	private static bool SecondPage = false;
+	/// <summary>Rows on screen: every slot up to the last saved world, plus one free row.</summary>
+	private static int worldRowCount = 1;
 
-	private static byte WorldCap = 8;
+	/// <summary>Rows that fit in the panel at this resolution, recomputed while drawing.</summary>
+	private static int worldVisible = 8;
+
+	/// <summary>First visible world row.</summary>
+	private static int worldScroll;
 
 	private static byte selectedWorld;
 
@@ -33,8 +44,6 @@ public static class WorldSelect
 	public static string LastLoadError;
 
 	public static string worldPathName;
-
-	private static string[] worldNames = new string[16];
 
 	private static int cursorX = 0;
 
@@ -90,6 +99,15 @@ public static class WorldSelect
 					return true;
 				}
 			}
+			// Wheel scrolls the list, like the D-pad does. Without it a mouse user in a list of
+			// twenty worlds could only reach the ones on screen.
+			int wheelSteps = Terraria.Input.KeyboardMouseInput.ConsumeWheelSteps();
+			if (wheelSteps != 0 && worldRowCount > worldVisible)
+			{
+				selectedWorld = (byte)SaveSlots.Move(selectedWorld, wheelSteps, worldRowCount);
+				worldScroll = SaveSlots.ClampScroll(worldScroll, selectedWorld, worldVisible, worldRowCount);
+				Main.PlaySound(12);
+			}
 			return false;
 		}
 		if (MouseSessionArea.Width > 0 && MouseSessionArea.Contains(num, num2) && Netplay.availableSessions.Count > 0)
@@ -139,32 +157,15 @@ public static class WorldSelect
 		{
 			RefreshSessions();
 		}
-		if (WorldCap != 11 && Main.ScreenHeightPtr == ScreenHeights.HD)
+		if (UI.MainUI.IsButtonTriggered(Buttons.LeftTrigger))
 		{
-			WorldCap = 11;
-		}
-		else if (WorldCap != 16 && Main.ScreenHeightPtr == ScreenHeights.FHD)
-		{
-			WorldCap = 16;
-		}
-		if (Main.ScreenHeightPtr != ScreenHeights.FHD && UI.MainUI.IsButtonTriggered(Buttons.LeftTrigger))
-		{
+			// A whole page at a time, which is what the old two-page list did. Kept as a button
+			// now that the list scrolls smoothly: sixteen worlds at 1080p and forty on a small
+			// screen should move the same way.
 			Main.PlaySound(12);
-			SecondPage = !SecondPage;
 			if (cursorX == 0)
 			{
-				if (selectedWorld >= WorldCap)
-				{
-					selectedWorld -= WorldCap;
-				}
-				else if (selectedWorld <= WorldCap)
-				{
-					selectedWorld += WorldCap;
-					if (selectedWorld >= 16)
-					{
-						selectedWorld = 15;
-					}
-				}
+				selectedWorld = (byte)SaveSlots.Move(selectedWorld, worldVisible, worldRowCount);
 			}
 		}
 		if (UI.MainUI.IsBackButtonTriggered())
@@ -244,17 +245,10 @@ public static class WorldSelect
 		}
 		if (cursorX == 0)
 		{
-			dy += selectedWorld;
-			int num = (SecondPage ? (16 - WorldCap) : WorldCap);
-			if (dy < (SecondPage ? WorldCap : 0))
-			{
-				dy += num;
-			}
-			else if (dy >= (SecondPage ? 16 : WorldCap))
-			{
-				dy -= num;
-			}
-			selectedWorld = (byte)dy;
+			// The world list scrolls instead of paging: the cursor can reach every slot, and the
+			// window follows it. It used to be two pages whose size depended on the resolution.
+			selectedWorld = (byte)SaveSlots.Move(selectedWorld, dy, worldRowCount);
+			worldScroll = SaveSlots.ClampScroll(worldScroll, selectedWorld, worldVisible, worldRowCount);
 			return;
 		}
 		dy += selectedSession;
@@ -277,6 +271,16 @@ public static class WorldSelect
 		}
 	}
 
+	/// <summary>Name of a world row, or null for an empty slot or a row that does not exist yet.</summary>
+	private static string WorldAt(int Row)
+	{
+		if (Row < 0 || Row >= worldNames.Length)
+		{
+			return null;
+		}
+		return worldNames[Row];
+	}
+
 	public static void Draw(WorldView view)
 	{
 		Rectangle destRect = default;
@@ -289,9 +293,6 @@ public static class WorldSelect
 		int num2 = 448;
 		int width2 = 400;
 		int height2 = 24;
-		int num3 = (SecondPage ? WorldCap : 0);
-		int num4 = (SecondPage ? 16 : WorldCap);
-		int num5 = (SecondPage ? (16 - WorldCap) : WorldCap);
 		switch (Main.ScreenHeightPtr)
 		{
 		case ScreenHeights.HD:
@@ -311,6 +312,13 @@ public static class WorldSelect
 			num = 53;
 			break;
 		}
+		// How many world rows fit under the header, and which one is at the top. The list used to
+		// be paged at 8/11/16 rows depending on the resolution; now it is "however many fit".
+		worldVisible = SaveSlots.VisibleRows(height - 80, num);
+		worldScroll = SaveSlots.ClampScroll(worldScroll, selectedWorld, worldVisible, worldRowCount);
+		int num3 = worldScroll;
+		int num4 = Math.Min(worldScroll + worldVisible, worldRowCount);
+		int num5 = num4 - num3;
 		int num6 = num * num5;
 		destRect.Width = width;
 		destRect.Height = height;
@@ -419,7 +427,7 @@ public static class WorldSelect
 				alpha2 = UI.MouseTextBrightness;
 				texId2 = 448;
 			}
-			else if (worldNames[k] == null)
+			else if (WorldAt(k) == null)
 			{
 				alpha2 = 212;
 				texId2 = 451;
@@ -430,8 +438,8 @@ public static class WorldSelect
 		destRect.Y -= num6;
 		for (int l = num3; l < num4; l++)
 		{
-			string s3 = worldNames[l] ?? Lang.MenuText[79];
-			white = ((worldNames[l] == null) ? new Color(200, 200, 220, 255) : new Color(255, 255, 255, 255));
+			string s3 = WorldAt(l) ?? Lang.MenuText[79];
+			white = ((WorldAt(l) == null) ? new Color(200, 200, 220, 255) : new Color(255, 255, 255, 255));
 			UI.DrawStringCC(UI.BoldSmallFont, s3, destRect.Center.X, destRect.Center.Y, white);
 			destRect.Y += num;
 		}
@@ -439,9 +447,10 @@ public static class WorldSelect
 
 	public static void ControlDescription(StringBuilder strBuilder)
 	{
+		string text = WorldName();
 		if (cursorX == 0)
 		{
-			if (worldNames[selectedWorld] == null)
+			if (string.IsNullOrEmpty(text))
 			{
 				strBuilder.Append(Lang.Controls(Lang.CONTROLS.CREATE_WORLD));
 			}
@@ -459,7 +468,7 @@ public static class WorldSelect
 		strBuilder.Append(' ');
 		if (cursorX == 0)
 		{
-			if (worldNames[selectedWorld] != null)
+			if (!string.IsNullOrEmpty(text))
 			{
 				strBuilder.Append(Lang.MenuText[17]);
 				strBuilder.Append(' ');
@@ -475,19 +484,21 @@ public static class WorldSelect
 			strBuilder.Append(Lang.Controls(Lang.CONTROLS.SHOW_PARTY));
 			strBuilder.Append(' ');
 		}
-		if (Main.ScreenHeightPtr != ScreenHeights.FHD)
+		// The list scrolls now, so a counter is the only way to tell "this is all of them" from
+		// "there is more below". The old screen flipped pages, and the hint said so.
+		if (cursorX == 0 && SaveSlots.NeedsScroll(worldRowCount, worldVisible))
 		{
-			Lang.CONTROLS cONTROLS = Lang.CONTROLS.NEXT_PAGE;
-			if (SecondPage)
-			{
-				cONTROLS++;
-			}
-			strBuilder.Append("\u0080" + Lang.Controls(cONTROLS).Substring(1));
+			strBuilder.Append(Texts.Format("ui.page.counter", worldScroll + worldVisible, worldRowCount));
 		}
 	}
 
+	/// <summary>Name of the highlighted world, or null when the row is an empty slot.</summary>
 	public static string WorldName()
 	{
+		if (selectedWorld < 0 || selectedWorld >= worldNames.Length)
+		{
+			return null;
+		}
 		return worldNames[selectedWorld];
 	}
 
@@ -504,7 +515,12 @@ public static class WorldSelect
 		isLocalWorld = true;
 		if (UI.MainUI.HasPlayerStorage())
 		{
+			if (selectedWorld >= worldNames.Length)
+			{
+				Array.Resize(ref worldNames, selectedWorld + 1);
+			}
 			worldNames[selectedWorld] = name;
+			EnsureWorldRows();
 		}
 		Main.WorldName = name;
 		WorldGen.CreateNewWorld();
@@ -515,55 +531,58 @@ public static class WorldSelect
 		if (!UI.MainUI.HasPlayerStorage())
 		{
 			worldPathName = null;
-			for (int i = 0; i < 16; i++)
-			{
-				worldNames[i] = null;
-			}
+			worldNames = new string[0];
+			EnsureWorldRows();
 			return true;
 		}
 		bool result = true;
 		try
 		{
 			using StorageContainer storageContainer = UI.MainUI.OpenPlayerStorage("Worlds");
-			for (int j = 0; j < 16; j++)
+			// "world*.wld", not a loop over 0..15: the loop was the limit, and a file with a
+			// two-digit number was invisible to it.
+			string[] fileNames = storageContainer.GetFileNames("world*.wld");
+			int num = SaveSlots.SlotCount(fileNames, "world", ".wld");
+			worldNames = new string[num];
+			for (int i = 0; i < fileNames.Length; i++)
 			{
-				string file = "world" + j.ToStringLookup() + ".wld";
-				if (storageContainer.FileExists(file))
+				int num2;
+				if (!SaveSlots.TryParseIndex(fileNames[i], "world", ".wld", out num2))
 				{
-					try
-					{
-						using Stream input = storageContainer.OpenFile(file, FileMode.Open);
-						using BinaryReader binaryReader = new BinaryReader(input);
-						if (binaryReader.ReadInt32() > 46)
-						{
-							binaryReader.ReadUInt32();
-						}
-						worldNames[j] = binaryReader.ReadString();
-						binaryReader.Close();
-					}
-					catch
-					{
-						Main.ShowSaveIcon();
-						storageContainer.DeleteFile(file);
-						Main.HideSaveIcon();
-						worldNames[j] = null;
-						result = false;
-					}
+					continue;
 				}
-				else
+				if (num2 >= worldNames.Length)
 				{
-					worldNames[j] = null;
+					Array.Resize(ref worldNames, num2 + 1);
+				}
+				try
+				{
+					using Stream input = storageContainer.OpenFile(fileNames[i], FileMode.Open);
+					using BinaryReader binaryReader = new BinaryReader(input);
+					if (binaryReader.ReadInt32() > 46)
+					{
+						binaryReader.ReadUInt32();
+					}
+					worldNames[num2] = binaryReader.ReadString();
+					binaryReader.Close();
+				}
+				catch
+				{
+					Main.ShowSaveIcon();
+					storageContainer.DeleteFile(fileNames[i]);
+					Main.HideSaveIcon();
+					worldNames[num2] = null;
+					result = false;
 				}
 			}
+			EnsureWorldRows();
 			return result;
 		}
 		catch (IOException)
 		{
 			UI.MainUI.ReadError();
-			for (int k = 0; k < 16; k++)
-			{
-				worldNames[k] = null;
-			}
+			worldNames = new string[0];
+			EnsureWorldRows();
 			return true;
 		}
 		catch (Exception)
@@ -572,9 +591,40 @@ public static class WorldSelect
 		}
 	}
 
+	/// <summary>
+	/// Grows the row list so there is always one empty row to create into, and keeps the cursor
+	/// inside it. One free row, not fifteen: the console build showed sixteen rows because it had
+	/// sixteen slots, and an empty slot is a row that says "Create new world".
+	/// </summary>
+	private static void EnsureWorldRows()
+	{
+		int num = worldNames.Length;
+		bool flag = false;
+		for (int i = 0; i < worldNames.Length; i++)
+		{
+			if (string.IsNullOrEmpty(worldNames[i]))
+			{
+				flag = true;
+				break;
+			}
+		}
+		if (!flag)
+		{
+			// Every slot is taken: one more row, so creating a world is still possible.
+			num = worldNames.Length + 1;
+			Array.Resize(ref worldNames, num);
+		}
+		worldRowCount = Math.Max(1, num);
+		if (selectedWorld >= worldRowCount)
+		{
+			selectedWorld = (byte)(worldRowCount - 1);
+		}
+		worldScroll = SaveSlots.ClampScroll(worldScroll, selectedWorld, worldVisible, worldRowCount);
+	}
+
 	private static void DeleteWorld()
 	{
-		if (worldNames[selectedWorld] != null)
+		if (WorldAt(selectedWorld) != null)
 		{
 			Main.PlaySound(10);
 			UI.MainUI.SetMenu(MenuMode.CONFIRM_DELETE_WORLD);
@@ -602,7 +652,11 @@ public static class WorldSelect
 		{
 		}
 		Main.HideSaveIcon();
-		worldNames[selectedWorld] = null;
+		if (selectedWorld < worldNames.Length)
+		{
+			worldNames[selectedWorld] = null;
+		}
+		EnsureWorldRows();
 	}
 
 	/// <summary>
@@ -664,7 +718,7 @@ public static class WorldSelect
 			Main.PlaySound(11);
 			return;
 		}
-		string text = worldNames[selectedWorld];
+		string text = WorldAt(selectedWorld);
 		if (string.IsNullOrEmpty(text))
 		{
 			UI.MainUI.statusText = Texts.Get("ui.world.slot.empty");

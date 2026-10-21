@@ -99,6 +99,7 @@ internal static class SelfTest
 		RunCheck("pointer scaling", CheckPointerScaling);
 		RunCheck("modal input latch", CheckModalInputLatch);
 		RunCheck("menu hit table", CheckMenuHitTable);
+		RunCheck("save slots", CheckSaveSlots);
 		RunCheck("map screen mouse", CheckMapScreenMouse);
 		RunCheck("screen geometry", CheckScreenGeometry);
 		RunCheck("master server live", CheckMasterServerLive);
@@ -8501,6 +8502,109 @@ internal static class SelfTest
 	/// mouse only reached part of the screen - and it was invisible at 540p in a 720p window,
 	/// because "almost right" looks like a slightly-off cursor rather than a bug.
 	/// </summary>
+	private static bool CheckSaveSlots()
+	{
+		try
+		{
+			// File name -> slot index. The list is built from files, and misreading a name puts
+			// somebody else's save in the row you clicked.
+			int index;
+			if (!Terraria.Storage.SaveSlots.TryParseIndex("player3.plr", "player", ".plr", out index) || index != 3)
+			{
+				return Fail("player3.plr did not parse as slot 3");
+			}
+			if (!Terraria.Storage.SaveSlots.TryParseIndex("player12.plr", "player", ".plr", out index) || index != 12)
+			{
+				return Fail("a two-digit slot did not parse (the old pattern allowed one digit)");
+			}
+			string[] notSlots = new string[5] { "player.plr", "playerX.plr", "players3.plr", "player3.plr.bak", "world3.wld" };
+			for (int i = 0; i < notSlots.Length; i++)
+			{
+				if (Terraria.Storage.SaveSlots.TryParseIndex(notSlots[i], "player", ".plr", out index))
+				{
+					return Fail("'" + notSlots[i] + "' was accepted as slot " + index);
+				}
+			}
+			// Highest index plus one: a gap left by a deletion still needs a row, and the row after
+			// it must keep its number.
+			string[] files = new string[3] { "player0.plr", "player2.plr", "player1.plr" };
+			if (Terraria.Storage.SaveSlots.SlotCount(files, "player", ".plr") != 3)
+			{
+				return Fail("three saved characters did not need three slots");
+			}
+			string[] gap = new string[2] { "player0.plr", "player7.plr" };
+			if (Terraria.Storage.SaveSlots.SlotCount(gap, "player", ".plr") != 8)
+			{
+				return Fail("a slot gap was collapsed instead of preserved");
+			}
+			if (Terraria.Storage.SaveSlots.SlotCount(new string[0], "player", ".plr") != 0)
+			{
+				return Fail("an empty directory asked for slots");
+			}
+			// Free slot reuse: deleting from the middle must not shift the files.
+			List<bool> used = new List<bool> { true, true, false, true };
+			if (Terraria.Storage.SaveSlots.NextFreeSlot(used) != 2)
+			{
+				return Fail("the free slot in the middle was not reused");
+			}
+			if (Terraria.Storage.SaveSlots.NextFreeSlot(new List<bool> { true, true }) != 2)
+			{
+				return Fail("a full list did not grow");
+			}
+			// Scrolling.
+			if (Terraria.Storage.SaveSlots.ClampScroll(5, 0, 6, 4) != 0)
+			{
+				return Fail("a list shorter than the window scrolled");
+			}
+			if (Terraria.Storage.SaveSlots.ClampScroll(0, 7, 6, 20) != 2)
+			{
+				return Fail("the window did not follow a selection below it");
+			}
+			if (Terraria.Storage.SaveSlots.ClampScroll(9, 3, 6, 20) != 3)
+			{
+				return Fail("the window did not follow a selection above it");
+			}
+			if (Terraria.Storage.SaveSlots.ClampScroll(0, 19, 6, 20) != 14)
+			{
+				return Fail("the window scrolled past the end of the list");
+			}
+			if (Terraria.Storage.SaveSlots.ClampScroll(99, 0, 6, 20) != 0)
+			{
+				return Fail("a scroll position past the end was not brought back");
+			}
+			// Cursor wrap in both directions.
+			if (Terraria.Storage.SaveSlots.Move(0, -1, 5) != 4 || Terraria.Storage.SaveSlots.Move(4, 1, 5) != 0)
+			{
+				return Fail("the cursor does not wrap at the ends");
+			}
+			if (Terraria.Storage.SaveSlots.Move(3, 0, 0) != 0)
+			{
+				return Fail("an empty list produced a cursor position");
+			}
+			// Row height arithmetic: never zero rows, or nothing is drawn and nothing is clickable.
+			if (Terraria.Storage.SaveSlots.VisibleRows(400, 40) != 10
+				|| Terraria.Storage.SaveSlots.VisibleRows(39, 40) != 1
+				|| Terraria.Storage.SaveSlots.VisibleRows(0, 40) != 1
+				|| Terraria.Storage.SaveSlots.VisibleRows(400, 0) != 1)
+			{
+				return Fail("visible row count is wrong at a boundary");
+			}
+			if (!Terraria.Storage.SaveSlots.NeedsScroll(20, 6) || Terraria.Storage.SaveSlots.NeedsScroll(6, 6))
+			{
+				return Fail("the page counter appears when it is not needed, or hides when it is");
+			}
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("save slots check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
 	private static bool CheckMenuHitTable()
 	{
 		try

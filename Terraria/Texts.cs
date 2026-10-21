@@ -233,14 +233,18 @@ internal static class Texts
 		// --- Achievements ---------------------------------------------------
 		// "Reported by" rather than "earned by": the master server trusts what clients tell it,
 		// and calling these numbers verified would be a lie the player cannot check.
-		Add(dictionary, "ui.achievements.earned.by", "Reported by {0} of {1} players");
-		Add(dictionary, "ui.achievements.nobody", "Nobody has reported this achievement yet");
+		Add(dictionary, "ui.achievements.earned.by", "Reported by {0} of {1} players");		Add(dictionary, "ui.achievements.nobody", "Nobody has reported this achievement yet");
 		Add(dictionary, "ui.achievements.unavailable",
 			"Could not read the achievement totals. Check [Network] MasterServer in Settings.ini.");
 
 		// --- Leaderboards ---------------------------------------------------
 		Add(dictionary, "ui.leaderboards.empty", "No rankings yet - nobody has reported this board");
 		Add(dictionary, "ui.leaderboards.loading", "Reading the rankings from the master server...");
+
+		// --- Lists ----------------------------------------------------------
+		// Shown when a list is longer than the screen, so "the list ended" and "the list scrolled"
+		// are not the same picture. Format: first row on screen / total rows.
+		Add(dictionary, "ui.page.counter", "< {0}/{1} >");
 		Add(dictionary, "ui.leaderboards.unavailable",
 			"Could not read the rankings from the master server. Check [Network] MasterServer in Settings.ini.");
 
