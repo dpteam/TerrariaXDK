@@ -24,6 +24,50 @@ public sealed class NetMessage
 		1, 1, 1, 1, 1, 1, 1, 1
 	};
 
+	/// <summary>
+	/// World protection gate for edits arriving from a client. Returns true when the edit may
+	/// be applied. Refusals are explained to the player at most once every few seconds, and
+	/// logged once per player as well, so a griefing client cannot flood either.
+	///
+	/// An unknown sender (no <see cref="NetClient"/>, which should not happen for a data
+	/// packet) is allowed through: breaking normal play to defend against a state we cannot
+	/// even name would be the wrong trade, and the transport handshake has already passed.
+	/// </summary>
+	private static bool AllowRemoteEdit(NetClient sender, int x, int y, out string reason)
+	{
+		reason = null;
+		string gamertag = null;
+		try
+		{
+			if (sender != null && sender.NetGamer != null)
+			{
+				gamertag = sender.NetGamer.Gamertag;
+			}
+		}
+		catch
+		{
+		}
+		if (string.IsNullOrEmpty(gamertag))
+		{
+			return true;
+		}
+		if (Terraria.Net.WorldProtection.CanEdit(isHost: false, gamertag, x, y, out reason))
+		{
+			return true;
+		}
+		if (Terraria.Net.WorldProtection.ShouldNotify(gamertag))
+		{
+			Program.LogInfo("Protection", "refused " + gamertag + " at (" + x + ", " + y + "): " + reason);
+			Terraria.Net.TcpPeer host = Terraria.Net.TcpPeer.CurrentHost;
+			string sent;
+			if (host != null)
+			{
+				host.SendTextTo(gamertag, reason, out sent);
+			}
+		}
+		return false;
+	}
+
 	public static void CheckBytesServer()
 	{
 		LocalNetworkGamer gamer = Netplay.gamer;
@@ -1790,6 +1834,15 @@ public sealed class NetMessage
 			{
 				int num33 = PacketIn.ReadUInt16();
 				int num34 = PacketIn.ReadUInt16();
+				if (Main.NetMode == 2)
+				{
+					// Breaking a chest is still a world edit.
+					string reason3;
+					if (!AllowRemoteEdit(sender, num33, num34, out reason3))
+					{
+						break;
+					}
+				}
 				if (Main.TileSet[num33, num34].Type == 21 && WorldGen.KillTile(num33, num34))
 				{
 					CreateMessage5(17, 0, num33, num34, 0);
@@ -2073,6 +2126,13 @@ public sealed class NetMessage
 			int num98 = 0;
 			if (Main.NetMode == 2)
 			{
+				// World protection, before anything is applied: a refused edit must not reach
+				// the world, and must not be relayed to the other players either.
+				string reason;
+				if (!AllowRemoteEdit(sender, num95, num96, out reason))
+				{
+					break;
+				}
 				if (!flag5 && (num94 == 0 || num94 == 2 || num94 == 4) && !sender.TileSectionsTaken[num95 / 40, num96 / 30])
 				{
 					flag5 = true;
@@ -2127,6 +2187,17 @@ public sealed class NetMessage
 			int num79 = PacketIn.ReadByte();
 			int num80 = PacketIn.ReadUInt16();
 			int num81 = PacketIn.ReadUInt16();
+			if (Main.NetMode == 2)
+			{
+				// Bulk tile data is another way to write the world, so it is gated the same way.
+				// The box covers the whole section; refused as a unit so a griefing client
+				// cannot slip tiles in at the edges.
+				string reason2;
+				if (!AllowRemoteEdit(sender, num80 + num79 / 2, num81 + num79 / 2, out reason2))
+				{
+					break;
+				}
+			}
 			for (int num82 = num80; num82 < num80 + num79; num82++)
 			{
 				for (int num83 = num81; num83 < num81 + num79; num83++)

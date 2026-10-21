@@ -61,6 +61,14 @@ internal static class Permissions
 	}
 
 	/// <summary>
+	/// What a player with no group may do. Building is normal play, so it is included -
+	/// otherwise every fresh server would refuse to let anyone place a block. Servers that
+	/// want to restrict it use <see cref="WorldProtection.DisableBuild"/> or put the player in
+	/// a group that grants <see cref="Permission.Play"/> only.
+	/// </summary>
+	internal const Permission ImplicitPlayerMask = Permission.Play | Permission.Build;
+
+	/// <summary>
 	/// True when this player may do the thing. <paramref name="isLocalHost"/> is the only way
 	/// to be the owner: the transport knows whether a command arrived from the host's own
 	/// keyboard or from a socket, and that distinction cannot be faked by picking a name.
@@ -81,8 +89,9 @@ internal static class Permissions
 			string text;
 			if (!Users.TryGetValue(playerName.Trim(), out text))
 			{
-				// Nobody has been granted anything: everybody may play, nobody may moderate.
-				return permission == Permission.Play;
+				// Nobody has granted this player anything: they play, they build, they moderate
+				// nothing.
+				return (ImplicitPlayerMask & permission) == permission;
 			}
 			Permission permission2;
 			if (!Groups.TryGetValue(text, out permission2))
@@ -333,8 +342,9 @@ internal static class Permissions
 			Problems.Clear();
 			// Built-in groups: usable right after install, before anyone edits a file.
 			Groups["admin"] = Permission.All;
-			Groups["mod"] = Permission.Inspect | Permission.Kick | Permission.Mute;
-			Groups["player"] = Permission.Play;
+			// A moderator moderates; they still play and build like anyone else.
+			Groups["mod"] = Permission.Play | Permission.Build | Permission.Inspect | Permission.Kick | Permission.Mute;
+			Groups["player"] = Permission.Play | Permission.Build;
 			try
 			{
 				if (!File.Exists(FilePath))

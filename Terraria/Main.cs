@@ -716,7 +716,10 @@ public sealed class Main : Game
 		Terraria.Net.MasterServerClient.Save(settings);
 		settings.Set("Network", "Motd", "", "Message shown to every player who joins this host.");
 		settings.Set("Network", "Rules", "", "Rules shown to every player who joins this host.");
+		settings.Set("Network", "DisableBuild", "False", "While set, only the host can change the world.\n; An emergency switch for when you step away from a public server.");
+		settings.Set("Network", "ProtectSpawnRadius", "16", "Tiles around the world spawn that remote players cannot modify (0 = no protection).");
 		Terraria.Net.HostModeration.Load(settings);
+		Terraria.Net.WorldProtection.Load(settings);
 		settings.Set("Network", "AutoRefreshSeconds", "20", "Seconds between automatic server list refreshes while the list is open.\n; 0 disables it; manual refresh is F5 / LB.");
 		Terraria.Net.ServerListRefresh.Load(settings);
 		Terraria.Input.KeyBindings.Load(settings);

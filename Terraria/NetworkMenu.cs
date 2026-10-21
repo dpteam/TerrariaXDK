@@ -14,7 +14,7 @@ namespace Terraria;
 /// </summary>
 internal static class NetworkMenu
 {
-	private const int Rows = 6;
+	private const int Rows = 8;
 
 	private static int _selected;
 
@@ -132,6 +132,12 @@ internal static class NetworkMenu
 		case 5:
 			Change(row, 1);
 			break;
+		case 6:
+			Change(row, 1);
+			break;
+		case 7:
+			Change(row, 1);
+			break;
 		}
 	}
 
@@ -142,6 +148,32 @@ internal static class NetworkMenu
 		case 3:
 			Terraria.Net.MasterServerClient.Publish = !Terraria.Net.MasterServerClient.Publish;
 			SetStatus(Terraria.Net.MasterServerClient.Publish ? "Publishing this world while hosting" : "Not publishing");
+			break;
+		case 6:
+		{
+			// 0, 8, 16, 24, 32, 48 tiles: "off" plus the sizes people actually use.
+			int[] radii = new int[6] { 0, 8, 16, 24, 32, 48 };
+			int num2 = 0;
+			for (int j = 0; j < radii.Length; j++)
+			{
+				if (radii[j] == Terraria.Net.WorldProtection.SpawnRadius)
+				{
+					num2 = j;
+					break;
+				}
+			}
+			num2 = (num2 + direction + radii.Length) % radii.Length;
+			Terraria.Net.WorldProtection.SpawnRadius = radii[num2];
+			SetStatus(radii[num2] > 0 ? ("Spawn protection: " + radii[num2] + " tiles") : "Spawn protection: off");
+			Main.PlaySound(12);
+			Persist();
+			break;
+		}
+		case 7:
+			Terraria.Net.WorldProtection.DisableBuild = !Terraria.Net.WorldProtection.DisableBuild;
+			SetStatus(Terraria.Net.WorldProtection.DisableBuild ? "Building disabled for everyone but you" : "Building allowed");
+			Main.PlaySound(12);
+			Persist();
 			break;
 		case 5:
 			// 0, 10 .. 120 seconds.
@@ -185,6 +217,7 @@ internal static class NetworkMenu
 			settings.Update("Network", "Password", Terraria.Net.NetworkConfig.Password ?? string.Empty, "Password clients must send to join this host.\n; Leave empty to accept anyone.");
 			Terraria.Net.MasterServerClient.Save(settings);
 			Terraria.Net.ServerListRefresh.Save(settings);
+			Terraria.Net.WorldProtection.Save(settings);
 			settings.Close();
 		}
 		catch (Exception ex)
@@ -251,7 +284,9 @@ internal static class NetworkMenu
 			"Password: " + (password.Length == 0 ? "off" : new string('*', Math.Min(password.Length, 12))),
 			"Publish to master: " + (Terraria.Net.MasterServerClient.Publish ? "On" : "Off"),
 			"Master server: " + Terraria.Net.MasterServerClient.PrimaryEndpoint,
-			"Auto refresh: " + ((Terraria.Net.ServerListRefresh.IntervalSeconds > 0) ? (Terraria.Net.ServerListRefresh.IntervalSeconds + " s") : "off")
+			"Auto refresh: " + ((Terraria.Net.ServerListRefresh.IntervalSeconds > 0) ? (Terraria.Net.ServerListRefresh.IntervalSeconds + " s") : "off"),
+			"Spawn protection: " + ((Terraria.Net.WorldProtection.SpawnRadius > 0) ? (Terraria.Net.WorldProtection.SpawnRadius + " tiles") : "off"),
+			"Disable building: " + (Terraria.Net.WorldProtection.DisableBuild ? "On" : "Off")
 		};
 		for (int i = 0; i < Rows; i++)
 		{

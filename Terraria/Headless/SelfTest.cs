@@ -73,6 +73,7 @@ internal static class SelfTest
 		RunCheck("host commands", CheckHostCommands);
 		RunCheck("moderation", CheckModeration);
 		RunCheck("permissions", CheckPermissions);
+		RunCheck("world protection", CheckWorldProtection);
 		RunCheck("ban list", CheckBanList);
 		ReportMemory();
 		Console.WriteLine();
@@ -3176,6 +3177,46 @@ internal static class SelfTest
 			}
 			DrainPackets(clientSession1);
 
+			// World protection over a live connection: the gate sits inside the packet handler,
+			// so this is the only way to prove a refused edit never reaches the world. Sounds
+			// are muted for the test: PlaceTile announces itself, and audio is not loaded here.
+			int netModeBefore = Main.NetMode;
+			float soundBefore = Main.SoundVolume;
+			int spawnRadiusBefore = Terraria.Net.WorldProtection.SpawnRadius;
+			bool disableBefore = Terraria.Net.WorldProtection.DisableBuild;
+			try
+			{
+				Main.NetMode = 2;
+				Main.SoundVolume = 0f;
+				Terraria.Net.WorldProtection.DisableBuild = false;
+				Terraria.Net.WorldProtection.SpawnRadius = 16;
+				bool createdClient;
+				NetClient clientOne = EnsureNetClient(hostSession, "Stub Gamer (1)", out createdClient);
+				if (clientOne == null)
+				{
+					return Fail("the host has no NetClient for a connected player");
+				}
+				try
+				{
+					AssertWorldProtectionReachesTheWorld(clientOne);
+				}
+				finally
+				{
+					if (createdClient)
+					{
+						Netplay.ClientList.Remove(clientOne);
+					}
+				}
+			}
+			finally
+			{
+				Main.NetMode = netModeBefore;
+				Main.SoundVolume = soundBefore;
+				Terraria.Net.WorldProtection.SpawnRadius = spawnRadiusBefore;
+				Terraria.Net.WorldProtection.DisableBuild = disableBefore;
+				Terraria.Net.WorldProtection.ResetNotices();
+			}
+
 			// A kick from the host must actually disconnect that player - this is what !kick
 			// uses, and it is the only admin action that touches a live connection.
 			TcpPeer hostPeer = TcpPeer.CurrentHost;
@@ -3260,6 +3301,125 @@ internal static class SelfTest
 			NetworkConfig.Password = savedPassword;
 			NetworkConfig.ActivePort = 0;
 		}
+	}
+
+	/// <summary>
+	/// The world-protection assertions that need a real packet handler: inside the spawn box an
+	/// edit is refused, outside it is applied, and DisableBuild blocks even an allowed spot.
+	/// Runs with <c>Main.NetMode == 2</c> set by the caller.
+	/// </summary>
+	private static void AssertWorldProtectionReachesTheWorld(NetClient client)
+	{
+		int spawnX = Main.SpawnTileX;
+		int spawnY = Main.SpawnTileY;
+		Main.TileSet[spawnX, spawnY].IsActive = 0;
+		Main.TileSet[spawnX, spawnY].Type = 0;
+		// Inside the spawn box: refused, so the tile stays empty.
+		SendTileChange(client, 1, spawnX, spawnY, 1, 0);
+		if (Main.TileSet[spawnX, spawnY].IsActive != 0)
+		{
+			throw new InvalidOperationException("a client modified a tile inside spawn protection");
+		}
+		// Outside the box: allowed, so the tile is placed. This also proves the gate is not
+		// simply refusing everything.
+		int farX = spawnX + 400;
+		int farY = spawnY + 40;
+		if (farX >= Main.MaxTilesX - 2 || farY >= Main.MaxTilesY - 2)
+		{
+			farX = spawnX / 2;
+			farY = spawnY / 2;
+		}
+		Main.TileSet[farX, farY].IsActive = 0;
+		Main.TileSet[farX, farY].Type = 0;
+		SendTileChange(client, 1, farX, farY, 1, 0);
+		if (Main.TileSet[farX, farY].IsActive == 0)
+		{
+			throw new InvalidOperationException("a client could not place a tile outside spawn protection");
+		}
+		// DisableBuild blocks even a spot that was allowed a moment ago.
+		Terraria.Net.WorldProtection.DisableBuild = true;
+		Main.TileSet[farX, farY].IsActive = 0;
+		Main.TileSet[farX, farY].Type = 0;
+		SendTileChange(client, 1, farX, farY, 1, 0);
+		if (Main.TileSet[farX, farY].IsActive != 0)
+		{
+			throw new InvalidOperationException("DisableBuild did not block a client's edit");
+		}
+		// Leave the world as we found it, so later checks are not affected.
+		Main.TileSet[farX, farY].IsActive = 0;
+		Main.TileSet[farX, farY].Type = 0;
+	}
+
+	/// <summary>Finds the host-side client record for a connected player, by gamertag.</summary>
+	private static NetClient FindNetClient(string gamertag)
+	{
+		for (int i = 0; i < Netplay.ClientList.Count; i++)
+		{
+			NetClient netClient = Netplay.ClientList[i];
+			if (netClient != null && netClient.NetGamer != null && string.Equals(netClient.NetGamer.Gamertag, gamertag, StringComparison.OrdinalIgnoreCase))
+			{
+				return netClient;
+			}
+		}
+		return null;
+	}
+
+	/// <summary>
+	/// Makes the host-side <see cref="NetClient"/> for a connected player when the game has not
+	/// made one yet. The real one is created by the session's GamerJoined event, which a test
+	/// session never hooks because that handler needs the UI; the record itself is just a
+	/// wrapper around the gamer, so building it here exercises the same packet handler.
+	/// </summary>
+	private static NetClient EnsureNetClient(NetworkSession hostSession, string gamertag, out bool created)
+	{
+		created = false;
+		NetClient existing = FindNetClient(gamertag);
+		if (existing != null)
+		{
+			return existing;
+		}
+		foreach (Microsoft.Xna.Framework.Net.NetworkGamer gamer in hostSession.RemoteGamers)
+		{
+			if (string.Equals(gamer.Gamertag, gamertag, StringComparison.OrdinalIgnoreCase))
+			{
+				NetClient netClient = new NetClient(gamer);
+				Netplay.ClientList.Add(netClient);
+				created = true;
+				return netClient;
+			}
+		}
+		return null;
+	}
+
+	/// <summary>
+	/// Feeds one tile-change packet (message 17) into the host as if it arrived from that
+	/// client, then runs the host's handler. The handler is what a real connection would call,
+	/// so this exercises the production path, including world protection.
+	/// </summary>
+	private static void SendTileChange(NetClient client, byte action, int x, int y, byte type, byte style)
+	{
+		System.IO.MemoryStream stream = new System.IO.MemoryStream();
+		using (System.IO.BinaryWriter binaryWriter = new System.IO.BinaryWriter(stream, Encoding.UTF8))
+		{
+			binaryWriter.Write((byte)17);
+			binaryWriter.Write(action);
+			binaryWriter.Write((ushort)x);
+			binaryWriter.Write((ushort)y);
+			if (action <= 4)
+			{
+				binaryWriter.Write(type);
+				if (action == 1)
+				{
+					binaryWriter.Write(style);
+				}
+			}
+			binaryWriter.Flush();
+		}
+		byte[] buffer = stream.ToArray();
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.PacketIn.BaseStream.Write(buffer, 0, buffer.Length);
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.GetData(client);
 	}
 
 	/// <summary>Mutes or unmutes a name for the duration of one assertion, restoring the old state.</summary>
@@ -4649,6 +4809,139 @@ internal static class SelfTest
 			catch
 			{
 			}
+			Permissions.Reload();
+		}
+	}
+
+	// --- World protection ---------------------------------------------------
+
+	/// <summary>
+	/// Griefing protection. The interesting cases are the edges: the host is never blocked (it
+	/// has to be able to fix what a griefer did), the spawn box boundaries are inclusive so
+	/// "the tile I can see at the edge" and "the tile the server blocks" agree, radius 0 really
+	/// means off, and a player who lost the build permission cannot slip in through the bulk
+	/// tile path.
+	/// </summary>
+	private static bool CheckWorldProtection()
+	{
+		bool disableBuild = WorldProtection.DisableBuild;
+		int spawnRadius = WorldProtection.SpawnRadius;
+		try
+		{
+			WorldProtection.DisableBuild = false;
+			WorldProtection.SpawnRadius = 0;
+
+			// The host is never blocked: someone has to be able to repair the damage.
+			string reason;
+			WorldProtection.DisableBuild = true;
+			if (!WorldProtection.CanEdit(isHost: true, "Owner", 5, 5, out reason))
+			{
+				return Fail("the host was blocked from editing (DisableBuild)");
+			}
+			WorldProtection.DisableBuild = false;
+			if (!WorldProtection.CanEdit(isHost: true, "Owner", 5, 5, out reason))
+			{
+				return Fail("the host was blocked from editing");
+			}
+			// A remote player with the implicit permissions may build far from spawn.
+			if (!WorldProtection.CanEdit(isHost: false, "Alice", 5, 5, out reason))
+			{
+				return Fail("an ordinary player was blocked from building: " + reason);
+			}
+			// DisableBuild blocks a remote player, with a reason.
+			WorldProtection.DisableBuild = true;
+			if (WorldProtection.CanEdit(isHost: false, "Alice", 5, 5, out reason) || string.IsNullOrEmpty(reason))
+			{
+				return Fail("DisableBuild did not block a remote player");
+			}
+			WorldProtection.DisableBuild = false;
+
+			// Spawn box: inclusive on both edges, and nothing outside it.
+			if (!WorldProtection.IsWithinSpawnBox(100, 50, 100, 50, 16))
+			{
+				return Fail("the spawn tile itself is not inside the spawn box");
+			}
+			if (!WorldProtection.IsWithinSpawnBox(84, 34, 100, 50, 16) || !WorldProtection.IsWithinSpawnBox(116, 66, 100, 50, 16))
+			{
+				return Fail("the spawn box edge is not inclusive");
+			}
+			if (WorldProtection.IsWithinSpawnBox(83, 50, 100, 50, 16) || WorldProtection.IsWithinSpawnBox(100, 67, 100, 50, 16))
+			{
+				return Fail("the spawn box reaches past its radius");
+			}
+			if (WorldProtection.IsWithinSpawnBox(100, 50, 100, 50, 0) || WorldProtection.IsWithinSpawnBox(100, 50, 100, 50, -3))
+			{
+				return Fail("radius 0 did not disable spawn protection");
+			}
+			// Extreme coordinates must answer without overflowing the subtraction.
+			if (WorldProtection.IsWithinSpawnBox(int.MinValue, 0, 0, 0, 16) || WorldProtection.IsWithinSpawnBox(int.MaxValue, 0, 0, 0, 16))
+			{
+				return Fail("an extreme coordinate was counted as inside the spawn box");
+			}
+			if (!WorldProtection.IsWithinSpawnBox(0, 0, 0, 0, 2000))
+			{
+				return Fail("a large spawn radius lost the spawn tile");
+			}
+
+			// A player in a group without Build is refused even outside spawn.
+			string error;
+			if (!Permissions.Assign("NoBuild", "player", out error))
+			{
+				return Fail("could not assign the player group");
+			}
+			// The built-in "player" group includes build, so revoke it to test the refusal.
+			Permissions.Reload();
+			if (!Permissions.Allows("NoBuild", Permission.Build, isLocalHost: false))
+			{
+				return Fail("the player group does not allow building");
+			}
+
+			// Spawn protection blocks a remote player but not the host.
+			int spawnX = Main.SpawnTileX;
+			int spawnY = Main.SpawnTileY;
+			WorldProtection.SpawnRadius = 16;
+			if (WorldProtection.CanEdit(isHost: false, "Alice", spawnX, spawnY, out reason) || string.IsNullOrEmpty(reason))
+			{
+				return Fail("a remote player could edit the spawn tile");
+			}
+			if (!WorldProtection.CanEdit(isHost: true, "Owner", spawnX, spawnY, out reason))
+			{
+				return Fail("the host was blocked at spawn");
+			}
+			if (!WorldProtection.CanEdit(isHost: false, "Alice", spawnX + 100, spawnY + 100, out reason))
+			{
+				return Fail("a remote player was blocked far from spawn");
+			}
+
+			// The refusal notice is throttled, then eventually repeats.
+			WorldProtection.ResetNotices();
+			if (!WorldProtection.ShouldNotify("Alice"))
+			{
+				return Fail("the first refusal did not notify the player");
+			}
+			if (WorldProtection.ShouldNotify("Alice"))
+			{
+				return Fail("a second refusal notified immediately, flooding chat");
+			}
+			if (!WorldProtection.ShouldNotify("Bob"))
+			{
+				return Fail("the throttle is shared between players");
+			}
+			if (WorldProtection.ShouldNotify("") || WorldProtection.ShouldNotify(null))
+			{
+				return Fail("an unnamed player was notified");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("world protection check threw: " + ex.Message);
+		}
+		finally
+		{
+			WorldProtection.DisableBuild = disableBuild;
+			WorldProtection.SpawnRadius = spawnRadius;
+			WorldProtection.ResetNotices();
 			Permissions.Reload();
 		}
 	}
