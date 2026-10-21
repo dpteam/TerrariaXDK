@@ -453,6 +453,31 @@ public sealed class UI
 	/// </summary>
 	public bool ClickOutsideMenuEntries => menuHitAny && MenuEntryUnderPointer < 0;
 
+	/// <summary>
+	/// Forgets every recorded entry. Called once per draw, before the entries of the current
+	/// screen are recorded, so no screen can inherit another screen's hit rectangles.
+	/// </summary>
+	internal void ClearMenuHits()
+	{
+		for (int i = 0; i < menuHitValid.Length; i++)
+		{
+			menuHitValid[i] = false;
+		}
+		menuHitAny = false;
+	}
+
+	/// <summary>Test hook: records one entry rectangle as if it had just been drawn.</summary>
+	internal void AddMenuHit(int index, Rectangle rect)
+	{
+		if (index < 0 || index >= menuHitRects.Length)
+		{
+			return;
+		}
+		menuHitRects[index] = rect;
+		menuHitValid[index] = true;
+		menuHitAny = true;
+	}
+
 	// Inventory slot grid, captured while drawing so mouse hit-testing matches the layout.
 	private Rectangle invMouseGrid;
 
@@ -712,7 +737,7 @@ public sealed class UI
 		new Location(Main.ResolutionWidth / 2, 475)
 	};
 
-	private static readonly Location[] MENU_PAUSE_COORDS = new Location[7]
+	private static readonly Location[] MENU_PAUSE_COORDS = new Location[8]
 	{
 		new Location(Main.ResolutionWidth / 2, 221),
 		new Location(Main.ResolutionWidth / 2, 259),
@@ -720,7 +745,10 @@ public sealed class UI
 		new Location(Main.ResolutionWidth / 2, 334),
 		new Location(Main.ResolutionWidth / 2, 372),
 		new Location(Main.ResolutionWidth / 2, 421),
-		new Location(Main.ResolutionWidth / 2, 459)
+		new Location(Main.ResolutionWidth / 2, 459),
+		// Eighth slot: the trial build inserts one extra row, which pushes the cheat entry to
+		// index 7. It used to write past the end of this array.
+		new Location(Main.ResolutionWidth / 2, 497)
 	};
 
 	private static Location[] MENU_SELECT_COORDS = new Location[6]
@@ -3099,9 +3127,12 @@ public sealed class UI
 				CreateCharacterGUI.ApplyDefaultAttributes(loadPlayer[numLoadPlayers]);
 				SetMenu(MenuMode.CREATE_CHARACTER);
 			}
-			else if (selectedMenu >= 0)
+			else if (selectedMenu >= 0 && selectedMenu < numLoadPlayers)
 			{
-				if (loadPlayer[focusMenu].difficulty != 67)
+				// selectedMenu, not focusMenu: the two are the same while the pointer confirms a
+				// row, but focusMenu can be the "New" slot (index 5) while selectedMenu is a real
+				// character, and loadPlayer has five entries.
+				if (loadPlayer[selectedMenu].difficulty != 67)
 				{
 					selectedPlayer = selectedMenu;
 					Main.PlaySound(10);
@@ -3142,6 +3173,15 @@ public sealed class UI
 		}
 		else if (CurMenuMode == MenuMode.CREATE_CHARACTER)
 		{
+			// Five slots, as on the console. Reaching this screen with the array full used to be
+			// an IndexOutOfRangeException from inside UpdateMenu, which reads as "the game closed
+			// while I was creating a character" with nothing to act on.
+			if (numLoadPlayers >= loadPlayer.Length)
+			{
+				Program.LogWarn("UI", "character creation with all " + loadPlayer.Length + " slots used");
+				PrevMenu();
+				return;
+			}
 			CreateCharacterGUI.Update(loadPlayer[numLoadPlayers]);
 		}
 		else if (CurMenuMode == MenuMode.CONFIRM_LEAVE_CREATE_CHARACTER)
@@ -3175,6 +3215,16 @@ public sealed class UI
 			NamePrompt.Ask(MenuMode.NAME_CHARACTER, "Character name", defaultName, NameRules.MaxCharacterLength, delegate(string name)
 			{
 				Main.PlaySound(10);
+				// The slot check lives here too, not only in the branch above: this callback runs
+				// from the on-screen keyboard, one frame later, and by then the array could have
+				// been filled from another view.
+				if (numLoadPlayers >= loadPlayer.Length || numLoadPlayers >= loadPlayerPath.Length)
+				{
+					Program.LogWarn("UI", "no free character slot to save into");
+					ReadError();
+					PrevMenu();
+					return;
+				}
 				Player player = loadPlayer[numLoadPlayers];
 				player.CharacterName = name;
 				player.ui = this;
@@ -3944,6 +3994,14 @@ public sealed class UI
 		// font the settings screens use. Every place that measures or draws an entry has to agree,
 		// including the mouse hit-test below, which is why this is one variable.
 		SpriteFont menuFont = (CurMenuMode == MenuMode.CHEATS) ? BoldSmallFont : BigFont;
+		// Invalidate the whole hit-rect table before recording this frame's entries. It used to be
+		// invalidated only for indices whose text was null, so a screen that draws its own layout
+		// (the game-mode screen, world select, the inventory-style screens) inherited the hit
+		// rectangles of the menu it replaced: `ClickOutsideMenuEntries` stayed true, every click
+		// outside those stale rectangles was swallowed instead of becoming A, and the screen
+		// answered only where the previous menu's text happened to be. That is why the mode
+		// checkboxes reacted to their labels but not to their icons.
+		ClearMenuHits();
 		for (int i = 0; i < numMenuItems; i++)
 		{
 			if (menuString[i] != null)
@@ -3988,13 +4046,6 @@ public sealed class UI
 				Vector2 vector2 = MeasureString(menuFont, menuString[i]) * num11;
 				menuHitRects[i] = new Rectangle((int)(vector.X - vector2.X * 0.5f), (int)(vector.Y - vector2.Y * 0.5f), (int)vector2.X, (int)vector2.Y);
 				menuHitValid[i] = true;
-			}
-		}
-		for (int num12 = 0; num12 < 14; num12++)
-		{
-			if (menuString[num12] == null || menuHC[num12] == 3)
-			{
-				menuHitValid[num12] = false;
 			}
 		}
 		menuHitAny = false;
@@ -4365,7 +4416,7 @@ public sealed class UI
 					Main.StrBuilder.Append(' ');
 					Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.BACK));
 				}
-				if (uiY != 5 && loadPlayer[uiY].difficulty == 67)
+				if (uiY < numLoadPlayers && loadPlayer[uiY].difficulty == 67)
 				{
 					Main.StrBuilder.Remove(0, 8);
 				}
@@ -11682,6 +11733,21 @@ public sealed class UI
 	public void ReadError()
 	{
 		MessageBox.Show(controller, Lang.MenuText[9], Lang.WorldGenText[53], new string[1] { Lang.MenuText[90] });
+	}
+
+	/// <summary>
+	/// One line describing where the UI was, written into the crash log.
+	///
+	/// Without it a crash report says "IndexOutOfRangeException in UpdateMenu" and nothing else -
+	/// that method handles every screen in the game, so the report cannot be acted on. With it,
+	/// the next report names the screen, the section and the highlighted row.
+	/// </summary>
+	public string DebugState()
+	{
+		return "menu=" + CurMenuMode + " type=" + CurMenuType + " inventory=" + InventoryMode
+			+ " section=" + ActiveInvSection + " rows=" + numMenuItems
+			+ " selected=" + selectedMenu + " focus=" + focusMenu + " cursor=" + uiX + "," + uiY
+			+ " items=" + numLoadPlayers;
 	}
 
 	public void CheckHDTV()

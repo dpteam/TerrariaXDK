@@ -501,13 +501,26 @@ internal static class Program
 			using StreamWriter streamWriter = new StreamWriter(Terraria.Storage.AppPaths.CrashLogFile, append: true);
 			streamWriter.WriteLine($"=== CRASH {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
 			streamWriter.WriteLine($"Runtime: {_gameTimer.ElapsedMilliseconds} ms");
+			// Which screen was open. A stack trace that names UpdateMenu is not actionable on its
+			// own: that one method drives every menu in the game.
+			try
+			{
+				Terraria.UI ui = Terraria.UI.MainUI;
+				streamWriter.WriteLine("UI: " + ((ui != null) ? ui.DebugState() : "(no UI)"));
+			}
+			catch (Exception)
+			{
+				streamWriter.WriteLine("UI: (state unavailable)");
+			}
 			streamWriter.WriteLine(ex);
 			streamWriter.WriteLine();
 			StackTrace stackTrace = new StackTrace(ex, fNeedFileInfo: true);
 			for (int i = 0; i < stackTrace.FrameCount; i++)
 			{
 				StackFrame frame = stackTrace.GetFrame(i);
-				streamWriter.WriteLine($"  at {frame.GetMethod()} line {frame.GetFileLineNumber()}");
+				// The IL offset is the fallback that still identifies the instruction when the PDB is
+				// missing (GetFileLineNumber is 0 in that case, which is what most reports had).
+				streamWriter.WriteLine($"  at {frame.GetMethod()} il={frame.GetILOffset()} line {frame.GetFileLineNumber()}");
 			}
 		}
 		catch

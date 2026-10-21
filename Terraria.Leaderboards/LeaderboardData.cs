@@ -53,12 +53,6 @@ public class LeaderboardData
 
 	private Cache MergedCache;
 
-	private LeaderboardReader Reader;
-
-	private IAsyncResult ReqResult;
-
-	private AsyncRequest ReadStateReq;
-
 	private readonly int DefaultBatchSize;
 
 	public int BatchSize;
@@ -71,12 +65,15 @@ public class LeaderboardData
 
 	public string LeaderboardName;
 
-	public bool Ready => Reader != null || _fromMaster;
+	/// <summary>
+	/// True once a master read has been installed. Nothing pages: the master answers with at most
+	/// <see cref="PageSize"/> rows and the screen scrolls inside them.
+	/// </summary>
+	public bool Ready => _fromMaster;
 
 	/// <summary>
-	/// True when the table came from the master server instead of Xbox Live. It is a single
-	/// batch, so there is nothing to page to: the whole point is to show something where Live
-	/// would have shown nothing at all.
+	/// True when the table came from the master server. It is a single batch, so there is nothing
+	/// to page to: the whole point is to show something where Live would have shown nothing.
 	/// </summary>
 	private bool _fromMaster;
 
@@ -95,47 +92,6 @@ public class LeaderboardData
 	private volatile int _masterGeneration;
 
 	private System.Collections.Generic.List<Terraria.Net.BoardRow> _masterRows;
-
-	private bool CanPageDown => !_fromMaster && Reader != null && Reader.CanPageDown;
-
-	private bool CanPageUp => !_fromMaster && Reader != null && Reader.CanPageUp;
-
-	private static void ProcessEntries(LeaderboardReader Reader, Column[] Columns, ref Cache BoardCache)
-	{
-		ReadOnlyCollection<LeaderboardEntry> entries = Reader.Entries;
-		int num = entries.Count;
-		int num2 = 0;
-		int num3 = Columns.Length;
-		string[] array = new string[num3];
-		for (int num4 = num3 - 1; num4 > -1; num4--)
-		{
-			array[num4] = Columns[num4].ToString();
-		}
-		for (int i = 0; i < entries.Count; i++)
-		{
-			LeaderboardEntry leaderboardEntry = entries[i];
-			if (leaderboardEntry.RankingEXT == 0)
-			{
-				num--;
-				continue;
-			}
-			Row row = BoardCache.Entries[num2];
-			row.Rank = leaderboardEntry.RankingEXT;
-			row.Gamer = leaderboardEntry.Gamer;
-			row.Statistics = new uint[num3];
-			for (int num5 = num3 - 1; num5 > -1; num5--)
-			{
-				// Columns are optional: a board entry that does not carry them (or a local
-				// synthetic board) must render as zeros instead of throwing.
-				object obj;
-				row.Statistics[num5] = leaderboardEntry.Columns.TryGetValue(array[num5], out obj) && obj != null ? (uint)obj : 0u;
-			}
-			row.Available = true;
-			num2++;
-		}
-		BoardCache.StartIndex = Reader.PageStart;
-		BoardCache.NumEntries = num;
-	}
 
 	public LeaderboardData(int Size)
 	{
@@ -166,9 +122,6 @@ public class LeaderboardData
 		_board = BoardType;
 		_fromMaster = false;
 		_masterAttempted = false;
-		Reader = null;
-		ReadStateReq = AsyncRequest.None;
-		ReqResult = null;
 		BeginLoadFromMaster(BoardType);
 	}
 
@@ -194,9 +147,6 @@ public class LeaderboardData
 		_board = BoardType;
 		_fromMaster = false;
 		_masterAttempted = false;
-		Reader = null;
-		ReadStateReq = AsyncRequest.None;
-		ReqResult = null;
 		BatchSize = 0;
 	}
 
@@ -219,6 +169,7 @@ public class LeaderboardData
 		_masterRows = null;
 		_masterAttempted = true;
 		_masterLoading = true;
+		_unavailable = false;
 		System.Threading.Thread thread = new System.Threading.Thread(delegate()
 		{
 			try
@@ -262,10 +213,13 @@ public class LeaderboardData
 	private bool ApplyMasterRows()
 	{
 		System.Collections.Generic.List<Terraria.Net.BoardRow> list = _masterRows;
-		if (list == null || list.Count == 0)
+		if (list == null)
 		{
+			// No answer at all - the master is down or has no such board. That is a failure.
 			return false;
 		}
+		// An empty answer is a real answer: the master is up and nobody has reported this board
+		// yet. Showing an empty table beats showing an error box that talks about Xbox Live.
 		Row[] array2 = new Row[list.Count];
 		for (int i = 0; i < list.Count; i++)
 		{
@@ -310,6 +264,17 @@ public class LeaderboardData
 		return true;
 	}
 
+	/// <summary>
+	/// True when the table came from the master and the master had nothing to show. The screen
+	/// distinguishes "nobody has played this board yet" from "we could not reach the server".
+	/// </summary>
+	public bool IsEmptyRanking => _fromMaster && MergedCache != null && MergedCache.NumEntries == 0;
+
+	/// <summary>True when the master could not be reached. Nothing to draw, but the screen works.</summary>
+	public bool IsUnavailable => _unavailable && !_fromMaster;
+
+	private volatile bool _unavailable;
+
 	private void ResetCaches()
 	{
 		Row[] array = new Row[50];
@@ -348,128 +313,42 @@ public class LeaderboardData
 
 	public bool Update()
 	{
-		// The master fallback is polled first: while it is in flight there is nothing to draw yet
-		// but nothing has failed either, so the screen keeps its table and waits.
-		if (_masterAttempted && !_fromMaster)
-		{
-			if (_masterLoading)
-			{
-				return true;
-			}
-			if (_masterRows != null)
-			{
-				return ApplyMasterRows();
-			}
-			// Neither Xbox Live nor the master had anything: let the screen say so, once.
-			_masterAttempted = false;
-			return false;
-		}
-		if (ReadStateReq == AsyncRequest.None || !ReqResult.IsCompleted)
+		// There is no Xbox Live read to poll: the table comes from the master server, on a
+		// background thread. All this does is notice when that thread has an answer.
+		if (_fromMaster || _masterLoading)
 		{
 			return true;
 		}
-		if (ReadStateReq == AsyncRequest.FullRead)
+		if (_masterRows != null)
 		{
-			try
-			{
-				Reader = LeaderboardReader.EndRead(ReqResult);
-			}
-			catch (Exception ex)
-			{
-				// Live accepted the read and then failed it. Same fallback as a synchronous
-				// failure, so a flaky service shows the master's table instead of an error box.
-				Program.LogDebug("Leaderboard", "Xbox Live read failed, asking the master: " + ex.Message);
-				ReqResult = null;
-				ReadStateReq = AsyncRequest.None;
-				BeginLoadFromMaster(_board);
-				return true;
-			}
-			BatchStart = Reader.PageStart;
-			Selected = 0;
-			if (ReqResult.AsyncState != null)
-			{
-				Gamer gamer = (Gamer)ReqResult.AsyncState;
-				int num = BatchStart;
-				foreach (LeaderboardEntry entry in Reader.Entries)
-				{
-					if (entry.Gamer.Gamertag == gamer.Gamertag)
-					{
-						Selected = num;
-						BatchStart = num;
-						break;
-					}
-					num++;
-				}
-			}
+			return ApplyMasterRows();
 		}
-		else if (ReadStateReq == AsyncRequest.NextPage)
+		if (_masterAttempted)
 		{
-			Reader.EndPageDown(ReqResult);
+			// Started, finished, no rows: the fetch failed. The screen stays open and says so - a
+			// modal dialog here made a temporarily unreachable server look like a fatal error.
+			_masterAttempted = false;
+			_unavailable = true;
 		}
-		else if (ReadStateReq == AsyncRequest.PreviousPage)
-		{
-			Reader.EndPageUp(ReqResult);
-		}
-		ProcessEntries(Reader, Columns, ref CurrentCache);
-		if (StaleCache.StartIndex <= CurrentCache.StartIndex)
-		{
-			CreateMergedCache(StaleCache, CurrentCache);
-		}
-		else
-		{
-			CreateMergedCache(CurrentCache, StaleCache);
-		}
-		if (ReadStateReq == AsyncRequest.FullRead)
-		{
-			BatchSize = Math.Min(CurrentCache.NumEntries, DefaultBatchSize);
-			if (CurrentCache.NumEntries > 0 && (Reader.CanPageDown || Reader.CanPageUp))
-			{
-				NumEntries = Reader.TotalLeaderboardSize;
-			}
-			else
-			{
-				NumEntries = CurrentCache.NumEntries;
-			}
-			if (BatchStart > NumEntries - BatchSize)
-			{
-				BatchStart = NumEntries - BatchSize;
-			}
-		}
-		ReadStateReq = AsyncRequest.None;
-		ReqResult = null;
 		return true;
 	}
 
 	public bool MoveDown()
 	{
+		// One batch from the master: scrolling past the last row is a refusal, not a page fetch.
 		Selected++;
 		if (Selected < BatchStart + BatchSize)
 		{
 			return true;
 		}
-		BatchStart++;
-		bool flag = CurrentCache.StartIndex + CurrentCache.NumEntries < BatchStart + BatchSize;
-		if (flag && !CanPageDown && ReadStateReq == AsyncRequest.None)
+		int nextStart = BatchStart + 1;
+		if (nextStart + BatchSize > NumEntries)
 		{
 			Selected--;
-			BatchStart--;
 			return false;
 		}
-		bool result = true;
-		if (flag)
-		{
-			if (ReadStateReq == AsyncRequest.None)
-			{
-				CacheNextPage();
-			}
-			else
-			{
-				BatchStart--;
-				Selected--;
-				result = false;
-			}
-		}
-		return result;
+		BatchStart = nextStart;
+		return true;
 	}
 
 	public bool MoveUp()
@@ -479,63 +358,13 @@ public class LeaderboardData
 		{
 			return true;
 		}
-		BatchStart--;
-		bool flag = BatchStart < CurrentCache.StartIndex;
-		if (flag && !CanPageUp && ReadStateReq == AsyncRequest.None)
+		if (BatchStart <= 0)
 		{
 			Selected++;
-			BatchStart++;
 			return false;
 		}
-		bool result = true;
-		if (flag)
-		{
-			if (ReadStateReq == AsyncRequest.None)
-			{
-				CachePreviousPage();
-			}
-			else
-			{
-				BatchStart++;
-				Selected++;
-				result = false;
-			}
-		}
-		return result;
-	}
-
-	private void CacheNextPage()
-	{
-		int newCacheStart = CurrentCache.StartIndex + CurrentCache.NumEntries;
-		FreeCache(newCacheStart);
-		CreateMergedCache(StaleCache, CurrentCache);
-		ReqResult = Reader.BeginPageDown(null, null);
-		ReadStateReq = AsyncRequest.NextPage;
-	}
-
-	private void CachePreviousPage()
-	{
-		int num = Math.Min(CurrentCache.NumEntries, CurrentCache.StartIndex);
-		int newCacheStart = CurrentCache.StartIndex - num;
-		FreeCache(newCacheStart);
-		CreateMergedCache(CurrentCache, StaleCache);
-		ReqResult = Reader.BeginPageUp(null, null);
-		ReadStateReq = AsyncRequest.PreviousPage;
-	}
-
-	private void FreeCache(int NewCacheStart)
-	{
-		Cache currentCache = CurrentCache;
-		CurrentCache = StaleCache;
-		StaleCache = currentCache;
-		if (CurrentCache.StartIndex != NewCacheStart)
-		{
-			CurrentCache.StartIndex = NewCacheStart;
-			for (int i = 0; i < CurrentCache.NumEntries; i++)
-			{
-				CurrentCache.Entries[i].Available = false;
-			}
-		}
+		BatchStart--;
+		return true;
 	}
 
 	private void CreateMergedCache(Cache FirstCache, Cache SecondCache)

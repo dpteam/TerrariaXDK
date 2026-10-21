@@ -235,6 +235,14 @@ internal static class Texts
 		// and calling these numbers verified would be a lie the player cannot check.
 		Add(dictionary, "ui.achievements.earned.by", "Reported by {0} of {1} players");
 		Add(dictionary, "ui.achievements.nobody", "Nobody has reported this achievement yet");
+		Add(dictionary, "ui.achievements.unavailable",
+			"Could not read the achievement totals. Check [Network] MasterServer in Settings.ini.");
+
+		// --- Leaderboards ---------------------------------------------------
+		Add(dictionary, "ui.leaderboards.empty", "No rankings yet - nobody has reported this board");
+		Add(dictionary, "ui.leaderboards.loading", "Reading the rankings from the master server...");
+		Add(dictionary, "ui.leaderboards.unavailable",
+			"Could not read the rankings from the master server. Check [Network] MasterServer in Settings.ini.");
 
 		// --- Mods screen ----------------------------------------------------
 		Add(dictionary, "ui.mods.title", "Mods");

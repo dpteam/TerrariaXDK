@@ -49,7 +49,7 @@ internal class AchievementsUI
 	{
 		if (!Data.Update())
 		{
-			MessageBox.Show(ParentUI.controller, Lang.MenuText[5], Lang.InterfaceText[36], new string[1] { Lang.MenuText[90] });
+			MessageBox.Show(ParentUI.controller, Lang.MenuText[5], Terraria.Texts.Get("ui.achievements.unavailable"), new string[1] { Lang.MenuText[90] });
 			ParentUI.PrevMenu();
 		}
 		else if (UIDelay > 0)

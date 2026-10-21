@@ -98,6 +98,7 @@ internal static class SelfTest
 		RunCheck("text entry", CheckTextEntry);
 		RunCheck("pointer scaling", CheckPointerScaling);
 		RunCheck("modal input latch", CheckModalInputLatch);
+		RunCheck("menu hit table", CheckMenuHitTable);
 		RunCheck("screen geometry", CheckScreenGeometry);
 		RunCheck("master server live", CheckMasterServerLive);
 		RunCheck("achievement stats", CheckAchievementStats);
@@ -8478,6 +8479,52 @@ internal static class SelfTest
 	/// mouse only reached part of the screen - and it was invisible at 540p in a 720p window,
 	/// because "almost right" looks like a slightly-off cursor rather than a bug.
 	/// </summary>
+	private static bool CheckMenuHitTable()
+	{
+		try
+		{
+			// The bug this locks in: the hit-rect table was cleared only for entries whose text was
+			// null, so a screen that draws its own layout kept the previous menu's rectangles.
+			// ClickOutsideMenuEntries then stayed true, and every click outside those stale
+			// rectangles was swallowed instead of becoming A - the mode screen answered clicks on
+			// its labels but not on its checkboxes, and never on Start Game.
+			UI ui = new UI();
+			ui.ClearMenuHits();
+			if (ui.ClickOutsideMenuEntries)
+			{
+				return Fail("an empty hit table still claims the click landed outside the entries");
+			}
+			// An entry somewhere else on screen, with the pointer at the top left: a click must be
+			// swallowed, because a menu with entries is open and the pointer is not on any of them.
+			ui.AddMenuHit(0, new Rectangle(500, 500, 40, 20));
+			if (!ui.ClickOutsideMenuEntries)
+			{
+				return Fail("a click away from the only entry was not recognised as outside it");
+			}
+			// A new frame forgets it, which is the actual fix.
+			ui.ClearMenuHits();
+			if (ui.ClickOutsideMenuEntries)
+			{
+				return Fail("a cleared table kept the previous screen's entry");
+			}
+			// Out-of-range indices are ignored, not thrown: the table is a fixed 14 slots.
+			ui.AddMenuHit(99, new Rectangle(0, 0, 10, 10));
+			if (ui.ClickOutsideMenuEntries)
+			{
+				return Fail("an out-of-range entry index was recorded");
+			}
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("menu hit table check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
 	private static bool CheckModalInputLatch()
 	{
 		try

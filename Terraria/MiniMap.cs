@@ -35,6 +35,26 @@ public sealed class MiniMap
 
 	public volatile bool IsThreadDone;
 
+	/// <summary>
+	/// Bumped whenever the texture set is replaced or disposed. A build in flight compares its own
+	/// copy against this before writing, so a map that was closed (or replaced by a newer build)
+	/// cannot write into freed textures.
+	/// </summary>
+	private int _generation;
+
+	/// <summary>Guards the texture set: builds write it, the game thread replaces or disposes it.</summary>
+	private readonly object _textureLock = new object();
+
+	/// <summary>Everything a build thread needs, handed over at start instead of read from fields.</summary>
+	private sealed class MapJob
+	{
+		public UI Ui;
+
+		public Texture2D[] Textures;
+
+		public int Generation;
+	}
+
 	private short MapDestH = 486;
 
 	private int Alpha;
@@ -148,31 +168,98 @@ public sealed class MiniMap
 
 	public void CreateMap(UI CurrentUI)
 	{
-		if (IsThreadDone)
+		// One lock covers "who owns the textures": a build thread writes them, this method and
+		// DestroyMap replace or dispose them, and the draw path only ever reads the current set
+		// from the game thread. Without it, closing the map while it was being built wrote into
+		// disposed textures - a NullReferenceException on a background thread, which the player
+		// saw as the game closing for no reason.
+		MapJob job;
+		lock (_textureLock)
 		{
-			DestroyMap();
-		}
-		Alpha = 0;
-		MapTexture = new Texture2D[4];
-		for (int num = 3; num >= 0; num--)
-		{
-			MapTexture[num] = new Texture2D(WorldView.GraphicsDevice, TexWidth, Height, mipMap: false, SurfaceFormat.Bgr565);
+			// Cancels any build still running over the previous set: it checks this number before
+			// every write and gives up instead of using a texture that is about to be disposed.
+			_generation++;
+			Texture2D[] previous = MapTexture;
+			Texture2D[] array = new Texture2D[4];
+			for (int num = 3; num >= 0; num--)
+			{
+				array[num] = new Texture2D(WorldView.GraphicsDevice, TexWidth, Height, mipMap: false, SurfaceFormat.Bgr565);
+			}
+			MapTexture = array;
+			job = new MapJob();
+			job.Ui = CurrentUI;
+			job.Textures = array;
+			job.Generation = _generation;
+			Alpha = 0;
+			IsThreadDone = false;
+			DisposeSet(previous);
 		}
 		Thread thread = new Thread(CreateMapThread);
 		thread.IsBackground = true;
-		thread.Start(CurrentUI);
+		thread.Start(job);
 	}
 
 	public unsafe void CreateMapThread(object UIArg)
 	{
-		UI uI = (UI)UIArg;
+		MapJob mapJob = (MapJob)UIArg;
+		try
+		{
+			BuildMap(mapJob);
+		}
+		catch (Exception ex)
+		{
+			// This runs on its own thread: an exception here used to take the whole process down
+			// from a background thread, so the crash looked unrelated to whatever opened the map.
+			Program.LogWarn("MiniMap", "map build failed: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			lock (_textureLock)
+			{
+				if (mapJob.Generation == _generation)
+				{
+					IsThreadDone = true;
+				}
+			}
+		}
+	}
+
+	private unsafe void BuildMap(MapJob job)
+	{
+		UI uI = job.Ui;
+		if (uI == null || uI.CurrentView == null)
+		{
+			return;
+		}
+		Player activePlayer = uI.ActivePlayer;
+		if (activePlayer == null)
+		{
+			return;
+		}
+		// The tile array is captured once. Reading the field inside the loop meant that a world
+		// being unloaded between two tiles turned into a NullReferenceException on this thread -
+		// which the player saw as "the game closed when I opened the map".
+		Tile[,] tileSet = Main.TileSet;
+		if (tileSet == null)
+		{
+			return;
+		}
+		// The sky colour is read once, not per tile: the thread must not depend on game state that
+		// can be replaced underneath it (a world load swaps WorldTime).
+		Time worldTime = uI.CurrentView.WorldTime;
+		Color bgColor = worldTime.bgColor;
 		int num = TexWidth * Height;
 		ushort[] array = new ushort[num];
 		sbyte[] array2 = new sbyte[Height];
 		sbyte[] array3 = new sbyte[Width];
-		Player activePlayer = uI.ActivePlayer;
 		for (int num2 = 3; num2 >= 0; num2--)
 		{
+			if (job.Generation != _generation)
+			{
+				// The map was closed (or rebuilt) while this pass was running. Stop instead of
+				// writing into a texture the game has already disposed.
+				return;
+			}
 			fixed (ushort* ptr = &array[num - 1])
 			{
 				ushort* ptr2 = ptr;
@@ -182,7 +269,7 @@ public sealed class MiniMap
 					int num5 = num4 + num2 * TexWidth;
 					while (num4 >= 0)
 					{
-						fixed (Tile* ptr3 = &Main.TileSet[num5 + 34, num3 + 34])
+						fixed (Tile* ptr3 = &tileSet[num5 + 34, num3 + 34])
 						{
 							if ((ptr3->CurrentFlags & Tile.Flags.VISITED) == 0)
 							{
@@ -235,9 +322,9 @@ public sealed class MiniMap
 								{
 									if (num3 < Main.WorldSurface)
 									{
-										num10 = (uint)((num3 >> 1) * uI.CurrentView.WorldTime.bgColor.R / Main.WorldSurface);
-										num9 = (uint)(num3 * uI.CurrentView.WorldTime.bgColor.G / (int)((float)Main.WorldSurface * 1.2f));
-										num8 = (uint)((num3 << 1) * uI.CurrentView.WorldTime.bgColor.B / Main.WorldSurface);
+										num10 = (uint)((num3 >> 1) * bgColor.R / Main.WorldSurface);
+										num9 = (uint)(num3 * bgColor.G / (int)((float)Main.WorldSurface * 1.2f));
+										num8 = (uint)((num3 << 1) * bgColor.B / Main.WorldSurface);
 										if (num8 > 255)
 										{
 											num8 = 255u;
@@ -299,10 +386,26 @@ public sealed class MiniMap
 					}
 				}
 			}
-			MapTexture[num2].SetData(array);
+			// Published under the same lock the game thread uses to replace or dispose the set:
+			// either this write lands on a texture that is still current, or it is skipped.
+			lock (_textureLock)
+			{
+				if (job.Generation != _generation || job.Textures[num2] == null)
+				{
+					// Disposed (or replaced) while this layer was being built.
+					return;
+				}
+				job.Textures[num2].SetData(array);
+			}
 		}
-		int num12 = uI.CurrentView.SafeAreaOffsetLeft + MapLeftInset();
-		int num13 = uI.CurrentView.ViewWidth - uI.CurrentView.SafeAreaOffsetRight - num12;
+		WorldView view = uI.CurrentView;
+		if (view == null)
+		{
+			// The view is gone (world unloaded) while this build was running.
+			return;
+		}
+		int num12 = view.SafeAreaOffsetLeft + MapLeftInset();
+		int num13 = view.ViewWidth - view.SafeAreaOffsetRight - num12;
 		int num14 = Width - num13;
 		int num15 = Height - MapDestH;
 		MapX = (short)((activePlayer.XYWH.X >> 4) - 34 - (num13 >> 1));
@@ -323,20 +426,35 @@ public sealed class MiniMap
 		{
 			MapY = (short)num15;
 		}
-		IsThreadDone = true;
+		// IsThreadDone is set by the caller's finally, which also checks the generation.
 	}
 
 	public void DestroyMap()
 	{
-		IsThreadDone = false;
-		if (MapTexture != null)
+		lock (_textureLock)
 		{
-			for (int i = 0; i < 4; i++)
-			{
-				MapTexture[i].Dispose();
-				MapTexture[i] = null;
-			}
+			// Cancels any build in flight; it checks the generation before every write.
+			_generation++;
+			IsThreadDone = false;
+			DisposeSet(MapTexture);
 			MapTexture = null;
+		}
+	}
+
+	/// <summary>Disposes one texture set. Caller holds <see cref="_textureLock"/>.</summary>
+	private static void DisposeSet(Texture2D[] Set)
+	{
+		if (Set == null)
+		{
+			return;
+		}
+		for (int i = 0; i < Set.Length; i++)
+		{
+			if (Set[i] != null)
+			{
+				Set[i].Dispose();
+				Set[i] = null;
+			}
 		}
 	}
 

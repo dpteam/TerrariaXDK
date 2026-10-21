@@ -101,14 +101,11 @@ internal class LeaderboardsUI
 
 	public void Update()
 	{
-		// Xbox Live is gone; LeaderboardData falls back to the master server's table, and only
-		// fails (returns false) when neither service has an answer.
-		if (!Data.Update())
-		{
-			MessageBox.Show(ParentUI.controller, Lang.MenuText[5], Lang.InterfaceText[36], new string[1] { Lang.MenuText[90] });
-			ParentUI.PrevMenu();
-		}
-		else if (UIDelay > 0)
+		// The table comes from the master server, so there is nothing async to wait on here: the
+		// read itself runs on its own thread inside LeaderboardData and lands in Data.Update.
+		// A failed read no longer shows a modal dialog - the screen stays open and says why.
+		Data.Update();
+		if (UIDelay > 0)
 		{
 			UIDelay--;
 		}
@@ -225,6 +222,28 @@ internal class LeaderboardsUI
 		Main.StrBuilder.Append('\n');
 		Main.StrBuilder.Append(Data.LeaderboardName);
 		UI.DrawStringLT(boldSmallFont, safeAreaOffsetLeft, safeAreaOffsetTop, Color.White);
+		// An empty table is not an error: the master server answered and nobody has reported this
+		// board yet. Saying so is honest; the old code showed an "Xbox Live required" dialog, which
+		// was both untrue and unhelpful.
+		if (Data.IsEmptyRanking)
+		{
+			UI.DrawStringLT(UI.BoldSmallFont, Terraria.Texts.Get("ui.leaderboards.empty"),
+				safeAreaOffsetLeft + (int)(22f * Main.ScreenMultiplier),
+				View.SafeAreaOffsetTop + (int)(140f * Main.ScreenMultiplier), new Color(180, 180, 180, 255));
+		}
+		else if (Data.IsUnavailable)
+		{
+			// The screen stays usable: Back still works, the header still names the board.
+			UI.DrawStringLT(UI.BoldSmallFont, Terraria.Texts.Get("ui.leaderboards.unavailable"),
+				safeAreaOffsetLeft + (int)(22f * Main.ScreenMultiplier),
+				View.SafeAreaOffsetTop + (int)(140f * Main.ScreenMultiplier), new Color(255, 190, 120, 255));
+		}
+		else if (!Data.Ready)
+		{
+			UI.DrawStringLT(UI.BoldSmallFont, Terraria.Texts.Get("ui.leaderboards.loading"),
+				safeAreaOffsetLeft + (int)(22f * Main.ScreenMultiplier),
+				View.SafeAreaOffsetTop + (int)(140f * Main.ScreenMultiplier), new Color(180, 180, 180, 255));
+		}
 		Vector2 vector = new Vector2(safeAreaOffsetLeft, (float)safeAreaOffsetTop + 10f * Main.ScreenMultiplier);
 		for (int i = 0; i < IconIndices.Length; i++)
 		{
