@@ -108,6 +108,7 @@ dotnet build TerrariaXDK.csproj -v q --nologo     # 0 ошибок
 | Миры | `Storage/Saves/Worlds/PlayerN/*.wld` | `StorageContainer` |
 | Настройки игрока | `Storage/Saves/Settings/PlayerN/config.dat` | `StorageContainer` |
 | Настройки игры | `Storage/Config/Settings.ini` | `Settings` |
+| Бан-лист | `Storage/Config/banlist.txt` | `BanList` |
 | Моды | `Storage/Mods/<Mod>/<Mod>.dll` | `ModLoader` |
 | Отладочный лог | `Storage/Logs/terraria-debug.log` (прошлый запуск — `terraria-debug.prev.log`) | `Program` |
 | Крашлог | `Storage/Logs/client-crashlog.txt` | `Program` |

@@ -233,7 +233,11 @@ internal static class ChatInput
 		Buffer.Append(Sent[_sentCursor]);
 	}
 
-	/// <summary>Tab-completes a cheat command name when the line starts with '!' or '/'.</summary>
+	/// <summary>
+	/// Tab-completes a command name when the line starts with '!' or '/'. Both sets are
+	/// offered when hosting: the player should not have to remember which console a word
+	/// belongs to.
+	/// </summary>
 	private static void CompleteCommand()
 	{
 		string text = Buffer.ToString();
@@ -242,16 +246,22 @@ internal static class ChatInput
 			return;
 		}
 		string text2 = text.Substring(1).ToLowerInvariant();
-		string[] names = Cheats.CheatConsole.CommandNames;
-		for (int i = 0; i < names.Length; i++)
+		string[] array = Cheats.CheatConsole.CommandNames;
+		string[] array2 = ((Main.NetMode == 2) ? Terraria.Net.HostCommands.Names : new string[0]);
+		string[] array3 = new string[array.Length + array2.Length];
+		Array.Copy(array, 0, array3, 0, array.Length);
+		Array.Copy(array2, 0, array3, array.Length, array2.Length);
+		for (int i = 0; i < array3.Length; i++)
 		{
-			if (!names[i].StartsWith(text2, StringComparison.Ordinal))
+			// CommandNames carry their own '!'/'/'; compare without it.
+			string text3 = array3[i].TrimStart('!', '/').ToLowerInvariant();
+			if (!text3.StartsWith(text2, StringComparison.Ordinal))
 			{
 				continue;
 			}
 			Buffer.Length = 0;
 			Buffer.Append(text[0]);
-			Buffer.Append(names[i]);
+			Buffer.Append(text3);
 			Buffer.Append(' ');
 			return;
 		}
@@ -273,6 +283,19 @@ internal static class ChatInput
 			{
 				Sent.RemoveAt(0);
 			}
+		}
+		// Host commands come first: the cheat console is single-player only by design, so in
+		// multiplayer !kick/!ban used to be swallowed by it and refused.
+		if (Main.NetMode == 2 && Terraria.Net.HostCommands.IsCommand(text))
+		{
+			Program.LogInfo("Chat", "host command: " + text);
+			string error2;
+			Terraria.Net.HostCommands.TryExecute(text, out error2);
+			if (!string.IsNullOrEmpty(error2))
+			{
+				Main.NewText(error2, 255, 200, 120);
+			}
+			return;
 		}
 		// Cheat commands stay local and never reach the network.
 		if (Cheats.CheatConsole.IsCommand(text))

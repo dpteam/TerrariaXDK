@@ -70,6 +70,8 @@ internal static class SelfTest
 		RunCheck("auto refresh", CheckAutoRefresh);
 		RunCheck("world backups", CheckWorldBackups);
 		RunCheck("backup restore", CheckBackupRestore);
+		RunCheck("host commands", CheckHostCommands);
+		RunCheck("ban list", CheckBanList);
 		ReportMemory();
 		Console.WriteLine();
 		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
@@ -3112,8 +3114,46 @@ internal static class SelfTest
 				return Fail("the reply packet has the wrong length");
 			}
 
+			// A kick from the host must actually disconnect that player - this is what !kick
+			// uses, and it is the only admin action that touches a live connection.
+			TcpPeer hostPeer = TcpPeer.CurrentHost;
+			if (hostPeer == null)
+			{
+				return Fail("the host peer was not registered for host commands");
+			}
+			if (hostPeer.ConnectedCount != 2)
+			{
+				return Fail("the host counts " + hostPeer.ConnectedCount + " connections instead of 2");
+			}
+			if (!hostPeer.Kick("Stub Gamer (2)", "Kicked by the test.", out string kickedName))
+			{
+				return Fail("kicking a connected player failed");
+			}
+			if (kickedName != "Stub Gamer (2)")
+			{
+				return Fail("the kicked player was reported as '" + kickedName + "'");
+			}
+			// An unknown or ambiguous name must not kick anybody.
+			if (hostPeer.Kick("Nobody", "x", out kickedName))
+			{
+				return Fail("kicking a player who is not connected reported success");
+			}
+			if (hostPeer.ConnectedCount != 1)
+			{
+				return Fail("the kick did not close the connection");
+			}
+			// The kicked client must learn that the session ended, not sit in a frozen world.
+			if (!PumpUntil(delegate
+			{
+				return clientSession2.SessionState == NetworkSessionState.Ended;
+			}, 4000, hostSession, clientSession1, clientSession2))
+			{
+				return Fail("the kicked client did not see the session end (state " + clientSession2.SessionState + ")");
+			}
+
 			// A leave must be noticed by everybody, otherwise ghost players stay in the world.
-			clientSession2.Dispose();
+			// Client 2 was kicked above, so this also covers "the host notices a kick".
+			clientSession2?.Dispose();
 			clientSession2 = null;
 			if (!PumpUntil(delegate
 			{
@@ -3930,6 +3970,198 @@ internal static class SelfTest
 			catch
 			{
 			}
+		}
+	}
+
+	// --- Host commands ------------------------------------------------------
+
+	/// <summary>
+	/// A host had no way to remove a player except restarting the world: the chat console is
+	/// single-player only by design, so "!kick" was swallowed and refused. These commands are
+	/// host-only, and the parsing is what decides whether text is a command at all - get that
+	/// wrong and a player's message starting with '!' disappears.
+	/// </summary>
+	private static bool CheckHostCommands()
+	{
+		try
+		{
+			// Recognised commands.
+			string[] known = new string[7] { "!kick bob", "!ban bob", "!unban bob", "!bans", "!who", "!say hi", "!help" };
+			for (int i = 0; i < known.Length; i++)
+			{
+				if (!HostCommands.IsCommand(known[i]))
+				{
+					return Fail("'" + known[i] + "' was not recognised as a host command");
+				}
+			}
+			// Case-insensitive, and leading spaces are tolerated by the chat submit path.
+			if (!HostCommands.IsCommand("!KICK bob"))
+			{
+				return Fail("commands are case sensitive");
+			}
+			// Anything else is ordinary chat and must stay that way.
+			string[] notCommands = new string[6] { "hello", "!hello", "!god", "!", "", "  " };
+			for (int j = 0; j < notCommands.Length; j++)
+			{
+				if (HostCommands.IsCommand(notCommands[j]))
+				{
+					return Fail("'" + notCommands[j] + "' was mistaken for a host command");
+				}
+			}
+			// A non-command is not executed (returns false so chat falls through).
+			string error;
+			if (HostCommands.TryExecute("hello", out error))
+			{
+				return Fail("plain chat was executed as a command");
+			}
+			// Known command, but this process is not hosting: refused with a reason rather than
+			// silently claimed or silently dropped.
+			int netMode = Main.NetMode;
+			try
+			{
+				Main.NetMode = 0;
+				if (!HostCommands.TryExecute("!kick bob", out error))
+				{
+					return Fail("a host command was not handled when not hosting");
+				}
+				if (string.IsNullOrEmpty(error))
+				{
+					return Fail("a host command run outside a host gave no reason");
+				}
+			}
+			finally
+			{
+				Main.NetMode = netMode;
+			}
+			// Argument splitting: "name" and "name reason with spaces".
+			string target;
+			string reason;
+			HostCommands.SplitTarget("bob", out target, out reason);
+			if (target != "bob" || reason != "")
+			{
+				return Fail("a bare target was parsed as '" + target + "' / '" + reason + "'");
+			}
+			HostCommands.SplitTarget("bob  was  rude ", out target, out reason);
+			if (target != "bob" || reason != "was  rude")
+			{
+				return Fail("a target with a reason was parsed as '" + target + "' / '" + reason + "'");
+			}
+			HostCommands.SplitTarget("", out target, out reason);
+			if (target != "" || reason != "")
+			{
+				return Fail("empty arguments produced a target");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("host commands check threw: " + ex.Message);
+		}
+	}
+
+	// --- Ban list -----------------------------------------------------------
+
+	/// <summary>
+	/// A ban has to match exactly what the host typed, must not match by accident (a
+	/// substring match would ban "Bobby" when "Bob" was banned), and must survive the round
+	/// trip through the file.
+	/// </summary>
+	private static bool CheckBanList()
+	{
+		string backup = null;
+		bool had = System.IO.File.Exists(BanList.FilePath);
+		try
+		{
+			if (had)
+			{
+				backup = System.IO.File.ReadAllText(BanList.FilePath, Encoding.UTF8);
+			}
+			System.IO.File.WriteAllText(BanList.FilePath, "# test file\r\n", Encoding.UTF8);
+			BanList.Reload();
+			if (BanList.Count != 0)
+			{
+				return Fail("the ban list did not start empty");
+			}
+			if (!BanList.Add("Griefer"))
+			{
+				return Fail("a name could not be banned");
+			}
+			if (!BanList.Add("203.0.113.7"))
+			{
+				return Fail("an address could not be banned");
+			}
+			// Duplicates are a no-op, not a second entry.
+			if (BanList.Add("griefer") || BanList.Count != 2)
+			{
+				return Fail("a duplicate ban was added");
+			}
+			if (BanList.Add("   ") || BanList.Add(null))
+			{
+				return Fail("an empty ban was accepted");
+			}
+			// Exact match only, case-insensitive; both name and address are checked.
+			if (!BanList.IsBanned("Griefer", null) || !BanList.IsBanned("griefer", "198.51.100.1"))
+			{
+				return Fail("a banned name was not matched (case-insensitively)");
+			}
+			if (!BanList.IsBanned(null, "203.0.113.7") || !BanList.IsBanned("Someone", "203.0.113.7"))
+			{
+				return Fail("a banned address was not matched");
+			}
+			if (BanList.IsBanned("GrieferTwo", null) || BanList.IsBanned("Grie", null))
+			{
+				return Fail("a substring of a banned name was treated as banned");
+			}
+			if (BanList.IsBanned(null, null) || BanList.IsBanned("", ""))
+			{
+				return Fail("an empty name and address were treated as banned");
+			}
+			// Survives a reload from disk.
+			BanList.Reload();
+			if (BanList.Count != 2 || !BanList.IsBanned("Griefer", null) || !BanList.IsBanned(null, "203.0.113.7"))
+			{
+				return Fail("the ban list did not survive a reload");
+			}
+			// A hand-edited file with comments and junk is read without surprises.
+			System.IO.File.WriteAllText(BanList.FilePath, "# comment\r\n\r\nRealGriefer\r\n", Encoding.UTF8);
+			BanList.Reload();
+			if (BanList.Count != 1 || !BanList.IsBanned("RealGriefer", null))
+			{
+				return Fail("a hand-edited ban file was misread (" + BanList.Count + " entries)");
+			}
+			// Unban removes it; a second unban reports that there was nothing to do.
+			if (!BanList.Remove("RealGriefer") || BanList.IsBanned("RealGriefer", null))
+			{
+				return Fail("unban did not lift the ban");
+			}
+			if (BanList.Remove("RealGriefer"))
+			{
+				return Fail("unban of a missing entry reported success");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("ban list check threw: " + ex.Message);
+		}
+		finally
+		{
+			BanList.Reload();
+			try
+			{
+				if (backup != null)
+				{
+					System.IO.File.WriteAllText(BanList.FilePath, backup, Encoding.UTF8);
+				}
+				else if (System.IO.File.Exists(BanList.FilePath))
+				{
+					System.IO.File.Delete(BanList.FilePath);
+				}
+			}
+			catch
+			{
+			}
+			BanList.Reload();
 		}
 	}
 

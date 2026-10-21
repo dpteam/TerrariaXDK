@@ -509,7 +509,13 @@ public sealed class NetworkSession : IDisposable
 				}
 				else
 				{
-					SessionEnded(this, new NetworkSessionEndedEventArgs(NetworkSessionEndReason.Disconnected));
+					// Null-checked like the other events: a session with no handler (the
+					// headless test, or a host that never hooked events) must not throw from
+					// inside the update loop just because the peer disconnected.
+					if (SessionEnded != null)
+					{
+						SessionEnded(this, new NetworkSessionEndedEventArgs(NetworkSessionEndReason.Disconnected));
+					}
 				}
 				SessionState = networkEvent.State;
 			}

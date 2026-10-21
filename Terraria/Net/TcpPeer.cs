@@ -90,6 +90,87 @@ internal sealed class TcpPeer : IPeerTransport
 
 	private int _advertisedPort;
 
+	/// <summary>
+	/// The peer that owns the listener, if this process is hosting. Host console commands
+	/// (!kick, !ban) need to reach the connections, and the session keeps its transport
+	/// private, so the host registers itself here.
+	/// </summary>
+	internal static TcpPeer CurrentHost;
+
+	/// <summary>How many remote players are connected. Host console and diagnostics.</summary>
+	internal int ConnectedCount => RemoteCount();
+
+	/// <summary>Names of the connected players, in connection order.</summary>
+	internal List<string> ConnectedNames()
+	{
+		List<string> list = new List<string>();
+		lock (_connections)
+		{
+			for (int i = 0; i < _connections.Count; i++)
+			{
+				list.Add(_connections[i].Gamertag);
+			}
+		}
+		return list;
+	}
+
+	/// <summary>
+	/// Disconnects one player and tells them why. Returns false when nobody matches, so the
+	/// host console can say "no such player" instead of silently doing nothing.
+	///
+	/// Matching is by gamertag (case-insensitive), which is what the host sees; an exact match
+	/// is preferred over a prefix so "Bob" does not kick "Bobby" when both are online.
+	/// </summary>
+	internal bool Kick(string gamertag, string reason, out string kicked)
+	{
+		kicked = null;
+		if (string.IsNullOrWhiteSpace(gamertag))
+		{
+			return false;
+		}
+		string text = gamertag.Trim();
+		Connection connection = null;
+		lock (_connections)
+		{
+			for (int i = 0; i < _connections.Count; i++)
+			{
+				if (string.Equals(_connections[i].Gamertag, text, StringComparison.OrdinalIgnoreCase))
+				{
+					connection = _connections[i];
+					break;
+				}
+			}
+			// No exact match: allow a unique prefix, which is how people type names in chat.
+			if (connection == null)
+			{
+				Connection connection2 = null;
+				int num = 0;
+				for (int j = 0; j < _connections.Count; j++)
+				{
+					if (_connections[j].Gamertag.StartsWith(text, StringComparison.OrdinalIgnoreCase))
+					{
+						connection2 = _connections[j];
+						num++;
+					}
+				}
+				if (num == 1)
+				{
+					connection = connection2;
+				}
+			}
+		}
+		if (connection == null)
+		{
+			return false;
+		}
+		kicked = connection.Gamertag;
+		ModLoaderLog("Kicked " + connection.Gamertag + ": " + reason);
+		// Tell the client why before the socket goes away; the disconnect path does the close.
+		SendReject(connection, reason);
+		Disconnect(connection);
+		return true;
+	}
+
 	private long _lastPingTick;
 
 	private long _pendingPingTick;
@@ -118,6 +199,7 @@ internal sealed class TcpPeer : IPeerTransport
 		int port = NetworkConfig.Port;
 		_listener = new TcpListener(IPAddress.Any, port);
 		_listener.Start();
+		CurrentHost = this;
 		// Port 0 means "let the OS pick": report the port actually bound, not the request.
 		// Without this a caller asking for 0 would advertise 0 in discovery and to clients.
 		port = ((IPEndPoint)_listener.LocalEndpoint).Port;
@@ -212,6 +294,15 @@ internal sealed class TcpPeer : IPeerTransport
 				_inbox.Enqueue(() => RejectForMods(gamertag));
 				return;
 			}
+			// Bans are checked before the peer joins, so a banned player never sees the roster
+			// or any world data. Checking after the join would leak both.
+			string remoteAddress = RemoteAddressOf(connection);
+			if (Terraria.Net.BanList.IsBanned(gamertag, remoteAddress))
+			{
+				ModLoaderLog("Rejected banned peer " + gamertag + " from " + remoteAddress);
+				Reject(connection, "You are banned from this server.");
+				return;
+			}
 			// Password is checked before the peer is registered, so an unauthenticated
 			// connection can never see the roster or receive world data.
 			if (!string.IsNullOrEmpty(NetworkConfig.Password) && !CheckPassword(password))
@@ -261,8 +352,39 @@ internal sealed class TcpPeer : IPeerTransport
 		return string.Equals(supplied ?? "", NetworkConfig.Password, StringComparison.Ordinal);
 	}
 
+	/// <summary>
+	/// The peer's IP address, or null when the socket is already gone. Used by the ban check:
+	/// a name can be changed, an address is what the connection actually came from.
+	/// </summary>
+	private static string RemoteAddressOf(Connection connection)
+	{
+		try
+		{
+			if (connection == null || connection.Client == null || connection.Client.Client == null)
+			{
+				return null;
+			}
+			IPEndPoint iPEndPoint = connection.Client.Client.RemoteEndPoint as IPEndPoint;
+			return (iPEndPoint == null) ? null : iPEndPoint.Address.ToString();
+		}
+		catch
+		{
+			return null;
+		}
+	}
+
 	/// <summary>Tells the client why it was refused, then closes. Best effort.</summary>
 	private static void Reject(Connection connection, string reason)
+	{
+		SendReject(connection, reason);
+		connection.Close();
+	}
+
+	/// <summary>
+	/// Sends the refusal without closing. Used by <see cref="Kick"/>, which lets the normal
+	/// disconnect path close the socket: closing here as well would race with it.
+	/// </summary>
+	private static void SendReject(Connection connection, string reason)
 	{
 		try
 		{
@@ -271,7 +393,6 @@ internal sealed class TcpPeer : IPeerTransport
 		catch
 		{
 		}
-		connection.Close();
 	}
 
 	private void ReceiveLoop(Connection connection)
@@ -836,6 +957,10 @@ internal sealed class TcpPeer : IPeerTransport
 	public void Shutdown()
 	{
 		_stopped = true;
+		if (CurrentHost == this)
+		{
+			CurrentHost = null;
+		}
 		MasterPublisher.Stop();
 		try
 		{
