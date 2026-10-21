@@ -23,6 +23,13 @@ internal sealed class Entry
 	public string Motd = string.Empty;
 	public string ModSignature = string.Empty;
 	public string Platform = string.Empty;
+
+	/// <summary>
+	/// Relay room this world can be reached through, or empty. Clients that see it dial the
+	/// relay instead of <see cref="Host"/>/<see cref="Port"/>.
+	/// </summary>
+	public string RelayRoom = string.Empty;
+
 	public DateTime LastSeenUtc;
 
 	public string Key
@@ -387,6 +394,9 @@ internal sealed class MasterServerHost
 		entry.Motd = Clean(Json.GetString(dictionary, "motd"), 200, string.Empty);
 		entry.ModSignature = Clean(Json.GetString(dictionary, "modSignature"), 64, string.Empty);
 		entry.Platform = Clean(Json.GetString(dictionary, "platform"), 16, string.Empty);
+		// A relayed host publishes the room it can be reached through. The id is opaque and the
+		// relay itself validates it, so there is nothing to check beyond its length.
+		entry.RelayRoom = Clean(Json.GetString(dictionary, "relayRoom"), 64, string.Empty);
 		entry.LastSeenUtc = DateTime.UtcNow;
 		bool flag;
 		string announceMessage = null;
@@ -500,6 +510,9 @@ internal sealed class MasterServerHost
 			stringBuilder.Append("\"worldName\":").Append(Json.Quote(entry.WorldName)).Append(',');
 			stringBuilder.Append("\"motd\":").Append(Json.Quote(entry.Motd)).Append(',');
 			stringBuilder.Append("\"modSignature\":").Append(Json.Quote(entry.ModSignature));
+			// The relay room is not "extra": a client that ignores it cannot reach a relayed
+			// host at all, because there is no address to dial.
+			stringBuilder.Append(",\"relayRoom\":").Append(Json.Quote(entry.RelayRoom));
 			// Extra fields, ignored by the client: useful when reading the list by hand.
 			stringBuilder.Append(",\"platform\":").Append(Json.Quote(entry.Platform));
 			stringBuilder.Append(",\"ageSeconds\":").Append(num.ToString(CultureInfo.InvariantCulture));

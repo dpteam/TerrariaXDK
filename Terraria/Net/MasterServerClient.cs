@@ -31,6 +31,12 @@ internal sealed class MasterServerEntry
 	/// <summary>Mod set hash, so the list can mark incompatible servers before connecting.</summary>
 	public string ModSignature = string.Empty;
 
+	/// <summary>
+	/// Relay room to join, or empty for a direct connection. A relayed host has no reachable
+	/// address of its own, so the client dials the relay and names this room.
+	/// </summary>
+	public string RelayRoom = string.Empty;
+
 	public string Address
 	{
 		get
@@ -383,6 +389,7 @@ internal static class MasterServerClient
 				masterServerEntry.WorldName = Json.GetString(dictionary2, "worldName") ?? string.Empty;
 				masterServerEntry.Motd = Json.GetString(dictionary2, "motd") ?? string.Empty;
 				masterServerEntry.ModSignature = Json.GetString(dictionary2, "modSignature") ?? string.Empty;
+				masterServerEntry.RelayRoom = Json.GetString(dictionary2, "relayRoom") ?? string.Empty;
 				list.Add(masterServerEntry);
 			}
 			return list;
@@ -408,6 +415,7 @@ internal static class MasterServerClient
 		stringBuilder.Append("\"worldName\":").Append(Json.Quote(entry.WorldName)).Append(',');
 		stringBuilder.Append("\"motd\":").Append(Json.Quote(entry.Motd)).Append(',');
 		stringBuilder.Append("\"modSignature\":").Append(Json.Quote(entry.ModSignature)).Append(',');
+		stringBuilder.Append("\"relayRoom\":").Append(Json.Quote(entry.RelayRoom)).Append(',');
 		stringBuilder.Append("\"platform\":\"windows\"");
 		stringBuilder.Append('}');
 		return stringBuilder.ToString();

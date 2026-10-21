@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 
@@ -153,6 +154,13 @@ internal static class SelfTest
 
 			Request(text + "/health", "GET", null, out num, out text2);
 			Check("health counts players", text2.Contains("\"players\":2"), Trim(text2));
+
+			// --- relay ---------------------------------------------------------
+			// The relay is what lets somebody behind CGNAT host at all. These checks drive the
+			// real protocol over real sockets: a room opens, a client waits, the host collects the
+			// ticket, and after ACCEPT the two sockets must be a transparent pipe - the game's own
+			// framing is the only framing, so arbitrary bytes have to come back unchanged.
+			RelayChecks();
 		}
 		catch (Exception ex)
 		{
@@ -167,9 +175,187 @@ internal static class SelfTest
 		return (_failed == 0) ? 0 : 1;
 	}
 
-	private static void Check(string name, bool ok, string detail)
+	/// <summary>
+	/// The relay, driven the way the game will drive it. A fake host registers a room, a fake
+	/// client joins and waits, the host polls for the ticket and accepts it, and then both sides
+	/// exchange bytes that must arrive unchanged in both directions.
+	/// </summary>
+	private static void RelayChecks()
 	{
-		if (ok)
+		RelayHost relay = new RelayHost(0);
+		try
+		{
+			relay.Start();
+		}
+		catch (Exception ex)
+		{
+			Check("relay starts", false, ex.Message);
+			return;
+		}
+		try
+		{
+			string token = "0123456789abcdef0123456789abcdef";
+			TcpClient tcpClient = RelayConnect(relay.Port);
+			RelaySend(tcpClient, "HOST short");
+			string text = RelayLine(tcpClient);
+			Check("relay refuses a short token", text == "ERR token too short", text);
+
+			// A room, and its id comes back.
+			TcpClient tcpClient2 = RelayConnect(relay.Port);
+			RelaySend(tcpClient2, "HOST " + token);
+			string text2 = RelayLine(tcpClient2);
+			Check("relay opens a room", text2 != null && text2.StartsWith("OK ", StringComparison.Ordinal), text2);
+			string roomId = ((text2 != null && text2.Length > 3) ? text2.Substring(3).Trim() : "");
+			Check("relay counts the room", relay.HasRoom(roomId) && relay.RoomCount == 1, "rooms " + relay.RoomCount);
+
+			// A client joins and is parked.
+			TcpClient tcpClient3 = RelayConnect(relay.Port);
+			RelaySend(tcpClient3, "JOIN " + roomId);
+			string text3 = RelayLine(tcpClient3);
+			Check("relay parks a client", text3 == "WAIT", text3);
+			Check("relay reports one waiting client", relay.WaitingCount(roomId) == 1, "waiting " + relay.WaitingCount(roomId));
+
+			// Unknown room: refused before anything is parked.
+			TcpClient tcpClient4 = RelayConnect(relay.Port);
+			RelaySend(tcpClient4, "JOIN nosuchroom");
+			string text4 = RelayLine(tcpClient4);
+			Check("relay refuses an unknown room", text4 == "ERR no such room", text4);
+			tcpClient4.Close();
+
+			// The host asks for waiting clients and gets a ticket.
+			TcpClient tcpClient5 = RelayConnect(relay.Port);
+			RelaySend(tcpClient5, "POLL " + token);
+			string text5 = RelayLine(tcpClient5);
+			Check("relay hands out a ticket", text5 != null && text5.StartsWith("JOIN ", StringComparison.Ordinal), text5);
+			string text6 = RelayLine(tcpClient5);
+			Check("relay ends the poll", text6 == "END", text6);
+			string ticket = ((text5 != null && text5.Length > 5) ? text5.Substring(5).Trim() : "");
+
+			// A wrong token cannot poll somebody else's room.
+			TcpClient tcpClient6 = RelayConnect(relay.Port);
+			RelaySend(tcpClient6, "POLL deadbeefdeadbeefdeadbeefdeadbeef");
+			string text7 = RelayLine(tcpClient6);
+			Check("relay refuses a wrong token", text7 == "ERR no such room", text7);
+			tcpClient6.Close();
+
+			// Accept: after this the two sockets are a raw pipe.
+			TcpClient tcpClient7 = RelayConnect(relay.Port);
+			RelaySend(tcpClient7, "ACCEPT " + ticket);
+			// Host -> client.
+			RelayWrite(tcpClient7, "hello from the host");
+			Check("relay carries host bytes", RelayRead(tcpClient3, "hello from the host"), "nothing arrived");
+			// Client -> host.
+			RelayWrite(tcpClient3, "hello from the client");
+			Check("relay carries client bytes", RelayRead(tcpClient7, "hello from the client"), "nothing arrived");
+
+			// A ticket is one shot: a second ACCEPT must not attach to the same session.
+			TcpClient tcpClient8 = RelayConnect(relay.Port);
+			RelaySend(tcpClient8, "ACCEPT " + ticket);
+			string text8 = RelayLine(tcpClient8);
+			Check("relay refuses a reused ticket", text8 == "ERR bad ticket", text8);
+			tcpClient8.Close();
+
+			// Closing the host's presence ends the room: a relay that keeps the room alive would
+			// let clients wait forever for a host that is gone.
+			tcpClient7.Close();
+			tcpClient3.Close();
+			tcpClient2.Close();
+			Thread.Sleep(300);
+			Check("relay closes the room with its host", !relay.HasRoom(roomId) && relay.RoomCount == 0, "rooms " + relay.RoomCount);
+			TcpClient tcpClient9 = RelayConnect(relay.Port);
+			RelaySend(tcpClient9, "JOIN " + roomId);
+			string text9 = RelayLine(tcpClient9);
+			Check("relay refuses a closed room", text9 == "ERR no such room", text9);
+			tcpClient9.Close();
+			tcpClient.Close();
+		}
+		catch (Exception ex)
+		{
+			Check("relay checks did not throw", false, ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			relay.Stop();
+		}
+	}
+
+	/// <summary>One socket to the relay, with a read timeout so a hung pipe fails a check instead of the test.</summary>
+	private static TcpClient RelayConnect(int Port)
+	{
+		TcpClient tcpClient = new TcpClient();
+		tcpClient.NoDelay = true;
+		tcpClient.ReceiveTimeout = 4000;
+		tcpClient.Connect(IPAddress.Loopback, Port);
+		return tcpClient;
+	}
+
+	private static void RelaySend(TcpClient Client, string Line)
+	{
+		RelayWrite(Client, Line + "\n");
+	}
+
+	private static void RelayWrite(TcpClient Client, string Text)
+	{
+		byte[] bytes = Encoding.UTF8.GetBytes(Text);
+		Client.GetStream().Write(bytes, 0, bytes.Length);
+		Client.GetStream().Flush();
+	}
+
+	/// <summary>Reads one line, or null on timeout/close.</summary>
+	private static string RelayLine(TcpClient Client)
+	{
+		try
+		{
+			StringBuilder stringBuilder = new StringBuilder();
+			NetworkStream stream = Client.GetStream();
+			while (stringBuilder.Length < 512)
+			{
+				int num = stream.ReadByte();
+				if (num < 0)
+				{
+					return (stringBuilder.Length == 0) ? null : stringBuilder.ToString();
+				}
+				if (num == 10)
+				{
+					return stringBuilder.ToString().TrimEnd('\r');
+				}
+				stringBuilder.Append((char)num);
+			}
+			return stringBuilder.ToString();
+		}
+		catch
+		{
+			return null;
+		}
+	}
+
+	/// <summary>Reads until the expected text arrives, or gives up. Returns whether it did.</summary>
+	private static bool RelayRead(TcpClient Client, string Expected)
+	{
+		try
+		{
+			byte[] array = new byte[Expected.Length];
+			NetworkStream stream = Client.GetStream();
+			int num = 0;
+			while (num < array.Length)
+			{
+				int num2 = stream.Read(array, num, array.Length - num);
+				if (num2 <= 0)
+				{
+					return false;
+				}
+				num += num2;
+			}
+			return Encoding.UTF8.GetString(array) == Expected;
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	private static void Check(string name, bool ok, string detail)
+	{		if (ok)
 		{
 			_passed++;
 			Console.WriteLine("  ok   " + name);

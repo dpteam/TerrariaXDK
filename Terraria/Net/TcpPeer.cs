@@ -77,6 +77,12 @@ internal sealed class TcpPeer : IPeerTransport
 
 	private readonly IPEndPoint _remoteEndPoint;
 
+	/// <summary>
+	/// Relay room to join, or empty for a direct connection. Set from the session the client is
+	/// joining, which got it from the master's listing.
+	/// </summary>
+	private readonly string _relayRoom;
+
 	private readonly ConcurrentQueue<Action> _inbox = new ConcurrentQueue<Action>();
 
 	private readonly List<Connection> _connections = new List<Connection>();
@@ -188,6 +194,7 @@ internal sealed class TcpPeer : IPeerTransport
 		_session = session;
 		_isHost = availableSession == null;
 		_remoteEndPoint = availableSession?.EndPoint;
+		_relayRoom = availableSession?.RelayRoom ?? string.Empty;
 		_advertisedPort = NetworkConfig.Port;
 		if (_isHost)
 		{
@@ -226,8 +233,74 @@ internal sealed class TcpPeer : IPeerTransport
 			Name = "TerrariaXDK.Discovery"
 		};
 		thread.Start();
+		// Optional: also make this world reachable through the relay, for hosts that cannot be
+		// reached directly at all. Opt-in ([Network] AllowRelay), because a relay costs a hop of
+		// latency and somebody else's bandwidth.
+		//
+		// Registered before the publisher starts: the announcement has to carry the room id, or
+		// the first listing would advertise a world nobody outside can join until it refreshes.
+		if (NetworkConfig.AllowRelay)
+		{
+			string error;
+			string text = RelayLink.Register(out error);
+			if (text != null)
+			{
+				NetworkConfig.RelayRoom = text;
+				RelayLink.StartPump(this);
+			}
+			else
+			{
+				Program.LogWarn("Relay", "relay is enabled but the room could not be opened: " + error);
+				NetworkConfig.RelayRoom = string.Empty;
+			}
+		}
 		// Optional: list this world publicly. No-op unless [Network] PublishToMaster is on.
 		MasterPublisher.Start(port);
+	}
+
+	/// <summary>
+	/// Takes an already-connected socket into the host's connection list.
+	///
+	/// Used by the relay: the host dials out and the relay pairs that socket with a waiting
+	/// client, so from here on it is an ordinary TCP stream and the normal accept path applies.
+	/// Doing it this way means the relay adds no second code path through the handshake, the
+	/// roster or the world sync.
+	/// </summary>
+	internal void AdoptRelaySocket(TcpClient Client)
+	{
+		if (_stopped || Client == null)
+		{
+			try
+			{
+				Client?.Close();
+			}
+			catch
+			{
+			}
+			return;
+		}
+		try
+		{
+			Client.NoDelay = true;
+			Connection connection = new Connection(Client);
+			Thread thread = new Thread(() => ServeConnection(connection))
+			{
+				IsBackground = true,
+				Name = "TerrariaXDK.Peer"
+			};
+			thread.Start();
+		}
+		catch (Exception ex)
+		{
+			ModLoaderLog("Could not adopt a relayed connection: " + ex.Message);
+			try
+			{
+				Client.Close();
+			}
+			catch
+			{
+			}
+		}
 	}
 
 	private void AcceptLoop()
@@ -756,23 +829,42 @@ internal sealed class TcpPeer : IPeerTransport
 		{
 			throw new InvalidOperationException("No host endpoint to connect to.");
 		}
-		_client = new TcpClient();
-		_client.NoDelay = true;
 		NetworkStats.Reset();
-		// A dead or firewalled host must fail fast: the game blocks in Join() before it can
-		// show any UI, so the default (tens of seconds) looks like a freeze.
-		if (!ConnectWithTimeout(_client, _remoteEndPoint, NetworkConfig.ConnectTimeoutMs))
+		string relayRoom = _relayRoom;
+		if (!string.IsNullOrEmpty(relayRoom))
 		{
-			try
+			// Relayed session: the endpoint is the relay, and the room id says which host to be
+			// paired with. The socket that comes back is already connected to the host, so the
+			// handshake below is exactly the same as for a direct connection - the relay never
+			// sees or rewrites it.
+			string error;
+			_client = RelayLink.Join(_remoteEndPoint.Address.ToString(), _remoteEndPoint.Port, relayRoom, out error);
+			if (_client == null)
 			{
-				_client.Close();
+				throw new IOException("Could not join the relayed world: " + error);
 			}
-			catch
-			{
-			}
-			throw new TimeoutException("Could not reach " + _remoteEndPoint + " within " + NetworkConfig.ConnectTimeoutMs + " ms.");
+			_client.NoDelay = true;
+			_stream = _client.GetStream();
 		}
-		_stream = _client.GetStream();
+		else
+		{
+			_client = new TcpClient();
+			_client.NoDelay = true;
+			// A dead or firewalled host must fail fast: the game blocks in Join() before it can
+			// show any UI, so the default (tens of seconds) looks like a freeze.
+			if (!ConnectWithTimeout(_client, _remoteEndPoint, NetworkConfig.ConnectTimeoutMs))
+			{
+				try
+				{
+					_client.Close();
+				}
+				catch
+				{
+				}
+				throw new TimeoutException("Could not reach " + _remoteEndPoint + " within " + NetworkConfig.ConnectTimeoutMs + " ms.");
+			}
+			_stream = _client.GetStream();
+		}
 		// Announce this session's own player, not "the first signed-in gamer": with several
 		// sessions in one process (or split-screen) every client would send the same tag.
 		string gamertag = (_session.LocalGamers.Count > 0 && !string.IsNullOrEmpty(_session.LocalGamers[0].Gamertag)) ? _session.LocalGamers[0].Gamertag : ((Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers.Count > 0) ? Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers[0].Gamertag : "Terrarian");
@@ -1129,6 +1221,13 @@ internal sealed class TcpPeer : IPeerTransport
 			HostModeration.ResetMutes();
 		}
 		MasterPublisher.Stop();
+		if (_isHost)
+		{
+			// Closing the presence socket is what tells the relay the room is gone, so clients
+			// stop waiting for a host that has left.
+			RelayLink.Stop();
+			NetworkConfig.RelayRoom = string.Empty;
+		}
 		try
 		{
 			_listener?.Stop();

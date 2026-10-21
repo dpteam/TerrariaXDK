@@ -27,6 +27,13 @@ public sealed class AvailableNetworkSession
 
 	internal IPEndPoint EndPoint { get; set; }
 
+	/// <summary>
+	/// Relay room to join, or empty for a direct connection. When set, <see cref="EndPoint"/> is
+	/// the relay rather than the host: the socket is paired with the host by the relay, and the
+	/// game's handshake still runs end to end.
+	/// </summary>
+	internal string RelayRoom { get; set; }
+
 	internal IPEndPoint InternalEndpont { get; set; }
 
 	internal NetworkSessionType SessionType { get; set; }

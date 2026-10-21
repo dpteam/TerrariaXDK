@@ -121,6 +121,10 @@ internal static class MasterPublisher
 		masterServerEntry.Passworded = !string.IsNullOrEmpty(NetworkConfig.Password);
 		masterServerEntry.WorldName = Main.WorldName ?? string.Empty;
 		masterServerEntry.ModSignature = Terraria.Mods.ModLoader.Signature;
+		// Relayed host: the room id is how a client reaches us. The address above is still sent
+		// (it costs nothing and a client on the same network can use it directly), but a player
+		// outside can only get in through the room.
+		masterServerEntry.RelayRoom = NetworkConfig.RelayRoom ?? string.Empty;
 		return masterServerEntry;
 	}
 

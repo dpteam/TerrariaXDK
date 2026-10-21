@@ -723,7 +723,8 @@ public sealed class Netplay
 		{
 			for (int i = 0; i < entries.Count && !stopSessionFinderThread; i++)
 			{
-				System.Net.IPEndPoint endPoint = ResolveMasterEntry(entries[i], stopwatch);
+				bool relayed = !string.IsNullOrEmpty(entries[i].RelayRoom);
+				System.Net.IPEndPoint endPoint = (relayed ? ResolveRelayEndpoint() : ResolveMasterEntry(entries[i], stopwatch));
 				if (endPoint == null)
 				{
 					continue;
@@ -731,7 +732,11 @@ public sealed class Netplay
 				bool duplicate = false;
 				for (int j = 0; j < availableSessions.Count; j++)
 				{
-					if (availableSessions[j].AvailableSession.EndPoint != null && availableSessions[j].AvailableSession.EndPoint.Equals(endPoint))
+					// The room is part of the identity: every relayed world shares the relay's
+					// endpoint, so comparing addresses alone would collapse them into one row.
+					if (availableSessions[j].AvailableSession.EndPoint != null
+						&& availableSessions[j].AvailableSession.EndPoint.Equals(endPoint)
+						&& string.Equals(availableSessions[j].AvailableSession.RelayRoom ?? string.Empty, entries[i].RelayRoom ?? string.Empty, StringComparison.Ordinal))
 					{
 						duplicate = true;
 						break;
@@ -751,8 +756,48 @@ public sealed class Netplay
 				// Only trust the listing when it actually carries a signature; an older
 				// master may omit the field, and "unknown" must not mean "incompatible".
 				availableNetworkSession.ModMismatch = !string.IsNullOrEmpty(entries[i].ModSignature) && !Terraria.Mods.ModLoader.IsCompatible(entries[i].ModSignature);
+				// Relayed entries have no reachable address of their own: the endpoint above is
+				// the relay, and the room id tells it which host to pair this client with.
+				availableNetworkSession.RelayRoom = entries[i].RelayRoom ?? string.Empty;
 				availableSessions.Add(new JoinableSession(availableNetworkSession));
 			}
+		}
+	}
+
+	/// <summary>
+	/// The relay's address for a relayed listing. Resolved from this client's own settings
+	/// (<c>[Network] RelayServer</c>, or the master's host with <see cref="NetworkConfig.RelayPort"/>),
+	/// because the listing deliberately carries no relay address: everybody who can read the list
+	/// already knows the relay they got it from.
+	/// </summary>
+	private static System.Net.IPEndPoint ResolveRelayEndpoint()
+	{
+		string text;
+		int num;
+		if (!Terraria.Net.RelayLink.TryGetEndpoint(out text, out num))
+		{
+			return null;
+		}
+		System.Net.IPAddress address;
+		if (System.Net.IPAddress.TryParse(text, out address))
+		{
+			return new System.Net.IPEndPoint(address, num);
+		}
+		try
+		{
+			System.Net.IPAddress[] addresses = System.Net.Dns.GetHostAddresses(text);
+			for (int i = 0; i < addresses.Length; i++)
+			{
+				if (addresses[i].AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+				{
+					return new System.Net.IPEndPoint(addresses[i], num);
+				}
+			}
+			return (addresses.Length > 0) ? new System.Net.IPEndPoint(addresses[0], num) : null;
+		}
+		catch
+		{
+			return null;
 		}
 	}
 

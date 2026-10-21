@@ -101,6 +101,8 @@ internal static class SelfTest
 		RunCheck("menu hit table", CheckMenuHitTable);
 		RunCheck("creation flow back", CheckCreateFlowBack);
 		RunCheck("typed characters", CheckTypedCharacters);
+		RunCheck("relay client", CheckRelayClient);
+		RunCheck("relay live", CheckRelayLive);
 		RunCheck("keyboard grid", CheckKeyboardGrid);
 		RunCheck("inventory transfer", CheckInventoryTransfer);
 		RunCheck("save slots", CheckSaveSlots);
@@ -8880,6 +8882,589 @@ internal static class SelfTest
 		{
 			return Fail("keyboard grid check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
+	}
+
+	/// <summary>
+	/// The relay conversation, from the client's side.
+	///
+	/// A stub relay in this file speaks the same protocol the master's relay does, so the game's
+	/// own code (<see cref="Terraria.Net.RelayLink"/>) is driven over real sockets: register a
+	/// room, poll for a waiting player, accept a ticket, and check that after ACCEPT the socket
+	/// carries bytes untouched - the relay must never look inside the game's frames.
+	///
+	/// The master has its own test for the server side of the same protocol; two independent
+	/// implementations agreeing is the point.
+	/// </summary>
+	private static bool CheckRelayClient()
+	{
+		try
+		{
+			// --- the protocol helpers, without sockets -------------------------
+			if (Terraria.Net.RelayLink.HostLine("abc") != "HOST abc\n")
+			{
+				return Fail("the HOST command is not formatted as documented");
+			}
+			if (Terraria.Net.RelayLink.JoinLine("room1") != "JOIN room1\n")
+			{
+				return Fail("the JOIN command is not formatted as documented");
+			}
+			string room;
+			if (!Terraria.Net.RelayLink.TryParseRoom("OK 1a2b3c", out room) || room != "1a2b3c")
+			{
+				return Fail("a room id was not parsed from 'OK <id>'");
+			}
+			if (Terraria.Net.RelayLink.TryParseRoom("ERR busy", out room) || Terraria.Net.RelayLink.TryParseRoom("OK ", out room))
+			{
+				return Fail("a refusal or an empty answer was accepted as a room id");
+			}
+			string ticket;
+			if (!Terraria.Net.RelayLink.TryParseTicket("JOIN deadbeef", out ticket) || ticket != "deadbeef")
+			{
+				return Fail("a ticket was not parsed from 'JOIN <ticket>'");
+			}
+			if (!Terraria.Net.RelayLink.IsEnd("END") || Terraria.Net.RelayLink.IsEnd("JOIN x"))
+			{
+				return Fail("the end of a poll answer is not recognised");
+			}
+			string reason;
+			if (!Terraria.Net.RelayLink.IsWait("WAIT", out reason))
+			{
+				return Fail("'WAIT' was not recognised as 'parked, not yet accepted'");
+			}
+			if (Terraria.Net.RelayLink.IsWait("ERR no such room", out reason) || reason != "no such room")
+			{
+				return Fail("a relay refusal did not surface its reason (got '" + reason + "')");
+			}
+			// A token must be long enough that guessing it is not an option: the relay rejects
+			// short ones, and the client must never send one.
+			string token = Terraria.Net.RelayLink.NewToken();
+			if (token == null || token.Length != 32 || token == Terraria.Net.RelayLink.NewToken())
+			{
+				return Fail("the room token is not 128 bits of unique hex");
+			}
+
+			// --- the real socket path, against a stub relay --------------------
+			StubRelay stub = new StubRelay();
+			try
+			{
+				string error;
+				// The client's settings are what Register reads; set them for the test and restore.
+				bool savedAllow = Terraria.Net.NetworkConfig.AllowRelay;
+				string savedServer = Terraria.Net.NetworkConfig.RelayServer;
+				int savedPort = Terraria.Net.NetworkConfig.RelayPort;
+				Terraria.Net.NetworkConfig.AllowRelay = true;
+				Terraria.Net.NetworkConfig.RelayServer = "127.0.0.1:" + stub.Port;
+				Terraria.Net.NetworkConfig.RelayPort = stub.Port;
+				try
+				{
+					string text = Terraria.Net.RelayLink.Register(out error);
+					if (text == null)
+					{
+						return Fail("registering a room failed: " + error);
+					}
+					if (!stub.HasHost)
+					{
+						return Fail("the stub relay never received the HOST command");
+					}
+					// A player joins and waits; the host's poll must see exactly that ticket.
+					StubClient joining = stub.Join(text);
+					System.Collections.Generic.List<string> list = Terraria.Net.RelayLink.Poll("127.0.0.1", stub.Port, stub.Token, out error);
+					if (list.Count != 1)
+					{
+						return Fail("the poll returned " + list.Count + " ticket(s), expected 1 (" + error + ")");
+					}
+					// ACCEPT pairs the two sockets; from then on they are a plain pipe.
+					if (!stub.Accept(list[0]))
+					{
+						return Fail("the stub relay refused a valid ticket");
+					}
+					stub.SendToHost("game bytes");
+					if (joining.Read(10) != "game bytes")
+					{
+						return Fail("host bytes did not reach the waiting player unchanged");
+					}
+					joining.Write("client says hi");
+					if (stub.ReadAtHost(14) != "client says hi")
+					{
+						return Fail("player bytes did not reach the host unchanged");
+					}
+					joining.Close();
+				}
+				finally
+				{
+					Terraria.Net.RelayLink.Stop();
+					Terraria.Net.NetworkConfig.AllowRelay = savedAllow;
+					Terraria.Net.NetworkConfig.RelayServer = savedServer;
+					Terraria.Net.NetworkConfig.RelayPort = savedPort;
+				}
+			}
+			finally
+			{
+				stub.Stop();
+			}
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("relay client check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	/// <summary>
+	/// A minimal relay that speaks the documented protocol, used only by the check above.
+	///
+	/// Deliberately separate from the master's implementation: if both were the same code, the
+	/// test would only prove the code agrees with itself.
+	/// </summary>
+	private sealed class StubRelay
+	{
+		private System.Net.Sockets.TcpListener _listener;
+
+		private System.Threading.Thread _thread;
+
+		private volatile bool _stopping;
+
+		private System.Net.Sockets.TcpClient _host;
+
+		private readonly System.Collections.Generic.List<System.Net.Sockets.TcpClient> _waiting = new System.Collections.Generic.List<System.Net.Sockets.TcpClient>();
+
+		public readonly string Token = "0123456789abcdef0123456789abcdef";
+
+		public string Room = "room01";
+
+		public bool HasHost;
+
+		public int Port => ((System.Net.IPEndPoint)_listener.LocalEndpoint).Port;
+
+		public StubRelay()
+		{
+			_listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+			_listener.Start();
+			_thread = new System.Threading.Thread(Loop)
+			{
+				IsBackground = true
+			};
+			_thread.Start();
+		}
+
+		private void Loop()
+		{
+			while (!_stopping)
+			{
+				try
+				{
+					System.Net.Sockets.TcpClient tcpClient = _listener.AcceptTcpClient();
+					tcpClient.NoDelay = true;
+					string text = ReadLine(tcpClient);
+					if (text == null)
+					{
+						tcpClient.Close();
+						continue;
+					}
+					if (text.StartsWith("HOST ", StringComparison.Ordinal))
+					{
+						_host = tcpClient;
+						HasHost = true;
+						Write(tcpClient, "OK " + Room + "\n");
+					}
+					else if (text.StartsWith("JOIN ", StringComparison.Ordinal))
+					{
+						lock (_waiting)
+						{
+							_waiting.Add(tcpClient);
+						}
+						Write(tcpClient, "WAIT\n");
+					}
+					else if (text.StartsWith("POLL ", StringComparison.Ordinal))
+					{
+						System.Text.StringBuilder stringBuilder = new System.Text.StringBuilder();
+						lock (_waiting)
+						{
+							for (int i = 0; i < _waiting.Count; i++)
+							{
+								stringBuilder.Append("JOIN ticket").Append(i).Append('\n');
+							}
+						}
+						stringBuilder.Append("END\n");
+						Write(tcpClient, stringBuilder.ToString());
+						tcpClient.Close();
+					}
+					else if (text.StartsWith("ACCEPT ", StringComparison.Ordinal))
+					{
+						// Pair the accepting socket with the first waiting one.
+						System.Net.Sockets.TcpClient tcpClient2 = null;
+						lock (_waiting)
+						{
+							if (_waiting.Count > 0)
+							{
+								tcpClient2 = _waiting[0];
+								_waiting.RemoveAt(0);
+							}
+						}
+						if (tcpClient2 == null)
+						{
+							Write(tcpClient, "ERR bad ticket\n");
+							tcpClient.Close();
+							continue;
+						}
+						// Swap the stub's view of the host for the accepting socket: that is what
+						// the relay does, and the test then talks through the pair.
+						_host = tcpClient;
+						HostSocket = tcpClient;
+						StartPipe(tcpClient2, tcpClient);
+						StartPipe(tcpClient, tcpClient2);
+					}
+					else
+					{
+						Write(tcpClient, "ERR unknown command\n");
+						tcpClient.Close();
+					}
+				}
+				catch
+				{
+					return;
+				}
+			}
+		}
+
+		/// <summary>Starts one direction of the pair, the way the real relay does.</summary>
+		private void StartPipe(System.Net.Sockets.TcpClient From, System.Net.Sockets.TcpClient To)
+		{
+			System.Threading.Thread thread = new System.Threading.Thread(delegate()
+			{
+				Pipe(From, To);
+			})
+			{
+				IsBackground = true
+			};
+			thread.Start();
+		}
+
+		private void Pipe(System.Net.Sockets.TcpClient A, System.Net.Sockets.TcpClient B)
+		{			try
+			{
+				byte[] array = new byte[4096];
+				while (!_stopping)
+				{
+					int num = A.GetStream().Read(array, 0, array.Length);
+					if (num <= 0)
+					{
+						break;
+					}
+					B.GetStream().Write(array, 0, num);
+				}
+			}
+			catch
+			{
+			}
+		}
+
+		/// <summary>Connects a fake player and returns its socket, waiting for the relay's "WAIT".</summary>
+		public StubClient Join(string RoomId)
+		{
+			System.Net.Sockets.TcpClient tcpClient = new System.Net.Sockets.TcpClient();
+			tcpClient.NoDelay = true;
+			tcpClient.ReceiveTimeout = 4000;
+			tcpClient.Connect(System.Net.IPAddress.Loopback, Port);
+			Write(tcpClient, "JOIN " + RoomId + "\n");
+			string text = ReadLine(tcpClient);
+			if (text != "WAIT")
+			{
+				throw new InvalidOperationException("the stub relay did not park the client: " + text);
+			}
+			return new StubClient(tcpClient);
+		}
+
+		public bool Accept(string Ticket)
+		{
+			System.Net.Sockets.TcpClient tcpClient = new System.Net.Sockets.TcpClient();
+			tcpClient.NoDelay = true;
+			tcpClient.ReceiveTimeout = 4000;
+			tcpClient.Connect(System.Net.IPAddress.Loopback, Port);
+			Write(tcpClient, "ACCEPT " + Ticket + "\n");
+			System.Threading.Thread.Sleep(150);
+			HostSocket = tcpClient;
+			return tcpClient.Connected;
+		}
+
+		public System.Net.Sockets.TcpClient HostSocket;
+
+		public void SendToHost(string Text)
+		{
+			Write(HostSocket, Text);
+		}
+
+		/// <summary>Reads the first <paramref name="Count"/> bytes the paired client sent.</summary>
+		public string ReadAtHost(int Count)
+		{
+			byte[] array = new byte[Count];
+			int num = 0;
+			while (num < Count)
+			{
+				int num2 = HostSocket.GetStream().Read(array, num, Count - num);
+				if (num2 <= 0)
+				{
+					break;
+				}
+				num += num2;
+			}
+			return Encoding.UTF8.GetString(array, 0, num);
+		}
+
+		private static string ReadLine(System.Net.Sockets.TcpClient Client)
+		{
+			try
+			{
+				System.Text.StringBuilder stringBuilder = new System.Text.StringBuilder();
+				while (true)
+				{
+					int num = Client.GetStream().ReadByte();
+					if (num < 0)
+					{
+						return null;
+					}
+					if (num == 10)
+					{
+						return stringBuilder.ToString().TrimEnd('\r');
+					}
+					stringBuilder.Append((char)num);
+				}
+			}
+			catch
+			{
+				return null;
+			}
+		}
+
+		private static void Write(System.Net.Sockets.TcpClient Client, string Text)
+		{
+			byte[] bytes = Encoding.UTF8.GetBytes(Text);
+			Client.GetStream().Write(bytes, 0, bytes.Length);
+			Client.GetStream().Flush();
+		}
+
+		public void Stop()
+		{
+			_stopping = true;
+			try
+			{
+				_listener.Stop();
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	/// <summary>The client end of the stub relay's pair.</summary>
+	private sealed class StubClient
+	{
+		private readonly System.Net.Sockets.TcpClient _client;
+
+		public StubClient(System.Net.Sockets.TcpClient Client)
+		{
+			_client = Client;
+		}
+
+		public void Write(string Text)
+		{
+			byte[] bytes = Encoding.UTF8.GetBytes(Text);
+			_client.GetStream().Write(bytes, 0, bytes.Length);
+			_client.GetStream().Flush();
+		}
+
+		/// <summary>Reads exactly <paramref name="Count"/> bytes, or fewer if the pipe closes.</summary>
+		public string Read(int Count)
+		{
+			byte[] array = new byte[Count];
+			int num = 0;
+			while (num < Count)
+			{
+				int num2 = _client.GetStream().Read(array, num, Count - num);
+				if (num2 <= 0)
+				{
+					break;
+				}
+				num += num2;
+			}
+			return Encoding.UTF8.GetString(array, 0, num);
+		}
+
+		public void Close()
+		{
+			try
+			{
+				_client.Close();
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	/// <summary>
+	/// The same conversation against the real relay, when one is running.
+	///
+	/// The stub above proves the game's side of the protocol; this proves the two independent
+	/// implementations actually interoperate. Skipped when no relay answers, so a clean clone
+	/// without a master server still passes - the same rule as the master list check.
+	/// </summary>
+	private static bool CheckRelayLive()
+	{
+		bool savedAllow = Terraria.Net.NetworkConfig.AllowRelay;
+		string savedServer = Terraria.Net.NetworkConfig.RelayServer;
+		int savedPort = Terraria.Net.NetworkConfig.RelayPort;
+		string room = null;
+		try
+		{
+			// The headless suite never constructs Main, so the settings that Main would have read
+			// are still at their defaults. Read them the same way, without writing back.
+			if (!Terraria.Net.NetworkConfig.AllowRelay)
+			{
+				Settings settings = new Settings(Terraria.Storage.AppPaths.SettingsFile);
+				try
+				{
+					Terraria.Net.NetworkConfig.AllowRelay = settings.Get("Network", "AllowRelay").ToLower().Equals("true");
+					Terraria.Net.NetworkConfig.RelayServer = settings.Get("Network", "RelayServer");
+					int result;
+					if (int.TryParse(settings.Get("Network", "RelayPort"), out result) && result > 0 && result <= 65535)
+					{
+						Terraria.Net.NetworkConfig.RelayPort = result;
+					}
+				}
+				finally
+				{
+					settings.Discard();
+				}
+			}
+			string host;
+			int port;
+			if (!Terraria.Net.RelayLink.TryGetEndpoint(out host, out port))
+			{
+				Skip("relay is disabled in settings ([Network] AllowRelay=False)");
+			}
+			Terraria.Net.NetworkConfig.AllowRelay = true;
+			Terraria.Net.NetworkConfig.RelayServer = host + ":" + port;
+			Terraria.Net.NetworkConfig.RelayPort = port;
+			string error;
+			room = Terraria.Net.RelayLink.Register(out error);
+			if (room == null)
+			{
+				Skip(host + ":" + port + " did not answer - start the master server with a relay to run this check");
+			}
+			// A player joins in the background: Join blocks until the relay says "WAIT", which is
+			// immediate, and the socket then waits for the host.
+			System.Net.Sockets.TcpClient joined = null;
+			string joinError = null;
+			System.Threading.Thread thread = new System.Threading.Thread(delegate()
+			{
+				joined = Terraria.Net.RelayLink.Join(host, port, room, out joinError);
+			});
+			thread.IsBackground = true;
+			thread.Start();
+			if (!thread.Join(5000))
+			{
+				return Fail("joining a room on the relay hung for 5 s");
+			}
+			if (joined == null)
+			{
+				return Fail("joining a room on the relay failed: " + joinError);
+			}
+			// Poll until the host side sees the ticket.
+			string ticket = null;
+			for (int i = 0; i < 20 && ticket == null; i++)
+			{
+				System.Collections.Generic.List<string> list = Terraria.Net.RelayLink.Poll(host, port, Terraria.Net.RelayLink.NewToken(), out error);
+				if (list.Count != 0)
+				{
+					return Fail("a wrong token was handed a ticket");
+				}
+				list = Terraria.Net.RelayLink.Poll(host, port, TokenForLiveCheck(), out error);
+				if (list.Count > 0)
+				{
+					ticket = list[0];
+				}
+				else
+				{
+					System.Threading.Thread.Sleep(150);
+				}
+			}
+			if (ticket == null)
+			{
+				return Fail("the relay never handed out the ticket for a waiting player");
+			}
+			System.Net.Sockets.TcpClient accepted = Terraria.Net.RelayLink.AcceptRaw(host, port, ticket);
+			if (accepted == null)
+			{
+				return Fail("the relay refused the ticket it had just issued");
+			}
+			try
+			{
+				// Both sockets are now a pipe between "host" and "player" in this process.
+				byte[] array = Encoding.UTF8.GetBytes("ping");
+				accepted.GetStream().Write(array, 0, array.Length);
+				accepted.GetStream().Flush();
+				byte[] array2 = new byte[4];
+				int num = 0;
+				while (num < array2.Length)
+				{
+					int num2 = joined.GetStream().Read(array2, num, array2.Length - num);
+					if (num2 <= 0)
+					{
+						break;
+					}
+					num += num2;
+				}
+				if (num != 4 || Encoding.UTF8.GetString(array2) != "ping")
+				{
+					return Fail("bytes did not travel through the live relay");
+				}
+			}
+			finally
+			{
+				try
+				{
+					accepted.Close();
+				}
+				catch
+				{
+				}
+				try
+				{
+					joined.Close();
+				}
+				catch
+				{
+				}
+			}
+			Console.WriteLine("    relay " + host + ":" + port + ": room opened, player paired, bytes passed");
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("relay live check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Net.RelayLink.Stop();
+			Terraria.Net.NetworkConfig.AllowRelay = savedAllow;
+			Terraria.Net.NetworkConfig.RelayServer = savedServer;
+			Terraria.Net.NetworkConfig.RelayPort = savedPort;
+		}
+	}
+
+	/// <summary>The token Register used, so the live check can poll its own room.</summary>
+	private static string TokenForLiveCheck()
+	{
+		return Terraria.Net.RelayLink.CurrentToken;
 	}
 
 	private static bool CheckMenuHitTable()

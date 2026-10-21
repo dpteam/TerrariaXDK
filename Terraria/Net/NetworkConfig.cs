@@ -50,6 +50,29 @@ internal static class NetworkConfig
 	/// </summary>
 	public static string PublicAddress = string.Empty;
 
+	/// <summary>
+	/// Host through the master server's relay (<c>[Network] AllowRelay</c>).
+	///
+	/// Off by default on purpose: a relay adds a hop of latency and spends somebody else's
+	/// bandwidth, so it is a fallback for hosts that cannot be reached directly, not a mode.
+	/// </summary>
+	public static bool AllowRelay;
+
+	/// <summary>
+	/// "host:port" of the relay. Empty means "the master's host, <see cref="RelayPort"/>", which
+	/// is the normal case: one machine publishes the list and relays the games.
+	/// </summary>
+	public static string RelayServer = string.Empty;
+
+	/// <summary>Relay port used when <see cref="RelayServer"/> carries no port of its own.</summary>
+	public static int RelayPort = 17778;
+
+	/// <summary>
+	/// Room this host is reachable under while relaying, or empty. Set when the room opens and
+	/// carried in the master announcement, so a client can tell "this entry is relayed".
+	/// </summary>
+	public static string RelayRoom = string.Empty;
+
 	/// <summary>Parses "host", "host:port" or "[ipv6]:port".</summary>
 	public static bool TryParseAddress(string text, out string host, out int port)
 	{

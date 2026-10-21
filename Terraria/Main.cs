@@ -748,7 +748,17 @@ public sealed class Main : Game
 		Terraria.Net.NetworkConfig.JoinAddress = settings.Get("Network", "JoinAddress");
 		Terraria.Net.NetworkConfig.Password = settings.Get("Network", "Password");
 		Terraria.Net.NetworkConfig.PublicAddress = settings.Get("Network", "PublicAddress");
+		Terraria.Net.NetworkConfig.AllowRelay = settings.Get("Network", "AllowRelay").ToLower().Equals("true");
+		Terraria.Net.NetworkConfig.RelayServer = settings.Get("Network", "RelayServer");
+		int relayPort;
+		if (int.TryParse(settings.Get("Network", "RelayPort"), out relayPort) && relayPort > 0 && relayPort <= 65535)
+		{
+			Terraria.Net.NetworkConfig.RelayPort = relayPort;
+		}
 		Terraria.Net.MasterServerClient.Configure(settings);
+		settings.Set("Network", "AllowRelay", Terraria.Net.NetworkConfig.AllowRelay ? "True" : "False", "Host through the master server's relay.\n; For players who cannot be reached from the outside at all (CGNAT, mobile, guest Wi-Fi).\n; Adds a hop of latency and uses the relay's bandwidth, so it is a fallback, not a mode.");
+		settings.Set("Network", "RelayServer", Terraria.Net.NetworkConfig.RelayServer, "Relay address 'host:port'. Empty means the master's host on RelayPort.");
+		settings.Set("Network", "RelayPort", Terraria.Net.NetworkConfig.RelayPort.ToString(), "Relay port used when RelayServer has no port of its own.");
 		settings.Set("Network", "PublishToMaster", Terraria.Net.MasterServerClient.Publish ? "True" : "False", "List this world on the master server while hosting.\n; Off by default: publishing your address is a choice.");
 		settings.Set("Network", "PublicAddress", Terraria.Net.NetworkConfig.PublicAddress, "Address advertised to the master server, e.g. 'myserver.example.com'.\n; Leave empty to let the master use the address it sees.");
 		Terraria.Net.MasterServerClient.Save(settings);

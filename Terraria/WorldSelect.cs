@@ -387,6 +387,13 @@ public static class WorldSelect
 					{
 						text += " [v" + protocol + "]";
 					}
+					// Relayed worlds have no reachable address of their own. Saying so is honest:
+					// the game goes through a third machine, which costs a hop of latency and means
+					// somebody else carries the traffic.
+					if (!string.IsNullOrEmpty(joinableSession.AvailableSession.RelayRoom))
+					{
+						text += " [relay]";
+					}
 					bool incompatible = joinableSession.AvailableSession.ModMismatch || (protocol > 0 && protocol != Terraria.Net.TcpPeer.ProtocolVersionPublic);
 					Color color = incompatible ? new Color(235, 130, 120) : white;
 					UI.DrawStringLC(UI.BoldSmallFont, text, destRect.X + 32, destRect.Center.Y, color);

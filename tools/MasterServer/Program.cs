@@ -30,14 +30,28 @@ internal static class Program
 	{
 		int num = 17777;
 		int num2 = MasterServerHost.DefaultTtlSeconds;
+		int num3 = 17778;
 		string dataPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "master-servers.json");
 		bool flag = false;
+		bool flag2 = false;
 		for (int i = 0; i < args.Length; i++)
 		{
 			string text = args[i].ToLowerInvariant();
 			if (text == "--selftest")
 			{
 				flag = true;
+			}
+			else if (text == "--no-relay")
+			{
+				flag2 = true;
+			}
+			else if (text == "--relay-port" && i + 1 < args.Length)
+			{
+				if (!int.TryParse(args[++i], out num3) || num3 < 0 || num3 > 65535)
+				{
+					Console.Error.WriteLine("--relay-port needs a number 0-65535");
+					return 2;
+				}
 			}
 			else if (text == "--port" && i + 1 < args.Length)
 			{
@@ -75,10 +89,10 @@ internal static class Program
 		{
 			return SelfTest.Run();
 		}
-		return Run(num, num2, dataPath);
+		return Run(num, num2, dataPath, flag2 ? (-1) : num3);
 	}
 
-	private static int Run(int port, int ttl, string dataPath)
+	private static int Run(int port, int ttl, string dataPath, int relayPort)
 	{
 		Title("TerrariaXDK master server");
 		MasterServerHost host = new MasterServerHost(port, ttl, dataPath);
@@ -130,6 +144,34 @@ internal static class Program
 		Say("achievements http://localhost:" + host.Port + "/v1/achievements");
 		Say("leaderboard  http://localhost:" + host.Port + "/v1/leaderboard?stat=AirTravel");
 		Say("");
+		RelayHost relay = null;
+		if (relayPort >= 0)
+		{
+			// The relay is optional: a master that only lists worlds is a perfectly good setup,
+			// and an operator may not want to pay for other people's game traffic.
+			relay = new RelayHost(relayPort);
+			relay.Log += delegate(string message)
+			{
+				Say(message);
+			};
+			try
+			{
+				relay.Start();
+				Say("relay listening on 0.0.0.0:" + relay.Port + " (max " + RelayHost.MaxRooms
+					+ " room(s), " + RelayHost.MaxBytesPerSecondPerRoom / 1024 + " KiB/s each)");
+			}
+			catch (Exception ex)
+			{
+				Say("could not start the relay on port " + relayPort + ": " + ex.Message);
+				relay = null;
+			}
+			Say("");
+		}
+		else
+		{
+			Say("relay disabled (--no-relay)");
+			Say("");
+		}
 		ManualResetEvent manualResetEvent = new ManualResetEvent(initialState: false);
 		Console.CancelKeyPress += delegate(object sender, ConsoleCancelEventArgs e)
 		{
@@ -144,15 +186,21 @@ internal static class Program
 		manualResetEvent.WaitOne();
 		Say("");
 		Say("shutting down, " + host.EntryCount + " server(s) were listed");
+		if (relay != null)
+		{
+			relay.Stop();
+		}
 		host.Stop();
 		return 0;
 	}
 
 	private static void Usage()
 	{
-		Console.WriteLine("usage: MasterServer [--port N] [--ttl SECONDS] [--data FILE] [--selftest]");
+		Console.WriteLine("usage: MasterServer [--port N] [--relay-port N | --no-relay] [--ttl SECONDS] [--data FILE] [--selftest]");
 		Console.WriteLine();
 		Console.WriteLine("  --port N        TCP port to listen on (default 17777). 0 picks a free one.");
+		Console.WriteLine("  --relay-port N  TCP port for the game relay (default 17778). 0 picks a free one.");
+		Console.WriteLine("  --no-relay      do not run the relay: the master only lists worlds.");
 		Console.WriteLine("  --ttl SECONDS   drop a listing after this long without an announce (default "
 			+ MasterServerHost.DefaultTtlSeconds + ").");
 		Console.WriteLine("  --data FILE     where the list is saved (default master-servers.json next to the exe).");
