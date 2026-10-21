@@ -37,6 +37,14 @@ internal static class KeyboardMouseInput
 	private static int _idleFrames;
 	private static float _wheelAccumulator;
 
+	/// <summary>One wheel notch in raw XNA units. Devices report multiples of this.</summary>
+	public const int WheelNotch = 120;
+
+	/// <summary>How many notches a single frame may hand out. Bounds stale accumulation.</summary>
+	private const int MaxPendingWheelSteps = 10;
+
+	private static int _pendingWheelSteps;
+
 	/// <summary>
 	/// True once the mouse has been used since the gamepad last moved. Menus keep the cursor
 	/// visible off this flag instead of off "moved this frame", so the pointer does not
@@ -137,7 +145,25 @@ internal static class KeyboardMouseInput
 		MouseX = _mouse.X;
 		MouseY = _mouse.Y;
 		ScrollDelta = _mouse.ScrollWheelValue - _prevMouse.ScrollWheelValue;
-		_wheelAccumulator += ScrollDelta;
+		// Wheel movement is exposed as discrete steps, not as a shoulder-button press: the
+		// wheel means "scroll the thing under my focus" (hotbar in game, recipes in the
+		// crafting menu), while the shoulder buttons mean "switch section". Mapping the wheel
+		// onto shoulders made it impossible to tell the two intentions apart.
+		int num = WheelSteps(ScrollDelta, ref _wheelAccumulator);
+		if (num != 0)
+		{
+			_pendingWheelSteps += num;
+			// Bounded so a menu that ignores the wheel cannot build up a burst that fires the
+			// moment the player closes it.
+			if (_pendingWheelSteps > MaxPendingWheelSteps)
+			{
+				_pendingWheelSteps = MaxPendingWheelSteps;
+			}
+			else if (_pendingWheelSteps < -MaxPendingWheelSteps)
+			{
+				_pendingWheelSteps = -MaxPendingWheelSteps;
+			}
+		}
 		// Refresh the context flags from the live UI state here rather than in
 		// UI.UpdateGamePad: that runs later in the frame, so the mapping would otherwise use
 		// last frame's answer (one frame of wrong context on every menu transition).
@@ -238,6 +264,34 @@ internal static class KeyboardMouseInput
 		int result = _hotbarRequest;
 		_hotbarRequest = -1;
 		return result;
+	}
+
+	/// <summary>
+	/// Wheel movement since the last call, in notches: positive is "up" (or "previous").
+	/// Consumed so exactly one part of the UI reacts to it - the hotbar in game, the recipe
+	/// list while crafting.
+	/// </summary>
+	public static int ConsumeWheelSteps()
+	{
+		int result = _pendingWheelSteps;
+		_pendingWheelSteps = 0;
+		return result;
+	}
+
+	/// <summary>
+	/// Converts a raw wheel delta into whole notches, keeping the remainder so a device with
+	/// finer resolution (a trackpad scrolling 40 units at a time) still moves the list after a
+	/// few events instead of never reaching 120. Pure, so the self-test can drive it.
+	/// </summary>
+	internal static int WheelSteps(float delta, ref float accumulator)
+	{
+		accumulator += delta;
+		int num = (int)(accumulator / WheelNotch);
+		if (num != 0)
+		{
+			accumulator -= num * WheelNotch;
+		}
+		return num;
 	}
 
 	/// <summary>Quick action requested this frame (H/J/B), or <see cref="QuickAction.None"/>.</summary>
@@ -432,11 +486,9 @@ internal static class KeyboardMouseInput
 			leftTrigger = 1f;
 			buttons |= Buttons.LeftTrigger;
 		}
-		// Mouse wheel cycles the hotbar.
-		if (mouse.ScrollWheelValue != prevMouse.ScrollWheelValue)
-		{
-			buttons |= (mouse.ScrollWheelValue > prevMouse.ScrollWheelValue) ? Buttons.LeftShoulder : Buttons.RightShoulder;
-		}
+		// Wheel movement is no longer mapped to the shoulder buttons: it is exposed as
+		// discrete steps instead (see ConsumeWheelSteps), because the wheel scrolls what has
+		// focus rather than switching sections.
 		if (leftStick.LengthSquared() > 1f)
 		{
 			leftStick.Normalize();

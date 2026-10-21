@@ -103,6 +103,9 @@ internal static class Program
 			{
 				Directory.CreateDirectory(directoryName);
 			}
+			// Keep the previous session's log. The file used to be truncated on start, so
+			// relaunching to investigate a crash destroyed exactly the log you needed.
+			RotatePreviousLog(_logFile);
 			_logWriter = new StreamWriter(_logFile, append: false, Encoding.UTF8);
 			_logWriter.AutoFlush = true;
 			_loggerReady = true;
@@ -126,6 +129,34 @@ internal static class Program
 				_minLevel = LogLevel.Error;
 				break;
 			}
+		}
+	}
+
+	/// <summary>
+	/// Renames a log that has content to <c>&lt;name&gt;.prev&lt;ext&gt;</c>, replacing any older
+	/// copy. An empty or missing file is left alone so restarting does not shuffle empty files.
+	/// </summary>
+	internal static bool RotatePreviousLog(string path)
+	{
+		try
+		{
+			if (string.IsNullOrEmpty(path) || !File.Exists(path) || new FileInfo(path).Length == 0)
+			{
+				return false;
+			}
+			string text = Path.Combine(Path.GetDirectoryName(path) ?? string.Empty, Path.GetFileNameWithoutExtension(path) + ".prev" + Path.GetExtension(path));
+			if (File.Exists(text))
+			{
+				File.Delete(text);
+			}
+			File.Move(path, text);
+			return true;
+		}
+		catch
+		{
+			// A read-only or locked log must not stop the game from starting; the new session
+			// simply appends over the old file.
+			return false;
 		}
 	}
 

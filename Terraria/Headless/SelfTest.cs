@@ -44,6 +44,8 @@ internal static class SelfTest
 		RunCheck("cheat badge", CheckCheatBadge);
 		RunCheck("loading progress", CheckLoadingProgress);
 		RunCheck("input mapping", CheckInputMapping);
+		RunCheck("wheel scrolling", CheckWheelScrolling);
+		RunCheck("log rotation", CheckLogRotation);
 		RunCheck("settings sections", CheckSettingsSections);
 		RunCheck("network stats", CheckNetworkStats);
 		RunCheck("key bindings", CheckKeyBindings);
@@ -3608,6 +3610,197 @@ internal static class SelfTest
 		finally
 		{
 			Main.Gamertag = saved;
+		}
+	}
+
+	// --- Wheel scrolling ----------------------------------------------------
+
+	/// <summary>
+	/// The wheel used to be turned into shoulder presses, so with the inventory open it
+	/// switched sections instead of scrolling recipes. It is now discrete steps with the raw
+	/// remainder kept, and the index arithmetic wraps in both directions.
+	/// </summary>
+	private static bool CheckWheelScrolling()
+	{
+		try
+		{
+			// One notch up / down, and a fast wheel producing several at once.
+			float accumulator = 0f;
+			if (Terraria.Input.KeyboardMouseInput.WheelSteps(120f, ref accumulator) != 1)
+			{
+				return Fail("one notch did not produce one step");
+			}
+			if (Terraria.Input.KeyboardMouseInput.WheelSteps(-120f, ref accumulator) != -1)
+			{
+				return Fail("one notch down did not produce a negative step");
+			}
+			if (Terraria.Input.KeyboardMouseInput.WheelSteps(360f, ref accumulator) != 3)
+			{
+				return Fail("three notches did not produce three steps");
+			}
+			// A high-resolution wheel or trackpad: partial deltas must accumulate, not vanish.
+			accumulator = 0f;
+			int total = 0;
+			for (int i = 0; i < 3; i++)
+			{
+				total += Terraria.Input.KeyboardMouseInput.WheelSteps(40f, ref accumulator);
+			}
+			if (total != 1)
+			{
+				return Fail("three 40-unit deltas did not add up to one notch (got " + total + ")");
+			}
+			if (Math.Abs(accumulator) > 0.01f)
+			{
+				return Fail("the remainder was not kept after a partial notch");
+			}
+			// Wrap: hotbar is ten slots, recipes are arbitrary counts.
+			if (Terraria.Input.WheelNav.Wrap(0, -1, 10) != 9)
+			{
+				return Fail("wrapping back from slot 0 did not reach slot 9");
+			}
+			if (Terraria.Input.WheelNav.Wrap(9, 1, 10) != 0)
+			{
+				return Fail("wrapping forward from slot 9 did not reach slot 0");
+			}
+			if (Terraria.Input.WheelNav.Wrap(3, 4, 10) != 7)
+			{
+				return Fail("a plain move was mis-computed");
+			}
+			if (Terraria.Input.WheelNav.Wrap(8, 5, 10) != 3)
+			{
+				return Fail("a multi-step wrap was mis-computed");
+			}
+			// Degenerate lists must not produce a negative or out-of-range index.
+			if (Terraria.Input.WheelNav.Wrap(5, 3, 0) != 0 || Terraria.Input.WheelNav.Wrap(5, 3, 1) != 0)
+			{
+				return Fail("an empty or single-entry list returned a non-zero index");
+			}
+			if (Terraria.Input.WheelNav.Wrap(50, 0, 4) != 3 || Terraria.Input.WheelNav.Wrap(-7, 0, 4) != 0)
+			{
+				return Fail("an out-of-range index was not clamped");
+			}
+			// A huge simultaneous delta must still land inside the list.
+			for (int j = -500; j <= 500; j += 37)
+			{
+				int wrapped = Terraria.Input.WheelNav.Wrap(2, j, 7);
+				if (wrapped < 0 || wrapped >= 7)
+				{
+					return Fail("wrap produced " + wrapped + " for delta " + j);
+				}
+			}
+			// Direction drives the slide animation: shortest way round, 0 when nothing moved.
+			if (Terraria.Input.WheelNav.Direction(0, 0, 10) != 0)
+			{
+				return Fail("direction was non-zero for an unchanged index");
+			}
+			if (Terraria.Input.WheelNav.Direction(2, 3, 10) != 1 || Terraria.Input.WheelNav.Direction(3, 2, 10) != -1)
+			{
+				return Fail("direction did not follow a simple move");
+			}
+			if (Terraria.Input.WheelNav.Direction(0, 9, 10) != -1)
+			{
+				return Fail("wrapping from 0 to 9 did not slide backwards (shortest way)");
+			}
+			if (Terraria.Input.WheelNav.Direction(9, 0, 10) != 1)
+			{
+				return Fail("wrapping from 9 to 0 did not slide forwards (shortest way)");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("wheel scrolling check threw: " + ex.Message);
+		}
+	}
+
+	// --- Log rotation -------------------------------------------------------
+
+	/// <summary>
+	/// The debug log was truncated on every start, so relaunching after a crash destroyed the
+	/// log that explained the crash. The previous run is now kept as a <c>.prev</c> file. The
+	/// rules that matter: only a non-empty log is rotated, an older copy is replaced, and a
+	/// missing file is not an error.
+	/// </summary>
+	private static bool CheckLogRotation()
+	{
+		string text = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-rotate.log");
+		string text2 = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-rotate.prev.log");
+		try
+		{
+			if (System.IO.File.Exists(text))
+			{
+				System.IO.File.Delete(text);
+			}
+			if (System.IO.File.Exists(text2))
+			{
+				System.IO.File.Delete(text2);
+			}
+			// Missing file: nothing to rotate, not an error.
+			if (Program.RotatePreviousLog(text))
+			{
+				return Fail("a missing log was reported as rotated");
+			}
+			// Empty file: also nothing to keep, and it must not be moved.
+			System.IO.File.WriteAllText(text, "");
+			if (Program.RotatePreviousLog(text))
+			{
+				return Fail("an empty log was rotated");
+			}
+			if (!System.IO.File.Exists(text))
+			{
+				return Fail("an empty log was moved away");
+			}
+			// Real content: moved to .prev, source gone.
+			System.IO.File.WriteAllText(text, "first session\r\n");
+			if (!Program.RotatePreviousLog(text))
+			{
+				return Fail("a non-empty log was not rotated");
+			}
+			if (System.IO.File.Exists(text))
+			{
+				return Fail("the log was copied instead of moved");
+			}
+			if (!System.IO.File.Exists(text2) || !System.IO.File.ReadAllText(text2).Contains("first session"))
+			{
+				return Fail("the rotated log lost its content");
+			}
+			// A second rotation replaces the older copy instead of piling up files.
+			System.IO.File.WriteAllText(text, "second session\r\n");
+			if (!Program.RotatePreviousLog(text))
+			{
+				return Fail("the second rotation failed");
+			}
+			if (!System.IO.File.ReadAllText(text2).Contains("second session"))
+			{
+				return Fail("the .prev file kept the older session");
+			}
+			string[] array = System.IO.Directory.GetFiles(Terraria.Storage.AppPaths.Cache, "selftest-rotate*");
+			if (array.Length != 1)
+			{
+				return Fail("rotation left " + array.Length + " files instead of one");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("log rotation check threw: " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				if (System.IO.File.Exists(text))
+				{
+					System.IO.File.Delete(text);
+				}
+				if (System.IO.File.Exists(text2))
+				{
+					System.IO.File.Delete(text2);
+				}
+			}
+			catch
+			{
+			}
 		}
 	}
 

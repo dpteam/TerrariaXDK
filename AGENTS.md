@@ -109,7 +109,7 @@ dotnet build TerrariaXDK.csproj -v q --nologo     # 0 ошибок
 | Настройки игрока | `Storage/Saves/Settings/PlayerN/config.dat` | `StorageContainer` |
 | Настройки игры | `Storage/Config/Settings.ini` | `Settings` |
 | Моды | `Storage/Mods/<Mod>/<Mod>.dll` | `ModLoader` |
-| Отладочный лог | `Storage/Logs/terraria-debug.log` | `Program` |
+| Отладочный лог | `Storage/Logs/terraria-debug.log` (прошлый запуск — `terraria-debug.prev.log`) | `Program` |
 | Крашлог | `Storage/Logs/client-crashlog.txt` | `Program` |
 | Резервные копии | `Storage/Backups/<мир>_<дата>.wld` | `WorldBackups` |
 | Кэш сети | `Storage/Cache/servers.json`, `favorites.txt` | `MasterServerClient`, `ServerFavorites` |

@@ -5783,6 +5783,19 @@ public sealed class UI
 				ActivePlayer.SelectedItem = (sbyte)num;
 				Main.PlaySound(12);
 			}
+			// Wheel scrolls the hotbar, the way it does on the PC version. It used to be
+			// mapped onto the shoulder buttons, which meant the wheel and "switch inventory
+			// section" shared one action.
+			int wheel = Terraria.Input.KeyboardMouseInput.ConsumeWheelSteps();
+			if (wheel != 0)
+			{
+				sbyte selected = ActivePlayer.SelectedItem;
+				ActivePlayer.SelectedItem = (sbyte)Terraria.Input.WheelNav.Wrap(selected, wheel, 10);
+				if (ActivePlayer.SelectedItem != selected)
+				{
+					Main.PlaySound(12);
+				}
+			}
 			switch (Terraria.Input.KeyboardMouseInput.ConsumeQuickAction())
 			{
 			case Terraria.Input.QuickAction.Heal:
@@ -10779,6 +10792,9 @@ public sealed class UI
 
 	private void UpdateInventoryMenu()
 	{
+		// Drain the wheel here too: with the inventory open the hotbar must not scroll, but
+		// the steps must not pile up for when it closes either.
+		int wheelSteps = Terraria.Input.KeyboardMouseInput.ConsumeWheelSteps();
 		int num = (int)ActiveInvSection;
 		bool flag = true;
 		bool flag2 = IsButtonTriggered(Buttons.RightShoulder);
@@ -10813,6 +10829,19 @@ public sealed class UI
 			if (ActiveInvSection == InventorySection.CRAFTING)
 			{
 				Recipe.FindRecipes(this, craftingCategory, craftingShowCraftable);
+			}
+		}
+		// Wheel over the crafting grid scrolls the recipe list, as on the PC version. It has
+		// to come after the section switch above: the wheel used to be turned into shoulder
+		// presses, so it changed section instead of scrolling.
+		if (wheelSteps != 0 && ActiveInvSection == InventorySection.CRAFTING && craftingSection == CraftingSection.RECIPES && CraftingRecipeY >= 0 && CraftingRecipeY < CurrentRecipeCategory.Count)
+		{
+			int recipeCount = CurrentRecipeCategory[CraftingRecipeY].RecipeList.Count;
+			int nextRecipe = Terraria.Input.WheelNav.Wrap(CraftingRecipeX, wheelSteps, recipeCount);
+			if (nextRecipe != CraftingRecipeX)
+			{
+				craftingRecipeScrollX = Terraria.Input.WheelNav.Direction(CraftingRecipeX, nextRecipe, recipeCount);
+				CraftingRecipeX = (sbyte)nextRecipe;
 			}
 		}
 		if (PadState.IsButtonUp(Buttons.RightTrigger) && PadState.IsButtonUp(Buttons.A))
