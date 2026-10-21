@@ -2086,6 +2086,22 @@ public sealed class UI
 	internal int MenuDepthForTests => menuDepth;
 
 	/// <summary>
+	/// Test hook: runs one frame of the menu logic for the current mode.
+	///
+	/// The self-test uses this to open every screen without a GPU. <c>UpdateMenu</c> is where the
+	/// "IndexOutOfRangeException in UpdateMenu" class of bug lives: it is one method driving every
+	/// screen in the game, so a crash there says nothing about which screen, and the screen is
+	/// only reachable by opening it.
+	/// </summary>
+	internal void UpdateMenuForTests()
+	{
+		UpdateMenu();
+	}
+
+	/// <summary>Rows the current screen asked for. Used by the menu smoke test.</summary>
+	internal int MenuItemCountForTests => numMenuItems;
+
+	/// <summary>
 	/// Returns to the character list from anywhere in the creation flow.
 	///
 	/// This exists because "back two screens" is a destination, not a number: <see cref="PrevMenu(int)"/>

@@ -177,9 +177,12 @@ try
 	if (Test-Path $masterProject)
 	{
 		Write-Host "== build master server ($Configuration)" -ForegroundColor Cyan
-		# A running master server locks its own exe, and dotnet reports that as six retries and a
-		# generic failure. Say what is actually wrong: the fix is "stop it", not "look at the log".
+		# A running master server locks its own exe. Two very different cases hide behind that:
+		# the binary is up to date (nothing to do, keep it running) or it is older than the
+		# sources (stop it, or the next test runs yesterday's server). Only the second is an
+		# error - and it used to surface as six dotnet retries and a generic failure.
 		$masterExe = Join-Path $root "tools\MasterServer\bin\$Configuration\net40\MasterServer.exe"
+		$locked = $false
 		if (Test-Path $masterExe)
 		{
 			try
@@ -189,15 +192,29 @@ try
 			}
 			catch
 			{
-				$running = Get-Process -Name MasterServer -ErrorAction SilentlyContinue
-				$who = if ($running) { ' (process id ' + ($running.Id -join ', ') + ')' } else { '' }
-				Fail "the master server is running$who and locks $masterExe - stop it before building"
+				$locked = $true
 			}
 		}
-		& dotnet build $masterProject -c $Configuration -v q --nologo
-		if ($LASTEXITCODE -ne 0)
+		if ($locked)
 		{
-			Fail 'master server build failed'
+			$newest = Get-ChildItem (Join-Path $root 'tools\MasterServer') -Filter *.cs -File |
+				Sort-Object LastWriteTime -Descending | Select-Object -First 1
+			$exeTime = (Get-Item $masterExe).LastWriteTime
+			$running = Get-Process -Name MasterServer -ErrorAction SilentlyContinue
+			$who = if ($running) { ' (process id ' + ($running.Id -join ', ') + ')' } else { '' }
+			if ($newest -and $newest.LastWriteTime -gt $exeTime)
+			{
+				Fail ("the running master server$who is older than $($newest.Name) - stop it, then build")
+			}
+			Write-Host "   the running master server$who is up to date; not rebuilding it" -ForegroundColor DarkYellow
+		}
+		else
+		{
+			& dotnet build $masterProject -c $Configuration -v q --nologo
+			if ($LASTEXITCODE -ne 0)
+			{
+				Fail 'master server build failed'
+			}
 		}
 	}
 

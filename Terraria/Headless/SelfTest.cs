@@ -103,6 +103,7 @@ internal static class SelfTest
 		RunCheck("typed characters", CheckTypedCharacters);
 		RunCheck("relay client", CheckRelayClient);
 		RunCheck("whitelist", CheckWhitelist);
+		RunCheck("relay session", CheckRelaySession);
 		RunCheck("relay live", CheckRelayLive);
 		RunCheck("keyboard grid", CheckKeyboardGrid);
 		RunCheck("inventory transfer", CheckInventoryTransfer);
@@ -9140,7 +9141,7 @@ internal static class SelfTest
 						return Fail("the poll returned " + list.Count + " ticket(s), expected 1 (" + error + ")");
 					}
 					// ACCEPT pairs the two sockets; from then on they are a plain pipe.
-					if (!stub.Accept(list[0]))
+					if (stub.Accept(list[0]) == null)
 					{
 						return Fail("the stub relay refused a valid ticket");
 					}
@@ -9188,6 +9189,13 @@ internal static class SelfTest
 	/// </summary>
 	private sealed class StubRelay
 	{
+		private sealed class Waiting
+		{
+			public System.Net.Sockets.TcpClient Client;
+
+			public string Ticket;
+		}
+
 		private System.Net.Sockets.TcpListener _listener;
 
 		private System.Threading.Thread _thread;
@@ -9196,7 +9204,9 @@ internal static class SelfTest
 
 		private System.Net.Sockets.TcpClient _host;
 
-		private readonly System.Collections.Generic.List<System.Net.Sockets.TcpClient> _waiting = new System.Collections.Generic.List<System.Net.Sockets.TcpClient>();
+		private readonly System.Collections.Generic.List<Waiting> _waiting = new System.Collections.Generic.List<Waiting>();
+
+		private int _nextTicket;
 
 		public readonly string Token = "0123456789abcdef0123456789abcdef";
 
@@ -9239,9 +9249,12 @@ internal static class SelfTest
 					}
 					else if (text.StartsWith("JOIN ", StringComparison.Ordinal))
 					{
+						Waiting waiting = new Waiting();
+						waiting.Client = tcpClient;
+						waiting.Ticket = "ticket" + (++_nextTicket).ToString();
 						lock (_waiting)
 						{
-							_waiting.Add(tcpClient);
+							_waiting.Add(waiting);
 						}
 						Write(tcpClient, "WAIT\n");
 					}
@@ -9252,7 +9265,7 @@ internal static class SelfTest
 						{
 							for (int i = 0; i < _waiting.Count; i++)
 							{
-								stringBuilder.Append("JOIN ticket").Append(i).Append('\n');
+								stringBuilder.Append("JOIN ").Append(_waiting[i].Ticket).Append('\n');
 							}
 						}
 						stringBuilder.Append("END\n");
@@ -9261,14 +9274,18 @@ internal static class SelfTest
 					}
 					else if (text.StartsWith("ACCEPT ", StringComparison.Ordinal))
 					{
-						// Pair the accepting socket with the first waiting one.
+						string ticket = text.Substring(7).Trim();
 						System.Net.Sockets.TcpClient tcpClient2 = null;
 						lock (_waiting)
 						{
-							if (_waiting.Count > 0)
+							for (int j = 0; j < _waiting.Count; j++)
 							{
-								tcpClient2 = _waiting[0];
-								_waiting.RemoveAt(0);
+								if (_waiting[j].Ticket == ticket)
+								{
+									tcpClient2 = _waiting[j].Client;
+									_waiting.RemoveAt(j);
+									break;
+								}
 							}
 						}
 						if (tcpClient2 == null)
@@ -9277,10 +9294,8 @@ internal static class SelfTest
 							tcpClient.Close();
 							continue;
 						}
-						// Swap the stub's view of the host for the accepting socket: that is what
-						// the relay does, and the test then talks through the pair.
-						_host = tcpClient;
-						HostSocket = tcpClient;
+						// Both directions: the real relay copies bytes each way, and a one-way stub
+						// would hide a client that never hears the host.
 						StartPipe(tcpClient2, tcpClient);
 						StartPipe(tcpClient, tcpClient2);
 					}
@@ -9311,7 +9326,8 @@ internal static class SelfTest
 		}
 
 		private void Pipe(System.Net.Sockets.TcpClient A, System.Net.Sockets.TcpClient B)
-		{			try
+		{
+			try
 			{
 				byte[] array = new byte[4096];
 				while (!_stopping)
@@ -9322,6 +9338,7 @@ internal static class SelfTest
 						break;
 					}
 					B.GetStream().Write(array, 0, num);
+					B.GetStream().Flush();
 				}
 			}
 			catch
@@ -9345,16 +9362,17 @@ internal static class SelfTest
 			return new StubClient(tcpClient);
 		}
 
-		public bool Accept(string Ticket)
+		/// <summary>Dials back with a ticket, as the host does, and returns the paired socket.</summary>
+		public System.Net.Sockets.TcpClient Accept(string Ticket)
 		{
 			System.Net.Sockets.TcpClient tcpClient = new System.Net.Sockets.TcpClient();
 			tcpClient.NoDelay = true;
 			tcpClient.ReceiveTimeout = 4000;
 			tcpClient.Connect(System.Net.IPAddress.Loopback, Port);
 			Write(tcpClient, "ACCEPT " + Ticket + "\n");
-			System.Threading.Thread.Sleep(150);
+			System.Threading.Thread.Sleep(100);
 			HostSocket = tcpClient;
-			return tcpClient.Connected;
+			return tcpClient;
 		}
 
 		public System.Net.Sockets.TcpClient HostSocket;
@@ -9426,7 +9444,6 @@ internal static class SelfTest
 		}
 	}
 
-	/// <summary>The client end of the stub relay's pair.</summary>
 	private sealed class StubClient
 	{
 		private readonly System.Net.Sockets.TcpClient _client;
@@ -9734,6 +9751,158 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("whitelist check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	/// <summary>
+	/// A real game session over the relay: host session, client session, handshake, packet.
+	///
+	/// The relay checks next to this one prove the protocol and that bytes flow. They do not prove
+	/// that a <em>game</em> works through it, and that is what decides whether a host behind CGNAT
+	/// can actually be played with: the client dials the relay, names a room, and the handshake
+	/// (version, mod signature, password) has to run end to end over the pipe.
+	///
+	/// Driven by the stub relay, so it runs without a master server; `relay live` covers a real
+	/// one when it is running.
+	/// </summary>
+	private static bool CheckRelaySession()
+	{
+		int savedPort = NetworkConfig.Port;
+		int savedDiscovery = NetworkConfig.DiscoveryPort;
+		int savedMax = NetworkConfig.MaxPlayers;
+		bool savedTcp = NetworkConfig.UseTcpTransport;
+		string savedPassword = NetworkConfig.Password;
+		bool savedAllow = NetworkConfig.AllowRelay;
+		string savedServer = NetworkConfig.RelayServer;
+		int savedRelayPort = NetworkConfig.RelayPort;
+		string savedRoom = NetworkConfig.RelayRoom;
+		NetworkSession hostSession = null;
+		NetworkSession clientSession = null;
+		StubRelay relay = null;
+		try
+		{
+			Microsoft.Xna.Framework.GamerServices.GamerServicesDispatcher.Initialize(null);
+			if (Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers.Count < 2)
+			{
+				return Fail("gamer services did not provide two gamertags");
+			}
+			relay = new StubRelay();
+			NetworkConfig.UseTcpTransport = true;
+			NetworkConfig.Password = string.Empty;
+			NetworkConfig.MaxPlayers = 7;
+			NetworkConfig.Port = 0;
+			NetworkConfig.DiscoveryPort = 0;
+			// Host through the relay: the client is never given a direct address.
+			NetworkConfig.AllowRelay = true;
+			NetworkConfig.RelayServer = "127.0.0.1:" + relay.Port.ToString();
+			NetworkConfig.RelayPort = relay.Port;
+			NetworkConfig.RelayRoom = string.Empty;
+
+			NetworkSessionProperties properties = new NetworkSessionProperties();
+			hostSession = new NetworkSession(properties, NetworkSessionType.PlayerMatch, 8, 0, 1,
+				new List<Microsoft.Xna.Framework.GamerServices.SignedInGamer>(1) { Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers[0] });
+			hostSession.StartHostPeer();
+			string room = NetworkConfig.RelayRoom;
+			if (string.IsNullOrEmpty(room))
+			{
+				return Fail("hosting with AllowRelay did not open a relay room");
+			}
+			if (!relay.HasHost)
+			{
+				return Fail("the relay never received the HOST command");
+			}
+
+			// The client gets the relay endpoint and the room id, exactly as the master's listing
+			// gives them: it has no address of the host at all.
+			AvailableNetworkSession available = new AvailableNetworkSession(0, room, 0, 7, properties, new QualityOfService());
+			available.SessionType = NetworkSessionType.SystemLink;
+			available.EndPoint = new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, relay.Port);
+			available.RelayRoom = room;
+			clientSession = new NetworkSession(properties, NetworkSessionType.PlayerMatch, 8, 0, 1,
+				new List<Microsoft.Xna.Framework.GamerServices.SignedInGamer>(1) { Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers[1] });
+			clientSession.StartClientPeer(available);
+
+			// The host's relay pump polls every 750 ms, so joining takes a moment by design.
+			if (!PumpUntil(delegate
+			{
+				return hostSession.RemoteGamers.Count >= 1 && clientSession.RemoteGamers.Count >= 1;
+			}, 15000, hostSession, clientSession))
+			{
+				return Fail("the client did not join through the relay: host sees " + hostSession.RemoteGamers.Count
+					+ " remote gamer(s), client sees " + clientSession.RemoteGamers.Count);
+			}
+			string seen = string.Empty;
+			foreach (Microsoft.Xna.Framework.Net.NetworkGamer gamer in hostSession.RemoteGamers)
+			{
+				seen += gamer.Gamertag + ";";
+			}
+			if (!seen.Contains("Stub Gamer (1)"))
+			{
+				return Fail("the handshake over the relay lost the gamertag: " + seen);
+			}
+
+			// A game packet through the same pipe: the session is not just the handshake.
+			byte[] payload = new byte[5] { 0x11, 0x22, 0x33, 0x44, 0x55 };
+			clientSession.LocalGamers[0].SendData(payload, Microsoft.Xna.Framework.Net.SendDataOptions.ReliableInOrder);
+			if (!PumpUntil(delegate
+			{
+				return hostSession.LocalGamers[0].IsDataAvailable;
+			}, 5000, hostSession, clientSession))
+			{
+				return Fail("a packet did not arrive at the host through the relay");
+			}
+			byte[] received = new byte[64];
+			Microsoft.Xna.Framework.Net.NetworkGamer sender;
+			int count = hostSession.LocalGamers[0].ReceiveData(received, out sender);
+			if (count != payload.Length)
+			{
+				return Fail("the packet through the relay has " + count + " byte(s), expected " + payload.Length);
+			}
+			for (int i = 0; i < payload.Length; i++)
+			{
+				if (received[i] != payload[i])
+				{
+					return Fail("the packet through the relay differs at byte " + i);
+				}
+			}
+			Console.WriteLine("    relay session: room " + room + ", client joined, " + count + " byte(s) through the pipe");
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("relay session check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				clientSession?.Dispose();
+			}
+			catch
+			{
+			}
+			try
+			{
+				hostSession?.Dispose();
+			}
+			catch
+			{
+			}
+			Terraria.Net.RelayLink.Stop();
+			relay?.Stop();
+			NetworkConfig.Port = savedPort;
+			NetworkConfig.DiscoveryPort = savedDiscovery;
+			NetworkConfig.MaxPlayers = savedMax;
+			NetworkConfig.UseTcpTransport = savedTcp;
+			NetworkConfig.Password = savedPassword;
+			NetworkConfig.AllowRelay = savedAllow;
+			NetworkConfig.RelayServer = savedServer;
+			NetworkConfig.RelayPort = savedRelayPort;
+			NetworkConfig.RelayRoom = savedRoom;
 		}
 	}
 
