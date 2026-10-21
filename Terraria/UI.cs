@@ -527,6 +527,14 @@ public sealed class UI
 
 	private readonly bool[] inventorySectionRectValid = new bool[5];
 
+	/// <summary>
+	/// The six crafting category tabs, recorded while drawing. They had no hit-testing at all,
+	/// so on a mouse the only way to change category was the shoulder buttons.
+	/// </summary>
+	private readonly Rectangle[] craftingCategoryRects = new Rectangle[6];
+
+	private readonly bool[] craftingCategoryRectValid = new bool[6];
+
 	public float[] inventoryMenuSectionScale = new float[5] { 0.75f, 0.75f, 1f, 0.75f, 0.75f };
 
 	public byte InventoryMode;
@@ -3104,6 +3112,12 @@ public sealed class UI
 				MapScreenMouse.Update(this);
 				miniMap.UpdateMap(this);
 			}
+			else
+			{
+				// Still building: nothing can be clicked yet, but the wheel counter is shared and
+				// must not survive into the game as a hotbar scroll.
+				Terraria.Input.KeyboardMouseInput.ConsumeWheelSteps();
+			}
 		}
 		else if (CurMenuMode == MenuMode.CHARACTER_SELECT)
 		{
@@ -5509,12 +5523,13 @@ public sealed class UI
 	/// walk a console cursor there with the D-Pad. Returns true when the pointer is over
 	/// something this method handled.
 	///
-	/// Two cases: the five tabs (any section, since they are how you change section at all) and
-	/// the main 10x4 item grid (only while the items tab is shown, because the grid is elsewhere
-	/// in the other tabs).
+	/// <paramref name="OverGrid"/> says whether that something was an item slot. A click on a tab
+	/// must not also act on the slot that happened to be highlighted, which is exactly what
+	/// "clicking the Equipment tab moved an item" was.
 	/// </summary>
-	private bool UpdateInventoryMouseHover()
+	private bool UpdateInventoryMouseHover(out bool OverGrid)
 	{
+		OverGrid = false;
 		// Tabs first: they sit above the grid and are valid in every section.
 		InventorySection inventorySection;
 		if (TryInventorySectionUnderPointer(out inventorySection))
@@ -5537,12 +5552,9 @@ public sealed class UI
 		{
 			return false;
 		}
-		if (num3 >= invMouseGrid.Width / (int)invMouseCell || num4 >= 4)
-		{
-			return false;
-		}
 		inventoryItemX = (sbyte)num3;
 		inventoryItemY = (sbyte)num4;
+		OverGrid = true;
 		return true;
 	}
 
@@ -5550,6 +5562,10 @@ public sealed class UI
 	/// True when the pointer is over a tab, which is then made the active section. Unavailable
 	/// tabs (no chest open, no crafting stations) are ignored rather than selected, so a click
 	/// cannot land the player in a section the console build would never have shown.
+	///
+	/// Hover only highlights; the switch needs a click. It used to switch on hover, and the
+	/// caller then still ran the slot action on the same click - so clicking a tab changed the
+	/// section and moved an item from whatever slot was highlighted before.
 	/// </summary>
 	private bool TryInventorySectionUnderPointer(out InventorySection section)
 	{
@@ -5563,13 +5579,20 @@ public sealed class UI
 			InventorySection inventorySection = (InventorySection)i;
 			if (!IsInventorySectionAvailable(inventorySection))
 			{
-				return false;
+				// The pointer is on a tab, it just cannot be used: still "handled", so the click
+				// does not fall through to the item grid underneath.
+				return true;
 			}
 			section = inventorySection;
-			if (ActiveInvSection != inventorySection)
+			if (ActiveInvSection != inventorySection && Terraria.Input.KeyboardMouseInput.LeftClicked)
 			{
 				ActiveInvSection = inventorySection;
 				Main.PlaySound(12);
+				toolTip.Init();
+				if (inventorySection == InventorySection.CRAFTING)
+				{
+					Recipe.FindRecipes(this, craftingCategory, craftingShowCraftable);
+				}
 			}
 			return true;
 		}
@@ -5578,6 +5601,7 @@ public sealed class UI
 
 	private void UpdateMouse()
 	{
+		inventoryMenuDone = false;
 		// The pointer must be tracked on EVERY screen, including ones without menu entries
 		// (map, inventory): otherwise MouseX/MouseY stay at their last value and the rendered
 		// cursor freezes in place while the real pointer moves. That was the "stuck cursor".
@@ -5603,8 +5627,9 @@ public sealed class UI
 				// Order matters: the section/stack bookkeeping runs first, then the hover
 				// moves the slot cursor, and only then is the click applied - otherwise a
 				// click would act on whatever slot was selected before the pointer moved.
-				UpdateInventoryMenu();
-				if (UpdateInventoryMouseHover())
+				UpdateInventoryMenuOnce();
+				bool overGrid;
+				if (UpdateInventoryMouseHover(out overGrid) && overGrid)
 				{
 					UpdateInventory();
 				}
@@ -5736,7 +5761,7 @@ public sealed class UI
 					GameMode.UpdateCursor(num, num2);
 					return;
 				}
-				UpdateInventoryMenu();
+				UpdateInventoryMenuOnce();
 				if (ActiveInvSection == InventorySection.CRAFTING)
 				{
 					PositionCraftingCursor(num, num2);
@@ -9886,6 +9911,12 @@ public sealed class UI
 		for (int i = 0; i < 6; i++)
 		{
 			Rectangle rect = new Rectangle(num2, (int)((float)CRAFTING_Y + 8f * Main.ScreenMultiplier), (int)(127f * Main.ScreenMultiplier), (int)(32f * Main.ScreenMultiplier));
+			// Click target for the category tab, recorded where it is drawn.
+			if (i < craftingCategoryRects.Length)
+			{
+				craftingCategoryRects[i] = rect;
+				craftingCategoryRectValid[i] = true;
+			}
 			if ((int)craftingCategory != i)
 			{
 				Main.DrawRectStraightBottom(441, rect, 192, 2);
@@ -11018,6 +11049,13 @@ public sealed class UI
 		InventoryMode = 1;
 		oldMouseX = MouseX;
 		oldMouseY = MouseY;
+		// Rectangles from the previous time this screen was open describe a different layout (the
+		// panel moves with the section, and with split-screen the view is half as wide). Forget
+		// them rather than letting the first frame's click land on a stale tab.
+		for (int i = 0; i < craftingCategoryRectValid.Length; i++)
+		{
+			craftingCategoryRectValid[i] = false;
+		}
 		ClearButtonTriggers();
 		if (worldFadeTarget > 0.5f)
 		{
@@ -11115,6 +11153,25 @@ public sealed class UI
 		}
 	}
 
+	/// <summary>
+	/// The screen's own bookkeeping (section tabs, stack-split timers) must run exactly once per
+	/// frame. It used to run from the pointer path and again from the stick path when a key was
+	/// held, so one press of the shoulder button switched two tabs and the highlight visibly
+	/// jumped two entries - the "it flies through the elements" report.
+	/// </summary>
+	private void UpdateInventoryMenuOnce()
+	{
+		if (inventoryMenuDone)
+		{
+			return;
+		}
+		inventoryMenuDone = true;
+		UpdateInventoryMenu();
+	}
+
+	/// <summary>Set the first time <see cref="UpdateInventoryMenuOnce"/> runs in a frame.</summary>
+	private bool inventoryMenuDone;
+
 	private void UpdateInventoryMenu()
 	{
 		// Drain the wheel here too: with the inventory open the hotbar must not scroll, but
@@ -11156,6 +11213,17 @@ public sealed class UI
 				Recipe.FindRecipes(this, craftingCategory, craftingShowCraftable);
 			}
 		}
+		// Crafting category tabs with the mouse. Clicking one is a category change only: it must
+		// not also craft, so the click is consumed here before the recipe grid sees it.
+		int clickedCategory;
+		if (ActiveInvSection == InventorySection.CRAFTING && Terraria.Input.KeyboardMouseInput.LeftClicked
+			&& !Terraria.Input.VirtualKeyboard.IsOpen && TryCraftingCategoryUnderPointer(out clickedCategory)
+			&& clickedCategory != (int)craftingCategory)
+		{
+			Main.PlaySound(12);
+			SelectCraftingCategory(clickedCategory);
+			return;
+		}
 		// Wheel over the crafting grid scrolls the recipe list, as on the PC version. It has
 		// to come after the section switch above: the wheel used to be turned into shoulder
 		// presses, so it changed section instead of scrolling.
@@ -11172,8 +11240,7 @@ public sealed class UI
 		if (PadState.IsButtonUp(Buttons.RightTrigger) && PadState.IsButtonUp(Buttons.A))
 		{
 			stackSplit = 0;
-		}
-		else if (stackSplit > 0)
+		}		else if (stackSplit > 0)
 		{
 			stackSplit--;
 		}
@@ -11404,8 +11471,40 @@ public sealed class UI
 		{
 			num = 5;
 		}
-		Recipe.FindRecipes(this, (Recipe.Category)num, craftingShowCraftable);
-		craftingCategory = (Recipe.Category)num;
+		SelectCraftingCategory(num);
+	}
+
+	/// <summary>
+	/// The crafting category tab under the pointer, or false. Rectangles come from the draw call,
+	/// so a category cannot be clicked in a place the tab is not drawn.
+	/// </summary>
+	private bool TryCraftingCategoryUnderPointer(out int Category)
+	{
+		Category = 0;
+		for (int i = 0; i < craftingCategoryRects.Length; i++)
+		{
+			if (craftingCategoryRectValid[i] && craftingCategoryRects[i].Contains(MouseX, MouseY))
+			{
+				Category = i;
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/// <summary>
+	/// Switches the crafting category and resets the recipe cursor. Shared by the shoulder
+	/// buttons and the mouse, so a click and a button press cannot leave the panel in different
+	/// states (the recipe list is rebuilt from these three fields only).
+	/// </summary>
+	private void SelectCraftingCategory(int Category)
+	{
+		if (Category < 0 || Category > 5)
+		{
+			return;
+		}
+		Recipe.FindRecipes(this, (Recipe.Category)Category, craftingShowCraftable);
+		craftingCategory = (Recipe.Category)Category;
 		CraftingRecipeX = 0;
 		CraftingRecipeY = 0;
 		craftingRecipeScrollX = 0f;
@@ -11419,12 +11518,7 @@ public sealed class UI
 		{
 			num = 0;
 		}
-		Recipe.FindRecipes(this, (Recipe.Category)num, craftingShowCraftable);
-		craftingCategory = (Recipe.Category)num;
-		CraftingRecipeX = 0;
-		CraftingRecipeY = 0;
-		craftingRecipeScrollX = 0f;
-		craftingRecipeScrollY = 0f;
+		SelectCraftingCategory(num);
 	}
 
 	public void PositionCraftingCursor(int dx, int dy)

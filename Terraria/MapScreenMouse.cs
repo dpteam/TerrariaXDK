@@ -170,6 +170,9 @@ internal static class MapScreenMouse
 		if (!rectangle.Contains(num, num2))
 		{
 			_dragging = false;
+			// Draining matters: the wheel counter is shared, and letting it pile up while the map
+			// is open made the hotbar jump several slots the moment the map closed.
+			KeyboardMouseInput.ConsumeWheelSteps();
 			return false;
 		}
 		// Wheel zooms, like the triggers do. Consumed here so the hotbar (which reads the same
