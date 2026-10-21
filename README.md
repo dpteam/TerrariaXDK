@@ -335,7 +335,7 @@ Storage/Textures/Atlases/_sheetSprites/ARM_BONE.png
 .\TerrariaXDK.exe --selftest
 ```
 
-Проверяет без графики (68 проверок в Release, 70 в Debug):
+Проверяет без графики (69 проверок в Release, 71 в Debug):
 1. **пути** — что всё пишется в `Storage/` рядом с exe, а не в профиль пользователя;
 2. **манифест контента** — что каждый `Content.Load(...)` путь реально существует;
 3. **осиротевшие файлы** — что в `Content/` нет ничего, что игра не грузит;
@@ -437,7 +437,7 @@ Storage/Textures/Atlases/_sheetSprites/ARM_BONE.png
 `png corpus`), пишут `skip` с причиной, а не `FAIL`:
 
 ```
-Passed: 68  Skipped: 4  Failed: 0
+Passed: 64  Skipped: 5  Failed: 0
 ```
 
 Пропуск — это **не** «пройдено»: он виден в итоговой строке и в списке. Как только
@@ -446,8 +446,9 @@ Passed: 68  Skipped: 4  Failed: 0
 настоящий мастер-сервер и честно пишет `skip`, если тот не запущен (сервис лежит в
 `tools/MasterServer`, см. `docs/MULTIPLAYER.md`).
 
-В чистом клоне Release-сборка даёт 68 пройденных и 4 пропуска (5, если мастер не запущен);
-Debug добавляет ещё две свои проверки (`debug kit`, `debug console`) и только их.
+Всего проверок 69 в Release и 71 в Debug: Debug добавляет `debug kit` и `debug console` и
+только их. С запущенным мастером и с `Content/` Release доходит до 69 пройденных.
+
 ### CI
 
 `.github/workflows/build.yml` — на каждый push и pull request: сборка Release с
