@@ -99,6 +99,8 @@ internal static class SelfTest
 		RunCheck("pointer scaling", CheckPointerScaling);
 		RunCheck("modal input latch", CheckModalInputLatch);
 		RunCheck("menu hit table", CheckMenuHitTable);
+		RunCheck("creation flow back", CheckCreateFlowBack);
+		RunCheck("typed characters", CheckTypedCharacters);
 		RunCheck("inventory transfer", CheckInventoryTransfer);
 		RunCheck("save slots", CheckSaveSlots);
 		RunCheck("map screen mouse", CheckMapScreenMouse);
@@ -8695,6 +8697,130 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("inventory transfer check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	private static bool CheckCreateFlowBack()
+	{
+		try
+		{
+			// The bug: both "saved a name" and "leave without saving? Yes" used PrevMenu(-2), and a
+			// negative depth means "step back one", not "back two screens". So the player landed
+			// back in the character creator: the name was saved but the screen looked stuck, and
+			// the confirm dialog looked like it ignored Yes.
+			UI ui = new UI();
+			ui.SetMenu(MenuMode.CHARACTER_SELECT, rememberPrevious: false, reset: true);
+			ui.SetMenu(MenuMode.CREATE_CHARACTER);
+			ui.SetMenu(MenuMode.NAME_CHARACTER);
+			if (ui.CurMenuMode != MenuMode.NAME_CHARACTER)
+			{
+				return Fail("the test could not reach the name screen (at " + ui.CurMenuMode + ")");
+			}
+			ui.ReturnToCharacterSelect();
+			if (ui.CurMenuMode != MenuMode.CHARACTER_SELECT)
+			{
+				return Fail("saving a character went to " + ui.CurMenuMode + " instead of the character list");
+			}
+			// Depth 0 means Back from the list leaves for the title, which is where the list was
+			// entered from. A deeper depth would send the player into the creator again.
+			if (ui.MenuDepthForTests != 0)
+			{
+				return Fail("the character list was left at history depth " + ui.MenuDepthForTests + " instead of 0");
+			}
+			// Cancelling a name still returns to the creator: that is one step back on purpose.
+			ui.SetMenu(MenuMode.CREATE_CHARACTER, rememberPrevious: false);
+			ui.SetMenu(MenuMode.NAME_CHARACTER);
+			ui.PrevMenu();
+			if (ui.CurMenuMode != MenuMode.CREATE_CHARACTER)
+			{
+				return Fail("cancelling a name went to " + ui.CurMenuMode + " instead of back to the creator");
+			}
+			// And the "leave" dialog answered Yes reaches the list from wherever it was opened.
+			ui.SetMenu(MenuMode.CONFIRM_LEAVE_CREATE_CHARACTER);
+			ui.ReturnToCharacterSelect();
+			if (ui.CurMenuMode != MenuMode.CHARACTER_SELECT)
+			{
+				return Fail("leaving character creation went to " + ui.CurMenuMode + " instead of the character list");
+			}
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("creation flow check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	private static bool CheckTypedCharacters()
+	{
+		try
+		{
+			// The on-screen keyboard has two ways to receive a character: FNA's text input, and a
+			// fallback from key edges when the platform delivers nothing. The fallback's mapping is
+			// pure and is checked here; the "do not double" rule lives in VirtualKeyboard.Update
+			// and only runs when no text event arrived that frame.
+			if (Terraria.Input.VirtualKeyboard.KeyChar(Keys.A, false) != 'a'
+				|| Terraria.Input.VirtualKeyboard.KeyChar(Keys.A, true) != 'A')
+			{
+				return Fail("letters do not map to the right case");
+			}
+			if (Terraria.Input.VirtualKeyboard.KeyChar(Keys.Z, false) != 'z'
+				|| Terraria.Input.VirtualKeyboard.KeyChar(Keys.M, false) != 'm')
+			{
+				return Fail("the letter range does not end where it should");
+			}
+			if (Terraria.Input.VirtualKeyboard.KeyChar(Keys.D0, false) != '0'
+				|| Terraria.Input.VirtualKeyboard.KeyChar(Keys.D9, false) != '9'
+				|| Terraria.Input.VirtualKeyboard.KeyChar(Keys.D1, true) != '!')
+			{
+				return Fail("digits or their shifted forms are wrong");
+			}
+			if (Terraria.Input.VirtualKeyboard.KeyChar(Keys.Space, false) != ' ')
+			{
+				return Fail("space does not produce a space");
+			}
+			// The characters people actually put in a name or an address.
+			Keys[] punctuation = new Keys[6]
+			{
+				Keys.OemPeriod,
+				Keys.OemMinus,
+				Keys.OemMinus,
+				Keys.OemComma,
+				Keys.OemQuestion,
+				Keys.OemSemicolon
+			};
+			bool[] shifted = new bool[6] { false, false, true, false, false, true };
+			string expected = ".-_,/:";
+			for (int i = 0; i < punctuation.Length; i++)
+			{
+				char c = Terraria.Input.VirtualKeyboard.KeyChar(punctuation[i], shifted[i]);
+				if (c != expected[i])
+				{
+					return Fail(punctuation[i] + (shifted[i] ? " (shift)" : "") + " produced '" + c + "', expected '" + expected[i] + "'");
+				}
+			}
+			// Modifiers and function keys produce nothing: typing a letter must not be the only
+			// thing that happens when Shift is pressed on its own.
+			Keys[] silent = new Keys[5] { Keys.LeftShift, Keys.RightShift, Keys.LeftControl, Keys.F1, Keys.Enter };
+			for (int j = 0; j < silent.Length; j++)
+			{
+				if (Terraria.Input.VirtualKeyboard.KeyChar(silent[j], false) != '\0')
+				{
+					return Fail(silent[j] + " produced a character");
+				}
+			}
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("typed characters check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 

@@ -2040,6 +2040,14 @@ public sealed class UI
 		return result;
 	}
 
+	/// <summary>
+	/// Steps back through the menu history.
+	///
+	/// The parameter is an absolute history depth, not a count: a negative value means "step back
+	/// one screen". <c>PrevMenu(-2)</c> therefore does <b>not</b> go back two screens, and using it
+	/// that way left the character-creation flow stuck in the creator (see
+	/// <see cref="ReturnToCharacterSelect"/>).
+	/// </summary>
 	public void PrevMenu(int depth = -1)
 	{
 		Main.PlaySound(11);
@@ -2072,6 +2080,50 @@ public sealed class UI
 		{
 			SetMenu(MenuMode.TITLE, rememberPrevious: false, reset: true);
 		}
+	}
+
+	/// <summary>Number of screens on the back stack. Exposed for the self-test.</summary>
+	internal int MenuDepthForTests => menuDepth;
+
+	/// <summary>
+	/// Returns to the character list from anywhere in the creation flow.
+	///
+	/// This exists because "back two screens" is a destination, not a number: <see cref="PrevMenu(int)"/>
+	/// takes an absolute history depth, and a negative argument means "step back one". The creation
+	/// flow used <c>PrevMenu(-2)</c> in two places, so both did a single step:
+	/// <list type="bullet">
+	/// <item>after saving a name the player landed back in the character creator instead of the
+	/// list - the character was saved and the screen looked stuck;</item>
+	/// <item>"Leave without creating a character?" answered Yes also landed back in the creator,
+	/// so the dialog looked like it ignored the answer.</item>
+	/// </list>
+	/// The click that caused the step is cleared too: the callback runs before the next screen's
+	/// update, and a stale <c>selectedMenu</c> would immediately pick a row there.
+	/// </summary>
+	internal void ReturnToCharacterSelect()
+	{
+		selectedMenu = -1;
+		focusMenu = -1;
+		numLoadPlayers = CountSavedPlayers();
+		for (int i = menuDepth - 1; i >= 0; i--)
+		{
+			if (prevMenuMode[i] == MenuMode.CHARACTER_SELECT)
+			{
+				menuDepth = i;
+				SetMenu(MenuMode.CHARACTER_SELECT, rememberPrevious: false);
+				// Ignore input briefly: the key or click that got us here is often still held, and
+				// the list must not act on it.
+				ClearMenuHits();
+				uiDelay = 12;
+				return;
+			}
+		}
+		// The list is not in the history (a direct entry, an invite): go there anyway rather than
+		// staying in a screen the player just asked to leave.
+		menuDepth = 0;
+		SetMenu(MenuMode.CHARACTER_SELECT, rememberPrevious: false);
+		ClearMenuHits();
+		uiDelay = 12;
 	}
 
 	private void ResetPlayerMenuSelection()
@@ -3380,7 +3432,10 @@ public sealed class UI
 			numMenuItems = 3;
 			if (selectedMenu == 1)
 			{
-				PrevMenu(-2);
+				// Yes: leave creation and go back to the character list. This used to be
+				// PrevMenu(-2), which is a single step (a negative argument means "back one"),
+				// so the answer landed right back in the creator and looked ignored.
+				ReturnToCharacterSelect();
 			}
 			else if (selectedMenu == 2 || IsBackButtonTriggered())
 			{
@@ -3426,7 +3481,10 @@ public sealed class UI
 					return;
 				}
 				loadPlayerPath[num] = path;
-				PrevMenu(-2);
+				// Back to the list, not to the creator: PrevMenu(-2) meant "one step back", so the
+				// character was saved and the screen stayed in creation - it looked as if Enter
+				// saved nothing and could not be left.
+				ReturnToCharacterSelect();
 				selectedPlayer = (sbyte)num;
 				showPlayer = (sbyte)num;
 				// Put the cursor on the new character's row. Its row index is "how many saved slots
