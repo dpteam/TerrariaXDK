@@ -662,6 +662,7 @@ public sealed class Main : Game
 		settings.Set("Game", "TouchpadButton", "False", "If you want the game to account for a touchpad button, enable this setting. This will not change the controller labels in-game.\n; This will only function if PSMode is enabled and is akin to the PS4 control scheme.");
 		settings.Set("Game", "UnlockAllRecipes", "False");
 		settings.Set("Display", "ScreenHeight", "0", "Internal render resolution: 0 = 540p, 1 = 720p, 2 = 1080p.\n; Higher values look sharper and cost more.");
+		settings.Set("Display", "Language", "0", "0 = follow the system, 1 = English, 2 = Deutsch, 3 = Italiano, 4 = Français, 5 = Español.");
 		settings.Set("Display", "Width", "1280", "Window width in pixels.");
 		settings.Set("Display", "Height", "720", "Window height in pixels.");
 		settings.Set("Display", "ShowFPS", "False");
@@ -690,6 +691,9 @@ public sealed class Main : Game
 		// was hard-wired to the 540p preset and a 640x480 backbuffer.
 		Terraria.DisplaySettings.Load(settings);
 		Terraria.DisplaySettings.ApplyRenderScale();
+		// Language is read here and applied later, in LoadContent: SetLang fills the string
+		// tables, and the culture-based default must have been installed first.
+		Terraria.Language.Load(settings);
 		settings.Set("Backups", "Enabled", "True", "Keep dated copies of the world in Storage/Backups.");
 		settings.Set("Backups", "Keep", "10", "How many backups to keep per world (0-100).\n; Oldest are removed first; 0 disables automatic backups.");
 		settings.Set("Backups", "MinMinutes", "15", "Minutes between automatic backups of the same world (0 = every save).");
@@ -1097,6 +1101,10 @@ public sealed class Main : Game
 		try
 		{
 			string text = Lang.SetSystemLang();
+			// A language chosen in the menu wins over the OS culture. Applied right after the
+			// system default so the splash rating logos below are unaffected (they follow the
+			// region, not the language), and so the tables are filled either way.
+			Terraria.Language.ApplySaved();
 			if (text != null)
 			{
 				SplashTextures[0] = Content.Load<Texture2D>(text);

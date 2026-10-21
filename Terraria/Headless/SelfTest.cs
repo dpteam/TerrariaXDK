@@ -83,6 +83,7 @@ internal static class SelfTest
 		RunCheck("player identity", CheckPlayerIdentity);
 		RunCheck("display settings", CheckDisplaySettings);
 		RunCheck("display profiles", CheckDisplayProfiles);
+		RunCheck("language", CheckLanguage);
 		RunCheck("hud settings", CheckHudSettings);
 		RunCheck("direct connect", CheckDirectConnect);
 		RunCheck("session record", CheckSessionRecord);
@@ -6062,6 +6063,140 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("world file inspector check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	// --- Language -----------------------------------------------------------
+
+	/// <summary>
+	/// The five translations were always in <see cref="Lang"/>, but only the OS culture could
+	/// choose one. What matters now: every option actually fills the tables, switching changes
+	/// the text, Auto really means "whatever the system says", and a bad stored value falls back
+	/// instead of leaving the UI blank.
+	///
+	/// This check runs the real <see cref="Lang.SetLang"/>, which is the same call the game makes
+	/// at startup - so if the string tables were ever broken, this fails rather than the game
+	/// silently showing empty labels.
+	/// </summary>
+	private static bool CheckLanguage()
+	{
+		int savedChoice = Language.Choice;
+		int savedOption = Lang.LangOption;
+		try
+		{
+			// Every option must fill the tables with non-empty text.
+			string[] samples = new string[6];
+			for (int i = Language.Auto; i <= Language.Max; i++)
+			{
+				string error;
+				if (!Language.Apply(i, out error))
+				{
+					return Fail("option " + i + " was rejected: " + error);
+				}
+				if (!Language.TablesFilled())
+				{
+					return Fail("option " + i + " left the string tables empty");
+				}
+				if (Language.Choice != i)
+				{
+					return Fail("option " + i + " was not remembered as the choice (got " + Language.Choice + ")");
+				}
+				samples[i] = Lang.MenuText[6];
+			}
+			// The translations must actually differ: identical strings would mean the switch is
+			// doing nothing while claiming to work.
+			if (string.Equals(samples[1], samples[2], StringComparison.Ordinal))
+			{
+				return Fail("English and German share the same menu text: '" + samples[1] + "'");
+			}
+			if (string.Equals(samples[2], samples[4], StringComparison.Ordinal))
+			{
+				return Fail("German and French share the same menu text");
+			}
+			// Auto must resolve to a concrete language, never leave 0 behind, and stay labelled
+			// "Auto" so the menu does not claim you picked something you did not.
+			string error2;
+			if (!Language.Apply(Language.Auto, out error2))
+			{
+				return Fail("Auto was rejected");
+			}
+			if (Language.Choice != Language.Auto)
+			{
+				return Fail("Auto was not remembered as the choice");
+			}
+			if (Language.Effective == 0)
+			{
+				return Fail("Auto did not resolve to a concrete language (effective 0)");
+			}
+			if (Language.CurrentLabel != "Auto")
+			{
+				return Fail("Auto is labelled '" + Language.CurrentLabel + "'");
+			}
+			if (!Language.TablesFilled())
+			{
+				return Fail("Auto left the string tables empty");
+			}
+
+			// Labels are the language's own name, so they are readable in any UI language.
+			if (Language.Label(1) != "English" || Language.Label(2) != "Deutsch" || Language.Label(3) != "Italiano"
+				|| Language.Label(4) != "Français" || Language.Label(5) != "Español" || Language.Label(0) != "Auto")
+			{
+				return Fail("the language labels are wrong");
+			}
+			// Cycling wraps over the whole range and never produces an invalid option.
+			if (Language.Next(Language.Max, 1) != Language.Auto)
+			{
+				return Fail("cycling past the last language did not wrap to Auto");
+			}
+			if (Language.Next(Language.Auto, -1) != Language.Max)
+			{
+				return Fail("cycling before Auto did not wrap to the last language");
+			}
+			int option = Language.Auto;
+			for (int j = 0; j < 13; j++)
+			{
+				option = Language.Next(option, 1);
+				if (option < Language.Auto || option > Language.Max)
+				{
+					return Fail("cycling produced the invalid option " + option);
+				}
+			}
+
+			// A bad stored value falls back to Auto; the parse never throws.
+			string[] bad = new string[5] { "", "abc", "-1", "99", null };
+			for (int k = 0; k < bad.Length; k++)
+			{
+				if (Language.Parse(bad[k]) != Language.Auto)
+				{
+					return Fail("'" + bad[k] + "' parsed as " + Language.Parse(bad[k]) + " instead of Auto");
+				}
+			}
+			if (Language.Parse("3") != 3 || Language.Parse(" 2 ") != 2)
+			{
+				return Fail("a valid stored language did not parse");
+			}
+			// Out-of-range options are refused, and the current choice survives the refusal.
+			int before = Language.Choice;
+			string error3;
+			if (Language.Apply(-1, out error3) || Language.Apply(6, out error3) || string.IsNullOrEmpty(error3))
+			{
+				return Fail("an out-of-range language was accepted");
+			}
+			if (Language.Choice != before)
+			{
+				return Fail("a refused language changed the current choice");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("language check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			// Restore both values: the rest of the suite and the player's own session depend on
+			// the strings being in the language that was selected before the test ran.
+			Language.Restore(savedChoice, savedOption);
 		}
 	}
 

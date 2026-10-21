@@ -14,7 +14,7 @@ namespace Terraria;
 /// </summary>
 internal static class DisplayMenu
 {
-	private const int Rows = 7;
+	private const int Rows = 8;
 
 	private static int _selected;
 
@@ -110,6 +110,20 @@ internal static class DisplayMenu
 			ApplyWindow();
 			_status = (DisplaySettings.FpsLimit > 0) ? ("Frame cap: " + DisplaySettings.FpsLimit + " fps") : "Frame cap: off (vsync only)";
 			break;
+		case 7:
+		{
+			// Language applies immediately: SetLang refills every string table, so the menu
+			// itself changes language when you change it - which is the only real proof it works.
+			int next = Language.Next(Language.Choice, direction);
+			string error;
+			if (!Language.Apply(next, out error))
+			{
+				_status = error;
+				break;
+			}
+			_status = "Language: " + Language.CurrentLabel;
+			break;
+		}
 		}
 		_statusTime = 240;
 		Main.PlaySound(12);
@@ -220,7 +234,8 @@ internal static class DisplayMenu
 			"Render scale: " + ((DisplaySettings.RenderScale == ScreenHeights.BASE) ? "540p" : ((DisplaySettings.RenderScale == ScreenHeights.HD) ? "720p" : "1080p")),
 			"FPS counter: " + (DisplaySettings.ShowFPS ? "On" : "Off"),
 			"VSync: " + (DisplaySettings.VSync ? "On" : "Off") + ((DisplaySettings.FpsLimit > 0) ? " (off via cap)" : string.Empty),
-			"Frame cap: " + ((DisplaySettings.FpsLimit > 0) ? (DisplaySettings.FpsLimit + " fps") : "off")
+			"Frame cap: " + ((DisplaySettings.FpsLimit > 0) ? (DisplaySettings.FpsLimit + " fps") : "off"),
+			"Language: " + Language.CurrentLabel
 		};
 		for (int i = 0; i < Rows; i++)
 		{
