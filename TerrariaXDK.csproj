@@ -35,6 +35,11 @@
     <ApplicationConfig Include="TerrariaXDK.exe.config" />
   </ItemGroup>
   <ItemGroup>
+    <!-- net40 reference assemblies are not part of every .NET SDK install (CI included).
+         PrivateAssets keeps this a build-time-only dependency. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
     <Reference Include="System.Core" />
     <Reference Include="System.Xml" />
   </ItemGroup>

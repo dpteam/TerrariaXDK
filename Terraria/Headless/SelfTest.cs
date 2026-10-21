@@ -23,13 +23,38 @@ internal static class SelfTest
 
 	private static int _failed;
 
+	private static int _skipped;
+
 	private static readonly List<string> Failures = new List<string>();
+
+	private static readonly List<string> Skips = new List<string>();
+
+	/// <summary>
+	/// Thrown by <see cref="Skip"/> to mark a check as "not applicable here". Distinct from a
+	/// failure on purpose: a machine without the game's Content folder cannot verify the asset
+	/// manifest, and reporting that as a failure would train everyone to ignore the suite.
+	/// </summary>
+	private sealed class SkipCheckException : Exception
+	{
+		public SkipCheckException(string reason) : base(reason)
+		{
+		}
+
+		/// <summary>Marks the current check as skipped. Never returns.</summary>
+		internal static void Skip(string reason)
+		{
+			throw new SkipCheckException(reason);
+		}
+	}
 
 	/// <summary>Runs every check and returns a process exit code.</summary>
 	public static int Run(string[] args)
 	{
 		Console.WriteLine("TerrariaXDK self-test");
 		Console.WriteLine("=====================");
+		// Must be set before EnsureDirectories: it keeps the suite from initialising FNAPlatform,
+		// which needs SDL2. See AppPaths.Headless.
+		Terraria.Storage.AppPaths.Headless = true;
 		Terraria.Storage.AppPaths.EnsureDirectories();
 		RunCheck("app paths", CheckAppPaths);
 		RunCheck("content manifest", CheckContentManifest);
@@ -81,7 +106,15 @@ internal static class SelfTest
 		RunCheck("ban list", CheckBanList);
 		ReportMemory();
 		Console.WriteLine();
-		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
+		Console.WriteLine($"Passed: {_passed}  Skipped: {_skipped}  Failed: {_failed}");
+		if (_skipped != 0)
+		{
+			Console.WriteLine();
+			foreach (string skip in Skips)
+			{
+				Console.WriteLine("  skip " + skip);
+			}
+		}
 		if (_failed != 0)
 		{
 			Console.WriteLine();
@@ -93,6 +126,11 @@ internal static class SelfTest
 		return (_failed == 0) ? 0 : 1;
 	}
 
+	private static void Skip(string reason)
+	{
+		SkipCheckException.Skip(reason);
+	}
+
 	private static void RunCheck(string name, Func<bool> check)
 	{
 		bool flag;
@@ -100,6 +138,14 @@ internal static class SelfTest
 		try
 		{
 			flag = check();
+		}
+		catch (SkipCheckException ex)
+		{
+			_skipped++;
+			string text = ex.Message;
+			Skips.Add(name + (string.IsNullOrEmpty(text) ? "" : (" - " + text)));
+			Console.WriteLine("  skip " + name + (string.IsNullOrEmpty(text) ? "" : (" - " + text)));
+			return;
 		}
 		catch (Exception ex)
 		{
@@ -113,9 +159,9 @@ internal static class SelfTest
 			return;
 		}
 		_failed++;
-		string text = (message == null) ? name : (name + " - " + message);
-		Failures.Add(text);
-		Console.WriteLine("  FAIL " + text);
+		string text2 = (message == null) ? name : (name + " - " + message);
+		Failures.Add(text2);
+		Console.WriteLine("  FAIL " + text2);
 	}
 
 	// --- Storage ------------------------------------------------------------
@@ -165,7 +211,16 @@ internal static class SelfTest
 			return Fail("settings file is outside Storage/");
 		}
 		// The XNA storage device must be redirected, otherwise saves land in the user profile.
-		if (!string.Equals(Microsoft.Xna.Framework.Storage.StorageDevice.RootOverride, Terraria.Storage.AppPaths.Saves, StringComparison.OrdinalIgnoreCase))
+		// In headless mode the redirect is deliberately skipped (see AppPaths.Headless), so the
+		// check verifies the path that would be used instead of touching XNA at all.
+		if (Terraria.Storage.AppPaths.Headless)
+		{
+			if (!Terraria.Storage.AppPaths.Saves.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+			{
+				return Fail("the storage device root would escape Storage/");
+			}
+		}
+		else if (!string.Equals(Microsoft.Xna.Framework.Storage.StorageDevice.RootOverride, Terraria.Storage.AppPaths.Saves, StringComparison.OrdinalIgnoreCase))
 		{
 			return Fail("storage device is not redirected to Storage/Saves");
 		}
@@ -332,7 +387,9 @@ internal static class SelfTest
 		string contentRoot = ContentRoot;
 		if (!Directory.Exists(contentRoot))
 		{
-			return Fail("Content folder not found at " + contentRoot);
+			// No Content folder: nothing to verify. CI and a bare checkout both hit this, and it
+			// must not look like a broken build. The check still runs wherever content exists.
+			Skip("Content folder not installed at " + contentRoot);
 		}
 		List<string> list = RequiredAssets();
 		List<string> list2 = new List<string>();
@@ -379,6 +436,10 @@ internal static class SelfTest
 	private static bool CheckContentOrphans()
 	{
 		string contentRoot = ContentRoot;
+		if (!Directory.Exists(contentRoot))
+		{
+			Skip("Content folder not installed at " + contentRoot);
+		}
 		List<string> list = RequiredAssets();
 		HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		foreach (string item in list)

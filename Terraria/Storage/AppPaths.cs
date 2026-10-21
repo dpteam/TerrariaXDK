@@ -57,6 +57,14 @@ internal static class AppPaths
 	public static string SettingsFile => Path.Combine(Config, "Settings.ini");
 
 	/// <summary>
+	/// Set by the headless self-test before <see cref="EnsureDirectories"/>. It stops this class
+	/// from touching any XNA type: <c>StorageDevice.RootOverride</c> initialises FNAPlatform,
+	/// which loads SDL2, and the self-test needs neither. Without this a machine without the FNA
+	/// native libraries - CI, or a bare checkout - could not run the suite at all.
+	/// </summary>
+	internal static bool Headless;
+
+	/// <summary>
 	/// Optional hosting profile. When this file exists it wins over <see cref="SettingsFile"/>
 	/// for every key it defines, so a world can be hosted with its own policy without
 	/// touching the player's client settings.
@@ -87,7 +95,23 @@ internal static class AppPaths
 		}
 		SeedSettings();
 		// Redirect the XNA storage device so containers resolve under Storage/Saves.
-		Microsoft.Xna.Framework.Storage.StorageDevice.RootOverride = Saves;
+		//
+		// Skipped in headless mode: the assignment initialises FNAPlatform, which loads SDL2,
+		// and the self-test has no use for either. The game itself still reports a missing DLL
+		// loudly when it tries to create a window.
+		if (Headless)
+		{
+			return;
+		}
+		try
+		{
+			Microsoft.Xna.Framework.Storage.StorageDevice.RootOverride = Saves;
+		}
+		catch (Exception ex)
+		{
+			Program.LogWarn("Storage", "could not redirect the XNA storage device (" + ex.GetType().Name + "); "
+				+ "saves will not resolve unless the FNA native libraries are present");
+		}
 	}
 
 	/// <summary>Copies the shipped Settings.ini template into Storage/Config once.</summary>

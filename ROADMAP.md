@@ -180,8 +180,11 @@
 - [ ] `Storage/Cache/`: кэш собранных атласов.
 - [x] Один скрипт на всю сборку: `tools/build.ps1` (build + `--selftest` + `-Pack/-Zip`
       для портативной папки).
-- [ ] CI: `dotnet build` + `--selftest` на каждый коммит. Упирается в `Content/`
-      (277 МБ, вне git) — в CI его надо подкладывать артефактом или качать отдельно.
+- [x] CI: `.github/workflows/build.yml` — сборка Release с `-warnaserror` + `--selftest`
+      на каждый push/PR. `--selftest` больше не требует ни `Content/`, ни нативных DLL
+      (не инициализирует `FNAPlatform`), а контентные проверки без ассетов пишут `skip`
+      с причиной вместо `FAIL`. Проверено на копии exe без Content и без SDL2:
+      `Passed: 46  Skipped: 2  Failed: 0`.
 
 ## Этап 6 — Долгосрочно
 

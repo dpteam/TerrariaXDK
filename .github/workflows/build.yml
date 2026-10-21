@@ -1,0 +1,66 @@
+name: build
+
+# Build plus the headless self-test on every push and pull request.
+#
+# Two things make this possible without the game's assets or its native libraries:
+#
+#   * Content/ (277 MB) is not in the repository. The asset manifest and orphan checks skip
+#     themselves when the folder is missing and say so in the summary, instead of failing.
+#   * The self-test never initialises FNAPlatform (see AppPaths.Headless), so SDL2.dll,
+#     FNA3D.dll, FAudio.dll and libtheorafile.dll are not needed either.
+#
+# A skipped check is reported, never silently treated as a pass: if someone adds Content/ to
+# the job, those two checks start running on their own.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build
+        # Warnings are errors here on purpose: the project builds clean, and a new warning is
+        # usually a real defect (an unused field, an always-true check). Adding one should be a
+        # deliberate decision, not a surprise in a later release.
+        run: dotnet build TerrariaXDK.csproj -c Release -v q --nologo -warnaserror
+
+      - name: Self-test
+        run: |
+          $exe = "bin\Release\net40\TerrariaXDK.exe"
+          if (-not (Test-Path $exe)) { throw "the build produced no executable at $exe" }
+          # The game is a WinExe: its stdout only exists when redirected to a file.
+          $log = "selftest.log"
+          $process = Start-Process -FilePath $exe -ArgumentList '--selftest' -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $log -RedirectStandardError "selftest.err"
+          Get-Content $log
+          if (Test-Path "selftest.err") { Get-Content "selftest.err" }
+          if ($process.ExitCode -ne 0) { throw "self-test failed (exit code $($process.ExitCode))" }
+
+      - name: Upload self-test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selftest-log
+          path: |
+            selftest.log
+            selftest.err
+          if-no-files-found: ignore
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics
+          path: bin/Release/net40/Storage/Logs/
+          if-no-files-found: ignore
