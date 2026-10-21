@@ -653,7 +653,10 @@ public sealed class Main : Game
 		IsFixedTimeStep = true;
 		Content.RootDirectory = "Content";
 		Settings settings = new Settings(Terraria.Storage.AppPaths.SettingsFile);
-		settings.Set("Game", "Gamertag", "Terrarian", "Sets the username of the player, since this is typically given by the console.");
+		// The console got this from Xbox Live. Defaulting to a literal "Terrarian" made every
+		// unconfigured player share one name in LAN lists and rosters, so the OS account is a
+		// better default; the player can change it in the network settings.
+		settings.Set("Game", "Gamertag", Terraria.PlayerIdentity.Default(), "Name other players see in multiplayer and in LAN lists.");
 		settings.Set("Game", "TrialActive", "False", "Determines if trial mode is active; Included for archival/legal purposes, as this is not the full version by default.");
 		settings.Set("Game", "PSMode", "False", "Determines whether the game will run in 'PlayStation 3' mode, rather than 'Xbox 360' mode.\n; This will change the font, controller, D-Pad, and button sprites used in game.");
 		settings.Set("Game", "TouchpadButton", "False", "If you want the game to account for a touchpad button, enable this setting. This will not change the controller labels in-game.\n; This will only function if PSMode is enabled and is akin to the PS4 control scheme.");

@@ -14,7 +14,7 @@ namespace Terraria;
 /// </summary>
 internal static class NetworkMenu
 {
-	private const int Rows = 5;
+	private const int Rows = 6;
 
 	private static int _selected;
 
@@ -82,6 +82,17 @@ internal static class NetworkMenu
 		switch (row)
 		{
 		case 0:
+			VirtualKeyboard.Open("Player name (what others see)", PlayerIdentity.Current, delegate(string text)
+			{
+				if (!PlayerIdentity.Rename(text))
+				{
+					SetStatus("Use 1-" + PlayerIdentity.MaxLength + " characters");
+					return;
+				}
+				SetStatus("Name: " + PlayerIdentity.Current);
+			});
+			break;
+		case 1:
 			VirtualKeyboard.Open("Port (1-65535)", Terraria.Net.NetworkConfig.Port.ToString(), delegate(string text)
 			{
 				int result;
@@ -95,7 +106,7 @@ internal static class NetworkMenu
 				SetStatus("Port: " + result + " - applies when the next world is hosted");
 			});
 			break;
-		case 1:
+		case 2:
 			VirtualKeyboard.Open("Password (empty = anyone)", Terraria.Net.NetworkConfig.Password ?? string.Empty, delegate(string text)
 			{
 				Terraria.Net.NetworkConfig.Password = (text ?? string.Empty).Trim();
@@ -103,10 +114,10 @@ internal static class NetworkMenu
 				SetStatus(string.IsNullOrEmpty(Terraria.Net.NetworkConfig.Password) ? "Password: off" : "Password: set - applies when the next world is hosted");
 			});
 			break;
-		case 2:
+		case 3:
 			Change(row, 1);
 			break;
-		case 3:
+		case 4:
 			VirtualKeyboard.Open("Master server (host:port)", Terraria.Net.MasterServerClient.PrimaryEndpoint, delegate(string text)
 			{
 				if (!Terraria.Net.MasterServerClient.SetEndpoints(text))
@@ -118,7 +129,7 @@ internal static class NetworkMenu
 				SetStatus("Master server: " + Terraria.Net.MasterServerClient.PrimaryEndpoint);
 			});
 			break;
-		case 4:
+		case 5:
 			Change(row, 1);
 			break;
 		}
@@ -128,11 +139,11 @@ internal static class NetworkMenu
 	{
 		switch (row)
 		{
-		case 2:
+		case 3:
 			Terraria.Net.MasterServerClient.Publish = !Terraria.Net.MasterServerClient.Publish;
 			SetStatus(Terraria.Net.MasterServerClient.Publish ? "Publishing this world while hosting" : "Not publishing");
 			break;
-		case 4:
+		case 5:
 			// 0, 10 .. 120 seconds.
 			int[] steps = new int[13]
 			{
@@ -235,6 +246,7 @@ internal static class NetworkMenu
 		string password = Terraria.Net.NetworkConfig.Password ?? string.Empty;
 		string[] array = new string[Rows]
 		{
+			"Player name: " + PlayerIdentity.Current,
 			"Port: " + Terraria.Net.NetworkConfig.Port,
 			"Password: " + (password.Length == 0 ? "off" : new string('*', Math.Min(password.Length, 12))),
 			"Publish to master: " + (Terraria.Net.MasterServerClient.Publish ? "On" : "Off"),

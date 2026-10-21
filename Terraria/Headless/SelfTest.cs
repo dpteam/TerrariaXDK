@@ -52,6 +52,7 @@ internal static class SelfTest
 		RunCheck("mod load order", CheckModLoadOrder);
 		RunCheck("virtual keyboard", CheckVirtualKeyboard);
 		RunCheck("name prompt", CheckNamePrompt);
+		RunCheck("player identity", CheckPlayerIdentity);
 		RunCheck("display settings", CheckDisplaySettings);
 		RunCheck("display profiles", CheckDisplayProfiles);
 		RunCheck("hud settings", CheckHudSettings);
@@ -3539,6 +3540,74 @@ internal static class SelfTest
 		finally
 		{
 			NamePrompt.Reset();
+		}
+	}
+
+	// --- Player identity ----------------------------------------------------
+
+	/// <summary>
+	/// The multiplayer name used to default to the literal "Terrarian", so every player who
+	/// never edited Settings.ini showed up under one name. The default is derived from the OS
+	/// account now; this pins that it is always usable, bounded and never empty.
+	/// </summary>
+	private static bool CheckPlayerIdentity()
+	{
+		string saved = Main.Gamertag;
+		try
+		{
+			string generated = PlayerIdentity.Default();
+			string name;
+			string error;
+			if (!NameRules.TryNormalize(generated, PlayerIdentity.MaxLength, out name, out error))
+			{
+				return Fail("the default player name is unusable: '" + generated + "' (" + error + ")");
+			}
+			if (generated.Length > PlayerIdentity.MaxLength)
+			{
+				return Fail("the default player name is longer than the limit");
+			}
+			// A name that sanitises to nothing must fall back, not announce a blank.
+			Main.Gamertag = "   ";
+			if (PlayerIdentity.Current != PlayerIdentity.Fallback)
+			{
+				return Fail("an empty gamertag was announced as '" + PlayerIdentity.Current + "'");
+			}
+			Main.Gamertag = null;
+			if (PlayerIdentity.Current != PlayerIdentity.Fallback)
+			{
+				return Fail("a null gamertag was announced as '" + PlayerIdentity.Current + "'");
+			}
+			// Renaming rejects what the roster cannot show, and accepts a real name.
+			if (PlayerIdentity.Rename("   ", persist: false) || PlayerIdentity.Rename(new string('x', PlayerIdentity.MaxLength + 1), persist: false))
+			{
+				return Fail("an invalid player name was accepted");
+			}
+			if (!PlayerIdentity.Rename("  Alice  ", persist: false))
+			{
+				return Fail("a valid player name was rejected");
+			}
+			if (PlayerIdentity.Current != "Alice")
+			{
+				return Fail("the player name was not applied: '" + PlayerIdentity.Current + "'");
+			}
+			// Long suffixes are trimmed at the limit, not rejected mid-word with garbage.
+			if (PlayerIdentity.SanitizeCandidate("abcdefghijklmnopqrstuvwxyz").Length != PlayerIdentity.MaxLength)
+			{
+				return Fail("a long candidate was not trimmed to the limit");
+			}
+			if (PlayerIdentity.SanitizeCandidate(null) != "" || PlayerIdentity.SanitizeCandidate(" \r\n ") != "")
+			{
+				return Fail("an empty candidate did not sanitise to an empty string");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("player identity check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Main.Gamertag = saved;
 		}
 	}
 

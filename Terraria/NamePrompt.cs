@@ -29,8 +29,14 @@ internal static class NamePrompt
 
 	private static Action _onCancel;
 
-	/// <summary>True while a prompt is showing; the menu must not run its own input then.</summary>
-	public static bool IsOpen => _open;
+	/// <summary>
+	/// True while a prompt is showing; the menu must not run its own input then.
+	///
+	/// Deliberately also requires the keyboard to be open: if anything closes it behind our
+	/// back, the latch reports "not asking" and the next frame asks again, instead of leaving
+	/// the player on a menu that silently ignores every input.
+	/// </summary>
+	public static bool IsOpen => _open && Input.VirtualKeyboard.IsOpen;
 
 	/// <summary>True when the given menu has already asked and is waiting for an answer.</summary>
 	public static bool IsOpenFor(MenuMode mode)
