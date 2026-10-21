@@ -130,6 +130,13 @@ internal static class MasterServerClient
 				{
 					endpoints[j] = NetworkConfig.MasterServer + ":" + NetworkConfig.MasterServerPort.ToString(CultureInfo.InvariantCulture);
 					Program.LogWarn("Master", "corrected the master server port in the settings: " + text3 + " -> " + endpoints[j]);
+					// Written back, not just fixed in memory: otherwise every start repeats the
+					// warning and the file keeps claiming a port that was never right.
+					if (settings != null)
+					{
+						settings.Update("Network", "MasterServer", string.Join(",", endpoints.ToArray()),
+							"Master server 'host:port'; a comma-separated list adds fallbacks.");
+					}
 				}
 			}
 		}

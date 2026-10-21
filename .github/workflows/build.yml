@@ -60,6 +60,17 @@ jobs:
         # deliberate decision, not a surprise in a later release.
         run: dotnet build TerrariaXDK.csproj -c Release -v q --nologo -warnaserror
 
+      - name: Build tools
+        # The master server and the XNB converter are separate projects, and nothing else in
+        # this job touches them: without a build step they can rot for months before anyone
+        # notices. Their own --selftest runs where it exists.
+        shell: pwsh
+        run: |
+          dotnet build tools\MasterServer\MasterServer.csproj -c Release -v q --nologo -warnaserror
+          & "tools\MasterServer\bin\Release\net40\MasterServer.exe" --selftest
+          if ($LASTEXITCODE -ne 0) { throw "master server self-test failed (exit $LASTEXITCODE)" }
+          dotnet build tools\XnbToPng\XnbToPng.csproj -c Release -v q --nologo -warnaserror
+
       - name: Self-test
         run: |
           $exe = "bin\Release\net40\TerrariaXDK.exe"

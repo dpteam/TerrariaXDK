@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net40</TargetFramework>
+    <AssemblyName>MasterServer</AssemblyName>
+    <RootNamespace>MasterServer</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <!-- net40 by design, same as the game: this has to run on the machine that hosts the game,
+         including Windows versions where a modern .NET is not installable. -->
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- net40 reference assemblies are not part of every SDK install (CI included). -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

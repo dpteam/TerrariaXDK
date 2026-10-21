@@ -328,7 +328,7 @@ Storage/Textures/Atlases/_sheetSprites/ARM_BONE.png
 .\TerrariaXDK.exe --selftest
 ```
 
-Проверяет без графики (65 проверок в Release, 67 в Debug, плюс живая проверка мастер-сервера):
+Проверяет без графики (66 проверок в Release, 68 в Debug):
 1. **пути** — что всё пишется в `Storage/` рядом с exe, а не в профиль пользователя;
 2. **манифест контента** — что каждый `Content.Load(...)` путь реально существует;
 3. **осиротевшие файлы** — что в `Content/` нет ничего, что игра не грузит;
@@ -418,15 +418,17 @@ Storage/Textures/Atlases/_sheetSprites/ARM_BONE.png
 `png corpus`), пишут `skip` с причиной, а не `FAIL`:
 
 ```
-Passed: 61  Skipped: 4  Failed: 0
+Passed: 62  Skipped: 4  Failed: 0
 ```
 
 Пропуск — это **не** «пройдено»: он виден в итоговой строке и в списке. Как только
 `Content/` появится рядом с exe, три из них начинают работать сами; `png corpus` нужен
-`_RemovedContent/` с настоящими PNG.
+`_RemovedContent/` с настоящими PNG. Пятый пропуск — `master server live`: он спрашивает
+настоящий мастер-сервер и честно пишет `skip`, если тот не запущен (сервис лежит в
+`tools/MasterServer`, см. `docs/MULTIPLAYER.md`).
 
-В чистом клоне Release-сборка даёт 61 пройденную и 4 пропуска; Debug добавляет ещё две
-свои проверки (`debug kit`, `debug console`) и только их.
+В чистом клоне Release-сборка даёт 62 пройденные и 4 пропуска (5, если мастер не запущен);
+Debug добавляет ещё две свои проверки (`debug kit`, `debug console`) и только их.
 
 ### CI
 
@@ -456,6 +458,7 @@ Passed: 61  Skipped: 4  Failed: 0
   SDL2/, FAudio.cs, ...     нативные обёртки
   tools/
     build.ps1               сборка + self-test + упаковка
+    MasterServer/           мастер-сервер списка миров (консольный, без зависимостей)
     XnbToPng/               извлечение PNG из .xnb (отдельный проект)
   README.md, AGENTS.md      документация проекта
   IDEAS.md, ROADMAP.md
