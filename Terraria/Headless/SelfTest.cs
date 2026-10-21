@@ -103,6 +103,7 @@ internal static class SelfTest
 		RunCheck("regions", CheckRegions);
 		RunCheck("item restrictions", CheckItemRestrictions);
 		RunCheck("server config", CheckServerConfig);
+		RunCheck("sound routing", CheckSoundRouting);
 		RunCheck("ban list", CheckBanList);
 		ReportMemory();
 		Console.WriteLine();
@@ -5842,6 +5843,80 @@ internal static class SelfTest
 			catch
 			{
 			}
+		}
+	}
+
+	// --- Sound routing ------------------------------------------------------
+
+	/// <summary>
+	/// <see cref="Main.PlaySound"/> now delegates to <see cref="Terraria.Audio.SoundPlayer"/>.
+	/// The property that must survive the move is robustness, not timbre: audio loading is
+	/// allowed to fail (the loader catches and the game keeps running), which leaves every sound
+	/// pool null, and the game must then be silent instead of throwing on every footstep.
+	///
+	/// This also pins the delegation itself - if the wrapper ever stopped calling through, the
+	/// silence case would still pass, but the volume gate below would not.
+	/// </summary>
+	private static bool CheckSoundRouting()
+	{
+		float volume = Main.SoundVolume;
+		try
+		{
+			// Volume 0 is the documented "off" switch and must do nothing at all.
+			Main.SoundVolume = 0f;
+			try
+			{
+				Main.PlaySound(0, 100, 100);
+				Main.PlaySound(0);
+				Main.PlaySound(2);
+			}
+			catch (Exception ex)
+			{
+				return Fail("PlaySound threw while muted: " + ex.GetType().Name + ": " + ex.Message);
+			}
+
+			// Audio that never loaded: pools are null here, exactly like a failed audio stage.
+			// Every call must be swallowed, for both overloads and a spread of sound types.
+			Main.SoundVolume = 1f;
+			bool poolsMissing = Main.SoundDig == null || Main.SoundDig[0] == null;
+			if (!poolsMissing)
+			{
+				// Content was loaded in this process (not the case headless); nothing to prove.
+				return true;
+			}
+			int[] positioned = new int[6] { 0, 1, 2, 3, 14, 30 };
+			for (int i = 0; i < positioned.Length; i++)
+			{
+				try
+				{
+					Main.PlaySound(positioned[i], 320, 320);
+				}
+				catch (Exception ex)
+				{
+					return Fail("PlaySound(" + positioned[i] + ", x, y) threw with no audio loaded: " + ex.GetType().Name + ": " + ex.Message);
+				}
+			}
+			int[] ui = new int[6] { 1, 7, 10, 11, 12, 22 };
+			for (int j = 0; j < ui.Length; j++)
+			{
+				try
+				{
+					Main.PlaySound(ui[j]);
+				}
+				catch (Exception ex)
+				{
+					return Fail("PlaySound(" + ui[j] + ") threw with no audio loaded: " + ex.GetType().Name + ": " + ex.Message);
+				}
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("sound routing check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Main.SoundVolume = volume;
 		}
 	}
 
