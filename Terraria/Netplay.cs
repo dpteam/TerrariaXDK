@@ -786,10 +786,80 @@ public sealed class Netplay
 		return null;
 	}
 
+	/// <summary>
+	/// Adds saved servers that neither LAN discovery nor the master reported. Runs on the
+	/// finder thread, so a slow DNS lookup here cannot freeze the menu; the host thread
+	/// never waits for it.
+	/// </summary>
+	private static void DiscoverSavedServers()
+	{
+		System.Collections.Generic.IList<string> all = Terraria.Net.ServerFavorites.All;
+		for (int i = 0; i < all.Count; i++)
+		{
+			string host;
+			int port;
+			if (!Terraria.Net.NetworkConfig.TryParseAddress(all[i], out host, out port))
+			{
+				continue;
+			}
+			System.Net.IPEndPoint endPoint = null;
+			System.Net.IPAddress address;
+			if (System.Net.IPAddress.TryParse(host, out address))
+			{
+				endPoint = new System.Net.IPEndPoint(address, port);
+			}
+			else
+			{
+				try
+				{
+					System.Net.IPAddress[] addresses = System.Net.Dns.GetHostAddresses(host);
+					for (int j = 0; j < addresses.Length; j++)
+					{
+						if (addresses[j].AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+						{
+							endPoint = new System.Net.IPEndPoint(addresses[j], port);
+							break;
+						}
+					}
+				}
+				catch (Exception ex)
+				{
+					Program.LogInfo("Netplay", "saved server '" + host + "' did not resolve: " + ex.Message);
+				}
+			}
+			if (endPoint == null)
+			{
+				continue;
+			}
+			lock (availableSessions)
+			{
+				bool found = false;
+				for (int k = 0; k < availableSessions.Count; k++)
+				{
+					System.Net.IPEndPoint other = availableSessions[k].AvailableSession.EndPoint;
+					if (other != null && other.Port == endPoint.Port && other.Address.Equals(endPoint.Address))
+					{
+						found = true;
+						break;
+					}
+				}
+				if (found)
+				{
+					continue;
+				}
+				AvailableNetworkSession availableNetworkSession = new AvailableNetworkSession(0, all[i], 0, Terraria.Net.NetworkConfig.MaxPlayers, new NetworkSessionProperties(), new QualityOfService());
+				availableNetworkSession.SessionType = NetworkSessionType.SystemLink;
+				availableNetworkSession.EndPoint = endPoint;
+				availableSessions.Add(new JoinableSession(availableNetworkSession));
+			}
+		}
+	}
+
 	public static void FindSessionsThread()
 	{
 		DiscoverLanSessions();
 		DiscoverMasterServers();
+		DiscoverSavedServers();
 		NetworkSessionProperties networkSessionProperties = new NetworkSessionProperties();
 		networkSessionProperties[2] = 2;
 		UI mainUI = UI.MainUI;

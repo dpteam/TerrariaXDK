@@ -68,14 +68,35 @@ internal static class NetworkConfig
 				return false;
 			}
 			host = text.Substring(0, num);
-			return host.Length > 0;
+			return IsPlausibleHost(host);
 		}
 		if (text.StartsWith("[") && text.EndsWith("]"))
 		{
 			host = text.Substring(1, text.Length - 2);
-			return host.Length > 0;
+			return IsPlausibleHost(host);
 		}
 		host = text;
+		return IsPlausibleHost(host);
+	}
+
+	/// <summary>
+	/// A hostname or address never contains whitespace. Without this, a stray line in a
+	/// config file ("bogus line") became a "valid" server at the default port.
+	/// </summary>
+	private static bool IsPlausibleHost(string host)
+	{
+		if (string.IsNullOrEmpty(host))
+		{
+			return false;
+		}
+		for (int i = 0; i < host.Length; i++)
+		{
+			char c = host[i];
+			if (char.IsWhiteSpace(c) || c == '/' || c == '\\')
+			{
+				return false;
+			}
+		}
 		return true;
 	}
 }

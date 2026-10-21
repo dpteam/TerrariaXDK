@@ -148,6 +148,17 @@ public static class WorldSelect
 			// Direct connect: reach servers that LAN discovery cannot see.
 			AskForAddress();
 		}
+		else if (Terraria.Input.KeyboardMouseInput.KeyPressed(Microsoft.Xna.Framework.Input.Keys.F5) || UI.MainUI.IsButtonTriggered(Buttons.LeftShoulder))
+		{
+			// Refresh the list. The backoff is cleared too: a manual refresh is the user
+			// saying "try again now", and waiting out the timer would look broken.
+			Terraria.Net.MasterServerClient.ResetBackoff();
+			Netplay.FindSessions();
+		}
+		else if (Terraria.Input.KeyboardMouseInput.KeyPressed(Microsoft.Xna.Framework.Input.Keys.F))
+		{
+			ToggleFavorite();
+		}
 		else if (cursorX == 0)
 		{
 			if (UI.MainUI.IsButtonTriggered(Buttons.A))
@@ -311,6 +322,11 @@ public static class WorldSelect
 					UI.DrawStringLC(UI.BoldSmallFont, s2, destRect.X, destRect.Center.Y, white);
 					// Markers instead of a second line: the list rows are one line tall.
 					string text = joinableSession.HostTag;
+					string address = Terraria.Net.ServerFavorites.AddressOf(joinableSession.AvailableSession.EndPoint);
+					if (address != null && Terraria.Net.ServerFavorites.Contains(address))
+					{
+						text = "* " + text;
+					}
 					if (joinableSession.AvailableSession.Passworded)
 					{
 						text += " [pw]";
@@ -529,6 +545,36 @@ public static class WorldSelect
 		}
 		Main.HideSaveIcon();
 		worldNames[selectedWorld] = null;
+	}
+
+	/// <summary>
+	/// Saves or forgets the server currently under the cursor. Favourites survive both a
+	/// failed LAN scan and an unreachable master server.
+	/// </summary>
+	private static void ToggleFavorite()
+	{
+		if (cursorX != 1 || selectedSession >= Netplay.availableSessions.Count)
+		{
+			return;
+		}
+		JoinableSession joinableSession = Netplay.availableSessions[selectedSession];
+		string text = Terraria.Net.ServerFavorites.AddressOf(joinableSession.AvailableSession.EndPoint);
+		if (text == null)
+		{
+			return;
+		}
+		if (Terraria.Net.ServerFavorites.Contains(text))
+		{
+			Terraria.Net.ServerFavorites.Remove(text);
+			UI.MainUI.statusText = "Removed from saved servers: " + text;
+			Main.PlaySound(11);
+			return;
+		}
+		if (Terraria.Net.ServerFavorites.Add(text))
+		{
+			UI.MainUI.statusText = "Saved server: " + text;
+			Main.PlaySound(12);
+		}
 	}
 
 	public static AvailableNetworkSession Session()

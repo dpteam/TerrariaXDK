@@ -56,6 +56,7 @@ internal static class SelfTest
 		RunCheck("master server", CheckMasterServer);
 		RunCheck("lan discovery", CheckLanDiscovery);
 		RunCheck("mod packets", CheckModPackets);
+		RunCheck("saved servers", CheckSavedServers);
 		RunCheck("world backups", CheckWorldBackups);
 		ReportMemory();
 		Console.WriteLine();
@@ -2278,6 +2279,106 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("mod packet check threw: " + ex.Message);
+		}
+	}
+
+	// --- Saved servers ------------------------------------------------------
+
+	/// <summary>
+	/// Favourites are the only server list that survives both a dead master and a failed
+	/// LAN scan, so the file has to round-trip, deduplicate and ignore junk.
+	/// </summary>
+	private static bool CheckSavedServers()
+	{
+		string backup = null;
+		bool had = System.IO.File.Exists(ServerFavorites.FilePath);
+		try
+		{
+			if (had)
+			{
+				backup = System.IO.File.ReadAllText(ServerFavorites.FilePath, Encoding.UTF8);
+				System.IO.File.Delete(ServerFavorites.FilePath);
+			}
+			ServerFavorites.Reset();
+			if (ServerFavorites.All.Count != 0)
+			{
+				return Fail("the saved server list did not start empty");
+			}
+			if (!ServerFavorites.Add("192.168.1.10:7777"))
+			{
+				return Fail("a plain address was not saved");
+			}
+			// The port is optional and defaults to the configured one.
+			if (!ServerFavorites.Add("example.com"))
+			{
+				return Fail("an address without a port was not saved");
+			}
+			// A bare host means "the configured port", so a different port must not match.
+			if (ServerFavorites.Contains("192.168.1.10:7778"))
+			{
+				return Fail("an address matches even when the port differs");
+			}
+			if (!ServerFavorites.Contains("192.168.1.10:7777"))
+			{
+				return Fail("a saved address is not found");
+			}
+			// Adding twice is a no-op, not a duplicate row.
+			if (ServerFavorites.Add("192.168.1.10:7777"))
+			{
+				return Fail("a duplicate address was saved twice");
+			}
+			if (ServerFavorites.All.Count != 2)
+			{
+				return Fail("the saved list has " + ServerFavorites.All.Count + " entries, expected 2");
+			}
+			// Garbage is refused instead of stored.
+			if (ServerFavorites.Add("host:99999") || ServerFavorites.Add("") || ServerFavorites.Add("host:abc"))
+			{
+				return Fail("an invalid address was saved");
+			}
+			// The file survives a reload, and a hand-edited file with junk is tolerated.
+			ServerFavorites.Reset();
+			if (ServerFavorites.All.Count != 2)
+			{
+				return Fail("the saved list was lost on reload");
+			}
+			System.IO.File.WriteAllText(ServerFavorites.FilePath, "# hand edited\r\nbogus line\r\n10.0.0.5:7788\r\n", Encoding.UTF8);
+			ServerFavorites.Reset();
+			if (ServerFavorites.All.Count != 1 || ServerFavorites.All[0] != "10.0.0.5:7788")
+			{
+				return Fail("a hand-edited file produced " + ServerFavorites.All.Count + " usable entries");
+			}
+			if (!ServerFavorites.Remove("10.0.0.5:7788") || ServerFavorites.All.Count != 0)
+			{
+				return Fail("an address could not be removed");
+			}
+			if (ServerFavorites.Remove("10.0.0.5:7788"))
+			{
+				return Fail("removing a missing address reported success");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("saved server check threw: " + ex.Message);
+		}
+		finally
+		{
+			ServerFavorites.Reset();
+			try
+			{
+				if (backup != null)
+				{
+					System.IO.File.WriteAllText(ServerFavorites.FilePath, backup, Encoding.UTF8);
+				}
+				else if (System.IO.File.Exists(ServerFavorites.FilePath))
+				{
+					System.IO.File.Delete(ServerFavorites.FilePath);
+				}
+			}
+			catch
+			{
+			}
 		}
 	}
 
