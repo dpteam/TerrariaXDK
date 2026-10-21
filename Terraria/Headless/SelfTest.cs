@@ -36,6 +36,7 @@ internal static class SelfTest
 		RunCheck("content orphans", CheckContentOrphans);
 		RunCheck("wire framing", CheckWireFormat);
 		RunCheck("tcp loopback", CheckTcpLoopback);
+		RunCheck("host and two clients", CheckHostAndTwoClients);
 		RunCheck("connect timeout", CheckConnectTimeout);
 		RunCheck("network config", CheckNetworkConfig);
 		RunCheck("mod loader", CheckModLoader);
@@ -2787,6 +2788,216 @@ internal static class SelfTest
 		{
 			MasterServerClient.SetEndpoints(string.Join(",", saved));
 		}
+	}
+
+	// --- Host and two clients -----------------------------------------------
+
+	/// <summary>
+	/// The real thing over real sockets: one host and two clients, each in its own session.
+	/// This is the case that was never covered - loopback only proved framing - and it is
+	/// exactly what a multiplayer match does: everybody connects, the roster is distributed
+	/// and a packet from one client reaches the other through the host.
+	///
+	/// Sessions are built directly instead of through NetworkSession.Create/Join because those
+	/// statics allow a single active session per process (activeSession); the constructor and
+	/// StartHostPeer/StartClientPeer are what those statics call anyway.
+	/// </summary>
+	private static bool CheckHostAndTwoClients()
+	{
+		int savedPort = NetworkConfig.Port;
+		int savedDiscovery = NetworkConfig.DiscoveryPort;
+		int savedMax = NetworkConfig.MaxPlayers;
+		bool savedTcp = NetworkConfig.UseTcpTransport;
+		string savedPassword = NetworkConfig.Password;
+		NetworkSession hostSession = null;
+		NetworkSession clientSession1 = null;
+		NetworkSession clientSession2 = null;
+		try
+		{
+			Microsoft.Xna.Framework.GamerServices.GamerServicesDispatcher.Initialize(null);
+			if (Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers.Count < 3)
+			{
+				return Fail("gamer services did not provide three gamertags");
+			}
+			NetworkConfig.UseTcpTransport = true;
+			NetworkConfig.Password = string.Empty;
+			NetworkConfig.MaxPlayers = 7;
+			// Port 0 lets the OS choose a free port; the host reports the real one back.
+			NetworkConfig.Port = 0;
+			NetworkConfig.DiscoveryPort = 0;
+
+			NetworkSessionProperties properties = new NetworkSessionProperties();
+			hostSession = new NetworkSession(properties, NetworkSessionType.PlayerMatch, 8, 0, 1, new List<Microsoft.Xna.Framework.GamerServices.SignedInGamer>(1) { Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers[0] });
+			hostSession.StartHostPeer();
+			int port = NetworkConfig.ActivePort;
+			if (port <= 0)
+			{
+				return Fail("the host did not report the port it bound");
+			}
+
+			clientSession1 = MakeClientSession(1, port, out AvailableNetworkSession available1);
+			clientSession2 = MakeClientSession(2, port, out AvailableNetworkSession available2);
+			if (clientSession1 == null || clientSession2 == null)
+			{
+				return Fail("a client session could not be created");
+			}
+
+			// Pump all three "game loops" until both clients are in the roster.
+			bool bothJoined = PumpUntil(delegate
+			{
+				return hostSession.RemoteGamers.Count >= 2 && clientSession1.RemoteGamers.Count >= 1 && clientSession2.RemoteGamers.Count >= 1;
+			}, 4000, hostSession, clientSession1, clientSession2);
+			if (!bothJoined)
+			{
+				return Fail("clients did not join: host sees " + hostSession.RemoteGamers.Count + " remote gamer(s), clients see " + clientSession1.RemoteGamers.Count + "/" + clientSession2.RemoteGamers.Count);
+			}
+
+			// The host must have learned the real gamertags, not "Stub Gamer".
+			string hostSees = string.Empty;
+			foreach (Microsoft.Xna.Framework.Net.NetworkGamer gamer in hostSession.RemoteGamers)
+			{
+				hostSees += gamer.Gamertag + ";";
+			}
+			if (!hostSees.Contains("Stub Gamer (1)") || !hostSees.Contains("Stub Gamer (2)"))
+			{
+				return Fail("the roster lost the gamertags: " + hostSees);
+			}
+
+			// Client 1 sends a game packet: it must reach client 2 through the host relay.
+			byte[] payload = new byte[6] { 0xAA, 0x01, 0x00, 0x05, 0x00, 0x7F };
+			clientSession1.LocalGamers[0].SendData(payload, Microsoft.Xna.Framework.Net.SendDataOptions.ReliableInOrder);
+			if (!PumpUntil(delegate
+			{
+				return clientSession2.LocalGamers[0].IsDataAvailable;
+			}, 4000, hostSession, clientSession1, clientSession2))
+			{
+				return Fail("a client packet never reached the other client");
+			}
+			byte[] received = new byte[64];
+			Microsoft.Xna.Framework.Net.NetworkGamer sender;
+			int count = clientSession2.LocalGamers[0].ReceiveData(received, out sender);
+			if (count != payload.Length)
+			{
+				return Fail("the relayed packet has " + count + " byte(s), expected " + payload.Length);
+			}
+			for (int i = 0; i < payload.Length; i++)
+			{
+				if (received[i] != payload[i])
+				{
+					return Fail("the relayed packet differs at byte " + i);
+				}
+			}
+			if (sender == null)
+			{
+				return Fail("the relayed packet lost its sender");
+			}
+
+			// A packet from client 2 must reach client 1 as well (relay is bidirectional).
+			byte[] reply = new byte[3] { 0xBB, 0x02, 0x00 };
+			clientSession2.LocalGamers[0].SendData(reply, Microsoft.Xna.Framework.Net.SendDataOptions.ReliableInOrder);
+			if (!PumpUntil(delegate
+			{
+				return clientSession1.LocalGamers[0].IsDataAvailable;
+			}, 4000, hostSession, clientSession1, clientSession2))
+			{
+				return Fail("the relay only worked in one direction");
+			}
+			if (clientSession1.LocalGamers[0].ReceiveData(received, out sender) != reply.Length)
+			{
+				return Fail("the reply packet has the wrong length");
+			}
+
+			// A leave must be noticed by everybody, otherwise ghost players stay in the world.
+			clientSession2.Dispose();
+			clientSession2 = null;
+			if (!PumpUntil(delegate
+			{
+				return hostSession.RemoteGamers.Count == 1;
+			}, 4000, hostSession, clientSession1))
+			{
+				return Fail("the host did not notice a client leaving");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("host and two clients check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				clientSession2?.Dispose();
+			}
+			catch
+			{
+			}
+			try
+			{
+				clientSession1?.Dispose();
+			}
+			catch
+			{
+			}
+			try
+			{
+				hostSession?.Dispose();
+			}
+			catch
+			{
+			}
+			NetworkConfig.Port = savedPort;
+			NetworkConfig.DiscoveryPort = savedDiscovery;
+			NetworkConfig.MaxPlayers = savedMax;
+			NetworkConfig.UseTcpTransport = savedTcp;
+			NetworkConfig.Password = savedPassword;
+			NetworkConfig.ActivePort = 0;
+		}
+	}
+
+	/// <summary>Builds a client session pointing at the host port and opens its transport.</summary>
+	private static NetworkSession MakeClientSession(int gamerIndex, int port, out AvailableNetworkSession available)
+	{
+		NetworkSessionProperties properties = new NetworkSessionProperties();
+		NetworkSession session = new NetworkSession(properties, NetworkSessionType.PlayerMatch, 8, 0, 1, new List<Microsoft.Xna.Framework.GamerServices.SignedInGamer>(1) { Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers[gamerIndex] });
+		available = new AvailableNetworkSession(0, "127.0.0.1", 0, 7, properties, new QualityOfService());
+		available.SessionType = NetworkSessionType.SystemLink;
+		available.EndPoint = new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, port);
+		session.StartClientPeer(available);
+		return session;
+	}
+
+	/// <summary>
+	/// Runs the game loop for every session until the condition holds or the timeout expires.
+	/// Each iteration sleeps a millisecond, which is enough for the transport threads.
+	/// </summary>
+	private static bool PumpUntil(Func<bool> condition, int timeoutMs, params NetworkSession[] sessions)
+	{
+		DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+		while (DateTime.UtcNow < deadline)
+		{
+			for (int i = 0; i < sessions.Length; i++)
+			{
+				if (sessions[i] == null)
+				{
+					continue;
+				}
+				try
+				{
+					sessions[i].Update();
+				}
+				catch (ObjectDisposedException)
+				{
+				}
+			}
+			if (condition())
+			{
+				return true;
+			}
+			Thread.Sleep(1);
+		}
+		// One last pump so the final state is visible to the caller.
+		return condition();
 	}
 
 	private static bool Fail(string message)

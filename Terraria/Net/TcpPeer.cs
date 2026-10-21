@@ -88,7 +88,7 @@ internal sealed class TcpPeer : IPeerTransport
 
 	private volatile bool _stopped;
 
-	private int _discoveryPort;
+	private int _advertisedPort;
 
 	private long _lastPingTick;
 
@@ -99,7 +99,7 @@ internal sealed class TcpPeer : IPeerTransport
 		_session = session;
 		_isHost = availableSession == null;
 		_remoteEndPoint = availableSession?.EndPoint;
-		_discoveryPort = NetworkConfig.Port;
+		_advertisedPort = NetworkConfig.Port;
 		if (_isHost)
 		{
 			StartHost();
@@ -118,7 +118,11 @@ internal sealed class TcpPeer : IPeerTransport
 		int port = NetworkConfig.Port;
 		_listener = new TcpListener(IPAddress.Any, port);
 		_listener.Start();
+		// Port 0 means "let the OS pick": report the port actually bound, not the request.
+		// Without this a caller asking for 0 would advertise 0 in discovery and to clients.
+		port = ((IPEndPoint)_listener.LocalEndpoint).Port;
 		NetworkConfig.ActivePort = port;
+		_advertisedPort = port;
 		ModLoaderLog("Hosting on TCP port " + port);
 		_acceptThread = new Thread(AcceptLoop)
 		{
@@ -390,7 +394,27 @@ internal sealed class TcpPeer : IPeerTransport
 		{
 			udpClient = new UdpClient();
 			udpClient.EnableBroadcast = true;
-			udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, 0));
+			// Must bind the discovery port, not an ephemeral one: clients broadcast their
+			// probe to NetworkConfig.DiscoveryPort, so a random port could never receive it
+			// and no host was ever visible on a LAN.
+			udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, NetworkConfig.DiscoveryPort));
+		}
+		catch (Exception ex)
+		{
+			// Port taken (a second instance, or another program): LAN discovery is off, but
+			// hosting still works. Joining by address is unaffected.
+			ModLoaderLog("LAN discovery disabled, could not bind port " + NetworkConfig.DiscoveryPort + ": " + ex.Message);
+			try
+			{
+				udpClient?.Close();
+			}
+			catch
+			{
+			}
+			return;
+		}
+		try
+		{
 			while (!_stopped)
 			{
 				IPEndPoint remoteEP = new IPEndPoint(IPAddress.Any, 0);
@@ -442,7 +466,7 @@ internal sealed class TcpPeer : IPeerTransport
 		// Trailing flags keep the reply backward compatible: older clients stop reading
 		// after the port, newer ones also learn whether a password is required.
 		int num = string.IsNullOrEmpty(NetworkConfig.Password) ? 0 : 1;
-		return "TXDK|" + gamertag + "|" + (RemoteCount() + 1) + "|" + (NetworkConfig.MaxPlayers - RemoteCount()) + "|" + Terraria.Mods.ModLoader.Signature + "|" + _discoveryPort + "|" + num;
+		return "TXDK|" + gamertag + "|" + (RemoteCount() + 1) + "|" + (NetworkConfig.MaxPlayers - RemoteCount()) + "|" + Terraria.Mods.ModLoader.Signature + "|" + _advertisedPort + "|" + num;
 	}
 
 	// --- Client -------------------------------------------------------------
@@ -470,7 +494,9 @@ internal sealed class TcpPeer : IPeerTransport
 			throw new TimeoutException("Could not reach " + _remoteEndPoint + " within " + NetworkConfig.ConnectTimeoutMs + " ms.");
 		}
 		_stream = _client.GetStream();
-		string gamertag = (Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers.Count > 0) ? Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers[0].Gamertag : "Terrarian";
+		// Announce this session's own player, not "the first signed-in gamer": with several
+		// sessions in one process (or split-screen) every client would send the same tag.
+		string gamertag = (_session.LocalGamers.Count > 0 && !string.IsNullOrEmpty(_session.LocalGamers[0].Gamertag)) ? _session.LocalGamers[0].Gamertag : ((Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers.Count > 0) ? Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers[0].Gamertag : "Terrarian");
 		SendHandshake(gamertag);
 		Thread thread = new Thread(ClientLoop)
 		{

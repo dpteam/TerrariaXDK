@@ -17,6 +17,13 @@ public sealed class LocalNetworkGamer : NetworkGamer
 		: base(session)
 	{
 		SignedInGamer = gamer;
+		// NetworkGamer's constructor hardcodes "Stub Gamer". Without this, the handshake and
+		// the multiplayer roster showed "Stub Gamer" instead of the player's own gamertag.
+		if (gamer != null && !string.IsNullOrEmpty(gamer.Gamertag))
+		{
+			Gamertag = gamer.Gamertag;
+			DisplayName = gamer.DisplayName;
+		}
 		packetQueue = new Queue<NetworkSession.NetworkEvent>();
 	}
 
