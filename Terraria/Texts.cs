@@ -316,6 +316,16 @@ internal static class Texts
 		Add(dictionary, "ui.connect.title", "Connect");
 		Add(dictionary, "ui.modmismatch.title", "Mod mismatch");
 		Add(dictionary, "ui.modmismatch.text", "Player '{0}' uses a different mod set and cannot join.");
+		Add(dictionary, "ui.reject.title", "Connection refused: {0}");
+		Add(dictionary, "ui.reject.protocol", "server protocol {0}, yours {1}");
+		Add(dictionary, "ui.reject.mods", "this server runs a different mod set");
+		Add(dictionary, "ui.reject.banned", "you are banned from this server");
+		Add(dictionary, "ui.reject.password", "wrong password");
+		Add(dictionary, "ui.reject.full", "the server is full");
+		Add(dictionary, "ui.reject.kicked", "disconnected by the host");
+		Add(dictionary, "ui.reject.kicked.reason", "disconnected by the host: {0}");
+		Add(dictionary, "ui.reject.unknown", "{0}");
+		Add(dictionary, "ui.reject.unknown.empty", "the server gave no reason");
 
 		// --- Display screen -------------------------------------------------
 		Add(dictionary, "ui.display.title", "Display");

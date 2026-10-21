@@ -54,8 +54,15 @@ internal sealed class TcpPeer : IPeerTransport
 	/// </summary>
 	internal const byte OpMod = 12;
 
-	/// <summary>Bumped whenever the wire format or handshake changes.</summary>
-	public const int ProtocolVersion = 2;
+	/// <summary>
+	/// Bumped whenever the wire format or handshake changes.
+	///
+	/// 3: the <c>OpReject</c> payload became a reason code plus fields instead of an English
+	/// sentence. A version bump rather than a silent change, because a 2 client would print the
+	/// raw bytes as text - and because the refusal it gets ("versions differ") is now shown in
+	/// its own language, which is exactly the case this change was for.
+	/// </summary>
+	public const int ProtocolVersion = 3;
 
 	/// <summary>Same value, exposed to the headless self-test.</summary>
 	public const int ProtocolVersionPublic = ProtocolVersion;
@@ -166,7 +173,8 @@ internal sealed class TcpPeer : IPeerTransport
 		kicked = connection.Gamertag;
 		ModLoaderLog("Kicked " + connection.Gamertag + ": " + reason);
 		// Tell the client why before the socket goes away; the disconnect path does the close.
-		SendReject(connection, reason);
+		// The reason is the host's own words, so it travels as a field of a Kicked refusal.
+		SendReject(connection, RejectReason.Kicked, reason);
 		Disconnect(connection);
 		return true;
 	}
@@ -284,13 +292,13 @@ internal sealed class TcpPeer : IPeerTransport
 			if (protocol != ProtocolVersion)
 			{
 				ModLoaderLog("Rejected peer " + gamertag + ": protocol " + protocol);
-				Reject(connection, "Server and client versions differ (protocol " + protocol + " vs " + ProtocolVersion + ").");
+				Reject(connection, RejectReason.ProtocolMismatch, protocol.ToString(), ProtocolVersion.ToString());
 				return;
 			}
 			if (!Terraria.Mods.ModLoader.IsCompatible(signature))
 			{
 				ModLoaderLog("Rejected peer " + gamertag + ": mod signature " + signature + " != " + Terraria.Mods.ModLoader.Signature);
-				Reject(connection, "Mod mismatch: this server runs a different mod set.");
+				Reject(connection, RejectReason.ModMismatch);
 				_inbox.Enqueue(() => RejectForMods(gamertag));
 				return;
 			}
@@ -300,7 +308,7 @@ internal sealed class TcpPeer : IPeerTransport
 			if (Terraria.Net.BanList.IsBanned(gamertag, remoteAddress))
 			{
 				ModLoaderLog("Rejected banned peer " + gamertag + " from " + remoteAddress);
-				Reject(connection, "You are banned from this server.");
+				Reject(connection, RejectReason.Banned);
 				return;
 			}
 			// Password is checked before the peer is registered, so an unauthenticated
@@ -308,12 +316,12 @@ internal sealed class TcpPeer : IPeerTransport
 			if (!string.IsNullOrEmpty(NetworkConfig.Password) && !CheckPassword(password))
 			{
 				ModLoaderLog("Rejected peer " + gamertag + ": wrong password");
-				Reject(connection, "Wrong password.");
+				Reject(connection, RejectReason.WrongPassword);
 				return;
 			}
 			if (RemoteCount() >= NetworkConfig.MaxPlayers)
 			{
-				Reject(connection, "Server is full.");
+				Reject(connection, RejectReason.ServerFull);
 				return;
 			}
 			connection.Gamertag = string.IsNullOrEmpty(gamertag) ? "Anonymous" : gamertag;
@@ -377,21 +385,25 @@ internal sealed class TcpPeer : IPeerTransport
 	}
 
 	/// <summary>Tells the client why it was refused, then closes. Best effort.</summary>
-	private static void Reject(Connection connection, string reason)
+	private static void Reject(Connection connection, RejectReason reason, params string[] fields)
 	{
-		SendReject(connection, reason);
+		SendReject(connection, reason, fields);
 		connection.Close();
 	}
 
 	/// <summary>
 	/// Sends the refusal without closing. Used by <see cref="Kick"/>, which lets the normal
 	/// disconnect path close the socket: closing here as well would race with it.
+	///
+	/// The host's own words travel as a field rather than as the message: the reason is chosen
+	/// by the client, in its language, and the free text is appended where it belongs.
 	/// </summary>
-	private static void SendReject(Connection connection, string reason)
+	private static void SendReject(Connection connection, RejectReason reason, params string[] fields)
 	{
 		try
 		{
-			connection.Send(WireFormat.Frame(OpReject, Encoding.UTF8.GetBytes(reason ?? "")));
+			byte[] payload = RejectReasons.Build(reason, fields);
+			connection.Send(WireFormat.Frame(OpReject, payload));
 		}
 		catch
 		{
@@ -896,12 +908,19 @@ internal sealed class TcpPeer : IPeerTransport
 		}
 		case OpReject:
 		{
-			string reason = Encoding.UTF8.GetString(frame, 1, frame.Length - 1);
-			ModLoaderLog("Host refused the connection: " + reason);
-			string captured = reason;
+			// The host sends a code plus its fields, not a sentence: the wording is chosen here,
+			// in the player's language. An old host's plain text still parses, as Unknown.
+			byte[] payload = new byte[frame.Length - 1];
+			Buffer.BlockCopy(frame, 1, payload, 0, payload.Length);
+			RejectReason reason;
+			string[] fields;
+			RejectReasons.TryParse(payload, out reason, out fields);
+			string spoken = RejectReasons.Describe(reason, fields);
+			ModLoaderLog("Host refused the connection: " + RejectReasons.DescribeEnglish(reason, fields));
+			string captured = spoken;
 			_inbox.Enqueue(delegate
 			{
-				Main.NewText("Connection refused: " + captured, 255, 120, 120);
+				Main.NewText(Texts.Format("ui.reject.title", captured), 255, 120, 120);
 				_session.ApplyRemoteSessionState(NetworkSessionState.Ended);
 			});
 			break;

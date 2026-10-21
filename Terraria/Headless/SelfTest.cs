@@ -86,6 +86,7 @@ internal static class SelfTest
 		RunCheck("language", CheckLanguage);
 		RunCheck("language overrides", CheckLangOverrides);
 		RunCheck("feature text", CheckFeatureTexts);
+		RunCheck("reject reasons", CheckRejectReasons);
 		RunCheck("hud settings", CheckHudSettings);
 		RunCheck("direct connect", CheckDirectConnect);
 		RunCheck("session record", CheckSessionRecord);
@@ -5710,7 +5711,9 @@ internal static class SelfTest
 				}
 			}
 
-			// Refusing host (password / mods / version): still alive.
+			// Refusing host (password / mods / version): still alive. The payload here is the old
+			// plain-text form on purpose - a server running an older build must still measure as
+			// alive, and the client has to tolerate its sentence.
 			using (StubPeer refusing = new StubPeer(WireFormat.LengthPrefix(WireFormat.Frame(TcpPeer.OpReject, Encoding.UTF8.GetBytes("Wrong password.")))))
 			{
 				ServerPing.Probe(refusing.EndPoint);
@@ -6659,6 +6662,236 @@ internal static class SelfTest
 			{
 			}
 			Language.Restore(savedChoice, savedOption);
+		}
+	}
+
+	// --- Reject reasons -----------------------------------------------------
+
+	/// <summary>
+	/// Why a server refused a connection used to travel as a sentence written by the host, and
+	/// the client printed it verbatim - so the one part of the language work a client could not
+	/// fix was the refusal it received. Now a code travels and the text is chosen locally.
+	///
+	/// Two things have to hold: the codec must round-trip every code (a dropped field shows up as
+	/// "server protocol , yours"), and the real host must actually send a code - checked against a
+	/// raw socket, not against the encoder that the check itself calls.
+	/// </summary>
+	private static bool CheckRejectReasons()
+	{
+		int savedOption = Lang.LangOption;
+		int savedChoice = Language.Choice;
+		int savedPort = NetworkConfig.Port;
+		int savedDiscovery = NetworkConfig.DiscoveryPort;
+		string savedPassword = NetworkConfig.Password;
+		bool savedTcp = NetworkConfig.UseTcpTransport;
+		NetworkSession hostSession = null;
+		LangOverrides.SuppressFiles = true;
+		try
+		{
+			// Every code, with the fields it can carry.
+			List<Terraria.Net.RejectReason> all = Terraria.Net.RejectReasons.All;
+			if (all.Count != Terraria.Net.RejectReasons.MaxKnown)
+			{
+				return Fail("the code list and MaxKnown disagree: " + all.Count + " vs " + Terraria.Net.RejectReasons.MaxKnown);
+			}
+			for (int i = 0; i < all.Count; i++)
+			{
+				Terraria.Net.RejectReason reason = all[i];
+				string[] fields;
+				if (reason == Terraria.Net.RejectReason.ProtocolMismatch)
+				{
+					fields = new string[2] { "3", "2" };
+				}
+				else if (reason == Terraria.Net.RejectReason.Kicked)
+				{
+					fields = new string[1] { "spamming" };
+				}
+				else
+				{
+					fields = new string[0];
+				}
+				byte[] payload = Terraria.Net.RejectReasons.Build(reason, fields);
+				Terraria.Net.RejectReason back;
+				string[] got;
+				if (!Terraria.Net.RejectReasons.TryParse(payload, out back, out got))
+				{
+					return Fail("payload for " + reason + " did not parse");
+				}
+				if (back != reason)
+				{
+					return Fail(reason + " came back as " + back);
+				}
+				if (got.Length != fields.Length)
+				{
+					return Fail(reason + " carried " + got.Length + " field(s) instead of " + fields.Length);
+				}
+				for (int j = 0; j < fields.Length; j++)
+				{
+					if (got[j] != fields[j])
+					{
+						return Fail(reason + " field " + j + " came back as '" + got[j] + "'");
+					}
+				}
+				// Every code must have text, and it must not be the "unknown" fallback: that
+				// would show the raw bytes instead of an explanation.
+				string key = Terraria.Net.RejectReasons.KeyFor(reason, got);
+				if (!Texts.Has(key))
+				{
+					return Fail("the code " + reason + " has no text (" + key + ")");
+				}
+				string spoken = Terraria.Net.RejectReasons.Describe(reason, got);
+				if (string.IsNullOrEmpty(spoken) || spoken.IndexOf('{') >= 0 || spoken.IndexOf('<') >= 0)
+				{
+					return Fail("the code " + reason + " describes as '" + spoken + "'");
+				}
+			}
+
+			// A kick without a reason still has to say something.
+			Terraria.Net.RejectReason noReason = Terraria.Net.RejectReason.Kicked;
+			string empty = Terraria.Net.RejectReasons.Describe(noReason, new string[0]);
+			if (string.IsNullOrEmpty(empty) || empty.IndexOf('{') >= 0)
+			{
+				return Fail("a kick without a reason describes as '" + empty + "'");
+			}
+			string withReason = Terraria.Net.RejectReasons.Describe(noReason, new string[1] { "spamming" });
+			if (withReason.IndexOf("spamming", StringComparison.Ordinal) < 0)
+			{
+				return Fail("a kick reason was dropped from the text: '" + withReason + "'");
+			}
+
+			// An old host sends a sentence. It must still be shown - as Unknown, verbatim - and
+			// never be mistaken for a code.
+			byte[] legacy = Encoding.UTF8.GetBytes("Wrong password.");
+			Terraria.Net.RejectReason legacyReason;
+			string[] legacyFields;
+			if (!Terraria.Net.RejectReasons.TryParse(legacy, out legacyReason, out legacyFields))
+			{
+				return Fail("a legacy text payload did not parse");
+			}
+			if (legacyReason != Terraria.Net.RejectReason.Unknown)
+			{
+				return Fail("a legacy sentence was read as the code " + legacyReason);
+			}
+			if (Terraria.Net.RejectReasons.Describe(legacyReason, legacyFields) != "Wrong password.")
+			{
+				return Fail("a legacy sentence was not shown as it arrived");
+			}
+
+			// Truncated and empty payloads must not throw on a network thread.
+			Terraria.Net.RejectReason brokenReason;
+			string[] brokenFields;
+			if (!Terraria.Net.RejectReasons.TryParse(new byte[3] { 4, 0, 0 }, out brokenReason, out brokenFields))
+			{
+				return Fail("a truncated payload was rejected instead of degraded");
+			}
+			if (Terraria.Net.RejectReasons.Describe(brokenReason, brokenFields) == null)
+			{
+				return Fail("a truncated payload produced no text");
+			}
+			if (Terraria.Net.RejectReasons.TryParse(new byte[0], out brokenReason, out brokenFields))
+			{
+				return Fail("an empty payload was accepted");
+			}
+			// ...and an empty payload still produces a readable sentence, not a bare "{0}".
+			string noPayload = Terraria.Net.RejectReasons.Describe(Terraria.Net.RejectReason.Unknown, new string[0]);
+			if (string.IsNullOrEmpty(noPayload) || noPayload.IndexOf('{') >= 0)
+			{
+				return Fail("an empty refusal describes as '" + noPayload + "'");
+			}
+
+			// The wording is looked up when it is shown, so installing a translation changes the
+			// refusal without restarting anything. That is the mechanism the language files use.
+			string english = Terraria.Net.RejectReasons.Describe(Terraria.Net.RejectReason.WrongPassword, new string[0]);
+			if (!Texts.SetOverride("ui.reject.password", "falsches Passwort"))
+			{
+				return Fail("the password refusal is not a known text key");
+			}
+			string translated = Terraria.Net.RejectReasons.Describe(Terraria.Net.RejectReason.WrongPassword, new string[0]);
+			if (translated != "falsches Passwort")
+			{
+				return Fail("a translated refusal was not used: '" + translated + "'");
+			}
+			// The log line stays English: logs are read by whoever runs the host, and a log that
+			// changes language with a client's settings would be unreadable.
+			if (Terraria.Net.RejectReasons.DescribeEnglish(Terraria.Net.RejectReason.WrongPassword, new string[0]) != english)
+			{
+				return Fail("the English form of a refusal changed with the translation");
+			}
+			Texts.ClearOverrides();
+			if (Terraria.Net.RejectReasons.Describe(Terraria.Net.RejectReason.WrongPassword, new string[0]) != english)
+			{
+				return Fail("the refusal did not go back to English");
+			}
+
+			// The real host: a raw client sends a wrong password and must receive a code.
+			Microsoft.Xna.Framework.GamerServices.GamerServicesDispatcher.Initialize(null);
+			NetworkConfig.UseTcpTransport = true;
+			NetworkConfig.Password = "hunter2";
+			NetworkConfig.Port = 0;
+			NetworkConfig.DiscoveryPort = 0;
+			NetworkSessionProperties properties = new NetworkSessionProperties();
+			hostSession = new NetworkSession(properties, NetworkSessionType.PlayerMatch, 8, 0, 1,
+				new List<Microsoft.Xna.Framework.GamerServices.SignedInGamer>(1) { Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers[0] });
+			hostSession.StartHostPeer();
+			int port = NetworkConfig.ActivePort;
+			if (port <= 0)
+			{
+				return Fail("the host did not bind a port");
+			}
+			using (System.Net.Sockets.TcpClient tcpClient = new System.Net.Sockets.TcpClient())
+			{
+				tcpClient.NoDelay = true;
+				tcpClient.Connect(System.Net.IPAddress.Loopback, port);
+				using System.Net.Sockets.NetworkStream stream = tcpClient.GetStream();
+				using MemoryStream memoryStream = new MemoryStream();
+				BinaryWriter binaryWriter = new BinaryWriter(memoryStream, Encoding.UTF8);
+				binaryWriter.Write(Terraria.Net.TcpPeer.OpHello);
+				binaryWriter.Write(Terraria.Net.TcpPeer.ProtocolVersionPublic);
+				binaryWriter.Write("WrongPasswordPeer");
+				binaryWriter.Write(Terraria.Mods.ModLoader.Signature);
+				binaryWriter.Write("definitely-not-hunter2");
+				binaryWriter.Flush();
+				WireFormat.WriteAll(stream, WireFormat.LengthPrefix(memoryStream.ToArray()));
+				byte[] frame = WireFormat.ReadFrame(stream);
+				if (frame == null)
+				{
+					return Fail("the host sent no refusal");
+				}
+				if (frame[0] != Terraria.Net.TcpPeer.OpReject)
+				{
+					return Fail("the host answered with opcode " + frame[0] + " instead of a refusal");
+				}
+				byte[] payload = new byte[frame.Length - 1];
+				Buffer.BlockCopy(frame, 1, payload, 0, payload.Length);
+				Terraria.Net.RejectReason reason2;
+				string[] fields2;
+				Terraria.Net.RejectReasons.TryParse(payload, out reason2, out fields2);
+				if (reason2 != Terraria.Net.RejectReason.WrongPassword)
+				{
+					return Fail("a wrong password produced '" + reason2 + "' instead of a password refusal");
+				}
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("reject reason check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			LangOverrides.SuppressFiles = false;
+			NetworkConfig.Password = savedPassword;
+			NetworkConfig.Port = savedPort;
+			NetworkConfig.DiscoveryPort = savedDiscovery;
+			NetworkConfig.UseTcpTransport = savedTcp;
+			Language.Restore(savedChoice, savedOption);
+			try
+			{
+				hostSession?.Dispose();
+			}
+			catch
+			{
+			}
 		}
 	}
 
