@@ -457,5 +457,23 @@ public class _sheetTiles : SpriteSheet<_sheetTiles>
 	public static void LoadContent(ContentManager Content)
 	{
 		SpriteSheet<_sheetTiles>.Tex = Content.Load<Texture2D>("Images/_sheetTiles");
+		// Per-sprite replacements from Storage/Textures/Atlases/_sheetTiles/. The sprite names
+		// come from the ID enum above, so there is no second list to keep in sync.
+		Terraria.Textures.AtlasComposer.ComposeAtlas("Images/_sheetTiles", SpriteSheet<_sheetTiles>.Texture, Names, SpriteSheet<_sheetTiles>.Source);
+	}
+
+	/// <summary>Enum names in declaration order, i.e. in Source order. Built once.</summary>
+	private static string[] _names;
+
+	public static string[] Names
+	{
+		get
+		{
+			if (_names == null)
+			{
+				_names = System.Enum.GetNames(typeof(ID));
+			}
+			return _names;
+		}
 	}
 }

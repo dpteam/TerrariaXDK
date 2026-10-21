@@ -255,6 +255,12 @@ public class SpriteSheet<T>
 		return new Vector2(Source[id].Width >> 1, Source[id].Height >> 1);
 	}
 
+	/// <summary>
+	/// The loaded texture, exposed so per-sprite overrides can patch it. <c>Tex</c> stays
+	/// protected: nothing outside this class should assign it, only read and modify its pixels.
+	/// </summary>
+	public static Texture2D Texture => Tex;
+
 	public static int GetCenterPivotY(int id)
 	{
 		return Source[id].Height >> 1;

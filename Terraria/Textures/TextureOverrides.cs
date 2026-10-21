@@ -188,7 +188,10 @@ internal static class TextureOverrides
 					+ "  UI/ProgressBar      ->  Storage/Textures/UI/ProgressBar.png\r\n"
 					+ "\r\n"
 					+ "Only PNG is supported. If a file is missing or broken the game uses the\r\n"
-					+ "built-in texture and says so in Storage/Logs/terraria-debug.log.\r\n");
+					+ "built-in texture and says so in Storage/Logs/terraria-debug.log.\r\n"
+					+ "\r\n"
+					+ "To replace one sprite inside an atlas instead of the whole sheet, use\r\n"
+					+ "Storage/Textures/Atlases/<atlas>/<SPRITE_NAME>.png - see Atlases/readme.txt.\r\n");
 			}
 		}
 		catch (Exception ex)

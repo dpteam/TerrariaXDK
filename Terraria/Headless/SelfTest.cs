@@ -4,6 +4,7 @@ using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using Microsoft.Xna.Framework.Net;
 using Terraria.Net;
@@ -91,6 +92,7 @@ internal static class SelfTest
 		RunCheck("png decoder", CheckPngDecoder);
 		RunCheck("texture overrides", CheckTextureOverrides);
 		RunCheck("png corpus", CheckPngCorpus);
+		RunCheck("atlas overrides", CheckAtlasOverrides);
 		RunCheck("hud settings", CheckHudSettings);
 		RunCheck("direct connect", CheckDirectConnect);
 		RunCheck("session record", CheckSessionRecord);
@@ -7238,7 +7240,7 @@ internal static class SelfTest
 			Terraria.Textures.ImageData sample = new Terraria.Textures.ImageData(2, 1);
 			sample.Set(0, 0, 200, 100, 50, 128);
 			sample.Set(1, 0, 0, 0, 0, 0);
-			Microsoft.Xna.Framework.Color[] colors = Terraria.Textures.TextureContentManager.ToColors(sample);
+			Color[] colors = Terraria.Textures.TextureContentManager.ToColors(sample);
 			if (colors.Length != 2)
 			{
 				return Fail("ToColors produced " + colors.Length + " colours for 2 pixels");
@@ -7484,6 +7486,315 @@ internal static class SelfTest
 		{
 			return Fail("png corpus check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
+	}
+
+	// --- Atlas overrides ----------------------------------------------------
+
+	/// <summary>
+	/// Per-sprite replacement inside a baked atlas.
+	///
+	/// Two things are worth checking, and only one of them is about pasting pixels. The other is
+	/// the mapping itself: an override is addressed by name, and the name is turned into an index
+	/// into <c>Source</c> by position in the enum. If those two arrays ever disagree in length,
+	/// every sprite after the gap is replaced by its neighbour's PNG - a bug that would look like
+	/// corrupted art, not like an off-by-one. So the real atlases are checked for that here.
+	///
+	/// The pasting is checked on a synthetic 8x8 sheet with hand-placed colours, which is enough
+	/// to pin the arithmetic: position, scaling and premultiplied alpha.
+	/// </summary>
+	private static bool CheckAtlasOverrides()
+	{
+		string folder = null;
+		try
+		{
+			// --- the mapping: enum and rectangle array must line up -------
+			if (_sheetTiles.Names.Length != _sheetTiles.Source.Length)
+			{
+				return Fail("_sheetTiles has " + _sheetTiles.Names.Length + " names but " + _sheetTiles.Source.Length
+					+ " rectangles - every sprite override past the gap would hit the wrong one");
+			}
+			if (_sheetSprites.Names.Length != _sheetSprites.Source.Length)
+			{
+				return Fail("_sheetSprites has " + _sheetSprites.Names.Length + " names but " + _sheetSprites.Source.Length
+					+ " rectangles - every sprite override past the gap would hit the wrong one");
+			}
+			if (_sheetTiles.Names.Length < 200 || _sheetSprites.Names.Length < 1000)
+			{
+				return Fail("the atlases look empty: " + _sheetTiles.Names.Length + "/" + _sheetSprites.Names.Length);
+			}
+			// Names are the addressing scheme, so duplicates would make the override ambiguous.
+			HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			for (int i = 0; i < _sheetTiles.Names.Length; i++)
+			{
+				if (!hashSet.Add(_sheetTiles.Names[i]))
+				{
+					return Fail("_sheetTiles has two sprites called " + _sheetTiles.Names[i]);
+				}
+			}
+			// The atlas layout must be self-consistent: no rectangle may be negative, and the
+			// union has to fit in something a texture could be.
+			Rectangle unionTiles = UnionOf(_sheetTiles.Source);
+			Rectangle unionSprites = UnionOf(_sheetSprites.Source);
+			if (unionTiles.Width <= 0 || unionSprites.Width <= 0)
+			{
+				return Fail("the atlas rectangles are degenerate: " + unionTiles + " / " + unionSprites);
+			}
+			// The union must fit a texture the 360 could hold: its limit was 4096 per side, and a
+			// rectangle beyond that would mean the Source table and the real atlas disagree.
+			if (unionTiles.Width > 4096 || unionTiles.Height > 4096 || unionSprites.Width > 4096 || unionSprites.Height > 4096)
+			{
+				return Fail("an atlas is larger than 4096 per side: tiles " + unionTiles + ", sprites " + unionSprites);
+			}
+			// Printed because it is the number to compare against when a sprite lands in the wrong
+			// place: if the layout here is not what the atlas file contains, that is the reason.
+			Console.WriteLine("    atlas tiles   : " + _sheetTiles.Names.Length + " sprites in " + unionTiles.Width + "x" + unionTiles.Height);
+			Console.WriteLine("    atlas sprites : " + _sheetSprites.Names.Length + " sprites in " + unionSprites.Width + "x" + unionSprites.Height);
+
+			// --- planning, against a folder of real files --------------------
+			folder = Terraria.Textures.AtlasOverrides.FolderFor("Images/selftest_atlas");
+			if (Directory.Exists(folder))
+			{
+				Directory.Delete(folder, recursive: true);
+			}
+			Directory.CreateDirectory(folder);
+			string[] names = new string[3] { "ALPHA", "BETA", "GAMMA" };
+			Rectangle[] source = new Rectangle[3]
+			{
+				new Rectangle(0, 0, 4, 4),
+				new Rectangle(4, 0, 4, 4),
+				new Rectangle(0, 4, 4, 4)
+			};
+			// Nothing on disk is not a problem: it is the normal case.
+			Terraria.Textures.AtlasPlan empty = Terraria.Textures.AtlasOverrides.Build("Images/selftest_atlas", names, source, 8, 8);
+			if (!empty.IsEmpty || empty.Problems.Count != 0)
+			{
+				return Fail("an empty atlas folder produced work or problems");
+			}
+			// A correctly named, correctly sized file.
+			byte[] green = PngTestData.Build(4, 4, 8, 6, SolidRgba(4, 4, 0, 255, 0, 255), null, null);
+			File.WriteAllBytes(Path.Combine(folder, "BETA.png"), green);
+			Terraria.Textures.AtlasPlan plan = Terraria.Textures.AtlasOverrides.Build("Images/selftest_atlas", names, source, 8, 8);
+			if (plan.Patches.Count != 1 || plan.Problems.Count != 0 || plan.Notes.Count != 0)
+			{
+				return Fail("a valid sprite override was not planned cleanly (patches " + plan.Patches.Count
+					+ ", problems " + plan.Problems.Count + ", notes " + plan.Notes.Count + ")");
+			}
+			if (plan.Patches[0].Name != "BETA" || plan.Patches[0].Rect != source[1])
+			{
+				return Fail("the override for BETA did not resolve to BETA's rectangle");
+			}
+			// Case must not matter: the enum name is an identifier, not a file name convention.
+			File.Move(Path.Combine(folder, "BETA.png"), Path.Combine(folder, "beta.png"));
+			if (Terraria.Textures.AtlasOverrides.Build("Images/selftest_atlas", names, source, 8, 8).Patches.Count != 1)
+			{
+				return Fail("a lower-case sprite name did not match");
+			}
+			// An unknown name is reported by name - otherwise the file just sits there.
+			File.Move(Path.Combine(folder, "beta.png"), Path.Combine(folder, "BETAA.png"));
+			Terraria.Textures.AtlasPlan typo = Terraria.Textures.AtlasOverrides.Build("Images/selftest_atlas", names, source, 8, 8);
+			if (typo.Problems.Count != 1 || typo.Problems[0].IndexOf("BETAA", StringComparison.Ordinal) < 0)
+			{
+				return Fail("a mistyped sprite name was not reported by name");
+			}
+			File.Delete(Path.Combine(folder, "BETAA.png"));
+			// Two files that differ only in case are the same sprite: the second must be refused
+			// rather than silently winning or losing depending on directory order.
+			//
+			// On Windows they are one file - the file system is case-insensitive - so this can
+			// only actually happen on Linux. The check accepts both outcomes and says which it
+			// got, instead of failing on the platform where the situation cannot arise.
+			File.WriteAllBytes(Path.Combine(folder, "BETA.png"), green);
+			File.WriteAllBytes(Path.Combine(folder, "beta.png"), green);
+			Terraria.Textures.AtlasPlan dup = Terraria.Textures.AtlasOverrides.Build("Images/selftest_atlas", names, source, 8, 8);
+			int filesForBeta = Directory.GetFiles(folder, "*", SearchOption.TopDirectoryOnly).Length;
+			if (dup.Patches.Count != 1)
+			{
+				return Fail("two files for one sprite produced " + dup.Patches.Count + " patch(es)");
+			}
+			if (filesForBeta > 2 && dup.Problems.Count != 1)
+			{
+				// More than readme.txt + one BETA: the file system kept both spellings, so the
+				// duplicate really was visible and should have been refused.
+				return Fail("two spellings of one sprite were both accepted");
+			}
+			Console.WriteLine("    duplicate-case check: " + filesForBeta + " file(s) on disk, "
+				+ dup.Problems.Count + " problem(s) reported");
+			// Both spellings, because on Windows deleting one of them deletes the file they share.
+			File.Delete(Path.Combine(folder, "BETA.png"));
+			File.Delete(Path.Combine(folder, "beta.png"));
+			// A .dds in the folder is a failed attempt, not noise.
+			File.WriteAllBytes(Path.Combine(folder, "ALPHA.dds"), new byte[4] { 68, 68, 83, 32 });
+			Terraria.Textures.AtlasPlan dds = Terraria.Textures.AtlasOverrides.Build("Images/selftest_atlas", names, source, 8, 8);
+			if (dds.Problems.Count != 1 || dds.Problems[0].IndexOf(".png", StringComparison.Ordinal) < 0)
+			{
+				return Fail("a .dds in the atlas folder was not reported");
+			}
+			File.Delete(Path.Combine(folder, "ALPHA.dds"));
+			// The readme is expected and must not be reported.
+			File.WriteAllText(Path.Combine(folder, "readme.txt"), "hello");
+			if (Terraria.Textures.AtlasOverrides.Build("Images/selftest_atlas", names, source, 8, 8).Problems.Count != 0)
+			{
+				return Fail("the atlas readme was reported as a problem");
+			}
+			// A rectangle that does not fit the texture means the code and the atlas disagree.
+			File.WriteAllBytes(Path.Combine(folder, "BETA.png"), green);
+			Rectangle[] tooBig = new Rectangle[3]
+			{
+				new Rectangle(0, 0, 4, 4),
+				new Rectangle(4, 0, 40, 4),
+				new Rectangle(0, 4, 4, 4)
+			};
+			Terraria.Textures.AtlasPlan overflow = Terraria.Textures.AtlasOverrides.Build("Images/selftest_atlas", names, tooBig, 8, 8);
+			if (overflow.Patches.Count != 0 || overflow.Problems.Count != 1 || overflow.Problems[0].IndexOf("outside", StringComparison.Ordinal) < 0)
+			{
+				return Fail("a rectangle outside the atlas was not refused");
+			}
+			// A different size is applied, not refused - and the fact is noted.
+			File.Delete(Path.Combine(folder, "BETA.png"));
+			File.WriteAllBytes(Path.Combine(folder, "BETA.png"), PngTestData.Build(2, 2, 8, 6, SolidRgba(2, 2, 0, 255, 0, 255), null, null));
+			Terraria.Textures.AtlasPlan scaled = Terraria.Textures.AtlasOverrides.Build("Images/selftest_atlas", names, source, 8, 8);
+			if (scaled.Patches.Count != 1 || scaled.Notes.Count != 1 || scaled.Problems.Count != 0)
+			{
+				return Fail("a differently sized sprite was not planned as a scaled patch");
+			}
+
+			// --- pasting into a synthetic sheet ------------------------------
+			// 8x8 atlas, every pixel dark blue, so a patch stands out.
+			Color[] sheet = new Color[64];
+			for (int j = 0; j < sheet.Length; j++)
+			{
+				sheet[j] = new Color(0, 0, 64, 255);
+			}
+			int written = Terraria.Textures.AtlasComposer.Apply(sheet, 8, 8, scaled);
+			if (written != 16)
+			{
+				return Fail("the patch wrote " + written + " pixels, expected 16");
+			}
+			// BETA's rect is x=4..7, y=0..3. Everything outside it must stay dark blue.
+			Color untouched = new Color(0, 0, 64, 255);
+			if (sheet[0] != untouched || sheet[3] != untouched)
+			{
+				return Fail("the patch spilled to the left of its rectangle");
+			}
+			if (sheet[8] != untouched || sheet[5 * 8 + 4] != untouched)
+			{
+				return Fail("the patch spilled below or above its rectangle");
+			}
+			if (sheet[4] != new Color(0, 255, 0, 255) || sheet[7] != new Color(0, 255, 0, 255))
+			{
+				return Fail("the patch did not fill its rectangle's corners");
+			}
+			if (sheet[3 * 8 + 7] != new Color(0, 255, 0, 255))
+			{
+				return Fail("the patch did not reach the bottom-right corner of its rectangle");
+			}
+
+			// Premultiplied alpha, and nearest-neighbour scaling, through the same path.
+			Terraria.Textures.ImageData translucent = new Terraria.Textures.ImageData(2, 1);
+			translucent.Set(0, 0, 200, 100, 50, 128);
+			translucent.Set(1, 0, 0, 0, 0, 0);
+			Terraria.Textures.AtlasPlan oneOff = new Terraria.Textures.AtlasPlan();
+			Terraria.Textures.AtlasPatch patch = default(Terraria.Textures.AtlasPatch);
+			patch.Name = "ALPHA";
+			patch.Rect = new Rectangle(0, 0, 4, 1);
+			patch.Image = translucent;
+			oneOff.Patches.Add(patch);
+			Color[] array = new Color[64];
+			Terraria.Textures.AtlasComposer.Apply(array, 8, 8, oneOff);
+			// 2 source pixels stretched over 4 destination pixels: 0,0,1,1.
+			if (array[0].A != 128 || array[0].R != 100 || array[0].G != 50 || array[0].B != 25)
+			{
+				return Fail("a translucent patch was not premultiplied: a=" + array[0].A + " rgb=" + array[0].R + "," + array[0].G + "," + array[0].B);
+			}
+			if (array[1] != array[0])
+			{
+				return Fail("nearest-neighbour scaling did not repeat the source pixel");
+			}
+			if (array[2].A != 0 || array[2].R != 0)
+			{
+				return Fail("a transparent source pixel kept colour: a=" + array[2].A + " r=" + array[2].R);
+			}
+			if (array[3] != array[2])
+			{
+				return Fail("nearest-neighbour scaling did not repeat the transparent pixel");
+			}
+			// A patch whose rectangle no longer fits is skipped, not thrown: the texture size may
+			// have changed between planning and composing.
+			Terraria.Textures.AtlasPlan stale = new Terraria.Textures.AtlasPlan();
+			Terraria.Textures.AtlasPatch outside = default(Terraria.Textures.AtlasPatch);
+			outside.Rect = new Rectangle(0, 0, 100, 100);
+			outside.Image = translucent;
+			stale.Patches.Add(outside);
+			if (Terraria.Textures.AtlasComposer.Apply(new Color[64], 8, 8, stale) != 0)
+			{
+				return Fail("a patch outside the sheet wrote pixels");
+			}
+			// An empty plan and a null sheet are no-ops, not crashes.
+			if (Terraria.Textures.AtlasComposer.Apply(sheet, 8, 8, new Terraria.Textures.AtlasPlan()) != 0
+				|| Terraria.Textures.AtlasComposer.Apply(null, 8, 8, scaled) != 0
+				|| Terraria.Textures.AtlasComposer.Apply(new Color[4], 8, 8, scaled) != 0)
+			{
+				return Fail("an empty plan, a null sheet or a short buffer wrote pixels");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("atlas override check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				if (folder != null && Directory.Exists(folder))
+				{
+					Directory.Delete(folder, recursive: true);
+				}
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	/// <summary>The bounding box of every rectangle, or an empty rectangle for none.</summary>
+	private static Rectangle UnionOf(Rectangle[] rects)
+	{
+		if (rects == null || rects.Length == 0)
+		{
+			return default(Rectangle);
+		}
+		int num = int.MaxValue;
+		int num2 = int.MaxValue;
+		int num3 = int.MinValue;
+		int num4 = int.MinValue;
+		for (int i = 0; i < rects.Length; i++)
+		{
+			num = Math.Min(num, rects[i].X);
+			num2 = Math.Min(num2, rects[i].Y);
+			num3 = Math.Max(num3, rects[i].Right);
+			num4 = Math.Max(num4, rects[i].Bottom);
+		}
+		return new Rectangle(num, num2, num3 - num, num4 - num2);
+	}
+
+	/// <summary>Filtered rows for a solid RGBA image, for <see cref="PngTestData"/>.</summary>
+	private static byte[] SolidRgba(int width, int height, byte r, byte g, byte b, byte a)
+	{
+		byte[] array = new byte[height * (1 + width * 4)];
+		int num = 0;
+		for (int i = 0; i < height; i++)
+		{
+			array[num++] = 0;
+			for (int j = 0; j < width; j++)
+			{
+				array[num++] = r;
+				array[num++] = g;
+				array[num++] = b;
+				array[num++] = a;
+			}
+		}
+		return array;
 	}
 
 	private static bool Fail(string message)
