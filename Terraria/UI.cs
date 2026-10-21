@@ -2040,6 +2040,11 @@ public sealed class UI
 			uiCoords = null;
 			Terraria.HudMenu.Reset();
 			return;
+		case MenuMode.BACKUPS:
+			uiWidth = 0;
+			uiHeight = 1;
+			uiCoords = null;
+			return;
 		case MenuMode.STATUS_SCREEN:
 		case MenuMode.NETPLAY:
 			Progress = 0f;
@@ -2842,6 +2847,14 @@ public sealed class UI
 			{
 				Main.PlaySound(10);
 				SetMenu(MenuMode.SETTINGS);
+			}
+		}
+		else if (CurMenuMode == MenuMode.BACKUPS)
+		{
+			if (Terraria.BackupsMenu.Update())
+			{
+				Main.PlaySound(10);
+				SetMenu(MenuMode.WORLD_SELECT);
 			}
 		}
 		else if (CurMenuMode == MenuMode.CHEATS)
@@ -3830,6 +3843,10 @@ public sealed class UI
 		else if (CurMenuMode == MenuMode.HUD)
 		{
 			Terraria.HudMenu.Draw();
+		}
+		else if (CurMenuMode == MenuMode.BACKUPS)
+		{
+			Terraria.BackupsMenu.Draw();
 		}
 		if (Main.HardmodeAlert && CurMenuMode == MenuMode.HARDMODE_UPSELL)
 		{

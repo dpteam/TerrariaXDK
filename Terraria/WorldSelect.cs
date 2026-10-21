@@ -184,6 +184,12 @@ public static class WorldSelect
 		{
 			ToggleFavorite();
 		}
+		else if (Terraria.Input.KeyboardMouseInput.KeyPressed(Microsoft.Xna.Framework.Input.Keys.B) || UI.MainUI.IsButtonTriggered(Buttons.RightStick))
+		{
+			// Backups are only reachable from here: no world is loaded, so a restore cannot
+			// race with the game writing the same save file.
+			OpenBackups();
+		}
 		else if (cursorX == 0)
 		{
 			if (UI.MainUI.IsButtonTriggered(Buttons.A))
@@ -623,6 +629,42 @@ public static class WorldSelect
 			}
 		}
 		_selectionAddress = null;
+	}
+
+	/// <summary>
+	/// Opens the backup list for the highlighted world. The world file name is
+	/// <c>world&lt;n&gt;.wld</c> inside the player's storage container, which is also where a
+	/// restore has to write.
+	/// </summary>
+	private static void OpenBackups()
+	{
+		if (cursorX != 0)
+		{
+			// Only a local world can be restored; server rows have nothing to back up.
+			UI.MainUI.statusText = "Select a world on the left to see its backups";
+			Main.PlaySound(11);
+			return;
+		}
+		string text = worldNames[selectedWorld];
+		if (string.IsNullOrEmpty(text))
+		{
+			UI.MainUI.statusText = "That world slot is empty";
+			Main.PlaySound(11);
+			return;
+		}
+		try
+		{
+			using StorageContainer storageContainer = UI.MainUI.OpenPlayerStorage("Worlds");
+			string text2 = "world" + selectedWorld + ".wld";
+			Main.PlaySound(10);
+			Terraria.BackupsMenu.Open(storageContainer.FilePath(text2), text);
+			UI.MainUI.SetMenu(MenuMode.BACKUPS);
+		}
+		catch (Exception ex)
+		{
+			Program.LogWarn("Backups", "could not open the backup list: " + ex.Message);
+			UI.MainUI.statusText = "Could not read the worlds folder";
+		}
 	}
 
 	/// <summary>

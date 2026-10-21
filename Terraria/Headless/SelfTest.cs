@@ -69,6 +69,7 @@ internal static class SelfTest
 		RunCheck("saved servers", CheckSavedServers);
 		RunCheck("auto refresh", CheckAutoRefresh);
 		RunCheck("world backups", CheckWorldBackups);
+		RunCheck("backup restore", CheckBackupRestore);
 		ReportMemory();
 		Console.WriteLine();
 		Console.WriteLine($"Passed: {_passed}  Failed: {_failed}");
@@ -2023,10 +2024,16 @@ internal static class SelfTest
 	{
 		try
 		{
-			string[] files = System.IO.Directory.GetFiles(Terraria.WorldBackups.Folder, worldName + "_*.wld");
+			// Enumerate and filter instead of a wildcard pattern: brackets in a world name are
+			// pattern syntax to Directory.GetFiles, so "Odd[World]_*" would match nothing.
+			string prefix = Terraria.WorldBackups.Sanitize(worldName) + "_";
+			string[] files = System.IO.Directory.GetFiles(Terraria.WorldBackups.Folder);
 			for (int i = 0; i < files.Length; i++)
 			{
-				System.IO.File.Delete(files[i]);
+				if (System.IO.Path.GetFileName(files[i]).StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+				{
+					System.IO.File.Delete(files[i]);
+				}
 			}
 		}
 		catch
@@ -3796,6 +3803,128 @@ internal static class SelfTest
 				if (System.IO.File.Exists(text2))
 				{
 					System.IO.File.Delete(text2);
+				}
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	// --- Backup restore -----------------------------------------------------
+
+	/// <summary>
+	/// Backups were written but there was no way to use one from the game, so the feature was
+	/// only half there. Restoring is the destructive half, so the checks here are about what
+	/// must NOT happen: a missing file, a file that is not a world, and (most importantly)
+	/// losing the current save - it is kept as <c>.prerestore</c>, which makes a wrong restore
+	/// undoable.
+	/// </summary>
+	private static bool CheckBackupRestore()
+	{
+		string text = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-restore");
+		string text2 = System.IO.Path.Combine(text, "world0.wld");
+		try
+		{
+			if (System.IO.Directory.Exists(text))
+			{
+				System.IO.Directory.Delete(text, recursive: true);
+			}
+			System.IO.Directory.CreateDirectory(text);
+			byte[] array = new byte[128];
+			array[0] = 1;
+			byte[] array2 = new byte[128];
+			array2[0] = 2;
+			System.IO.File.WriteAllBytes(text2, array);
+			string text3 = System.IO.Path.Combine(text, "backup.wld");
+			System.IO.File.WriteAllBytes(text3, array2);
+
+			string error;
+			// A missing backup is refused with a reason, and the save is untouched.
+			if (WorldBackups.Restore(System.IO.Path.Combine(text, "nope.wld"), text2, out error) || string.IsNullOrEmpty(error))
+			{
+				return Fail("a missing backup was accepted");
+			}
+			if (System.IO.File.ReadAllBytes(text2)[0] != 1)
+			{
+				return Fail("a failed restore modified the save");
+			}
+			// An empty file is not a world: it must not be copied over a real save.
+			string text4 = System.IO.Path.Combine(text, "empty.wld");
+			System.IO.File.WriteAllBytes(text4, new byte[8]);
+			if (WorldBackups.Restore(text4, text2, out error) || string.IsNullOrEmpty(error))
+			{
+				return Fail("a non-world file was restored over the save");
+			}
+			if (System.IO.File.ReadAllBytes(text2)[0] != 1)
+			{
+				return Fail("a rejected restore modified the save");
+			}
+			// A real backup replaces the save, and the previous save is kept.
+			if (!WorldBackups.Restore(text3, text2, out error))
+			{
+				return Fail("a valid backup could not be restored: " + error);
+			}
+			if (System.IO.File.ReadAllBytes(text2)[0] != 2)
+			{
+				return Fail("the restore did not copy the backup over the save");
+			}
+			string text5 = text2 + ".prerestore";
+			if (!System.IO.File.Exists(text5) || System.IO.File.ReadAllBytes(text5)[0] != 1)
+			{
+				return Fail("the previous save was not kept as .prerestore");
+			}
+			// Describe() turns a backup name into something readable.
+			string described = WorldBackups.Describe(System.IO.Path.Combine(text, "My World_20260102_153045.wld"));
+			if (described != "2026-01-02 15:30")
+			{
+				return Fail("a backup timestamp was described as '" + described + "'");
+			}
+			// Names that do not follow the pattern are shown as-is instead of mangled.
+			if (WorldBackups.Describe("random.wld") != "random")
+			{
+				return Fail("an unrecognised backup name was mangled");
+			}
+			// ListFor matches only this world, by the same sanitised prefix the writer used.
+			CleanupBackups("RestoreWorld");
+			WorldBackups.BackupNow(text3, "RestoreWorld");
+			WorldBackups.BackupNow(text3, "OtherWorld");
+			if (WorldBackups.ListFor("RestoreWorld").Count != 1)
+			{
+				return Fail("ListFor returned " + WorldBackups.ListFor("RestoreWorld").Count + " entries for one world");
+			}
+			if (WorldBackups.ListFor("restoreworld").Count != 1)
+			{
+				return Fail("ListFor is case sensitive");
+			}
+			if (WorldBackups.ListFor("Nonexistent").Count != 0 || WorldBackups.ListFor("").Count != 0 || WorldBackups.ListFor(null).Count != 0)
+			{
+				return Fail("ListFor invented entries for an unknown world");
+			}
+			// A name with wildcard characters must still find its own backups: the match is
+			// done in code, not with a Directory.GetFiles pattern.
+			CleanupBackups("Odd[World]");
+			WorldBackups.BackupNow(text3, "Odd[World]");
+			if (WorldBackups.ListFor("Odd[World]").Count != 1)
+			{
+				return Fail("a world named 'Odd[World]' could not find its backup");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("backup restore check threw: " + ex.Message);
+		}
+		finally
+		{
+			CleanupBackups("RestoreWorld");
+			CleanupBackups("OtherWorld");
+			CleanupBackups("Odd[World]");
+			try
+			{
+				if (System.IO.Directory.Exists(text))
+				{
+					System.IO.Directory.Delete(text, recursive: true);
 				}
 			}
 			catch

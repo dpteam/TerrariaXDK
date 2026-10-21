@@ -78,16 +78,15 @@ internal static class WorldBackups
 		}
 		try
 		{
-			string text = Sanitize(worldName) + "_*.wld";
-			string[] files = Directory.GetFiles(Folder, text);
-			if (files.Length == 0)
+			List<string> list = ListFor(worldName);
+			if (list.Count == 0)
 			{
 				return true;
 			}
 			DateTime dateTime = DateTime.MinValue;
-			for (int i = 0; i < files.Length; i++)
+			for (int i = 0; i < list.Count; i++)
 			{
-				DateTime lastWriteTime = File.GetLastWriteTime(files[i]);
+				DateTime lastWriteTime = File.GetLastWriteTime(list[i]);
 				if (lastWriteTime > dateTime)
 				{
 					dateTime = lastWriteTime;
@@ -134,30 +133,24 @@ internal static class WorldBackups
 		}
 	}
 
-	/// <summary>Deletes the oldest backups for a world until only <see cref="Keep"/> remain.</summary>
+	/// <summary>
+	/// Deletes the oldest backups for a world until only <see cref="Keep"/> remain.
+	/// Uses <see cref="ListFor"/> so the matching rules are identical to the ones the UI and
+	/// the restore path use - including names that contain wildcard characters.
+	/// </summary>
 	private static void Prune(string worldName)
 	{
-		string[] files;
-		try
-		{
-			files = Directory.GetFiles(Folder, worldName + "_*.wld");
-		}
-		catch
+		List<string> list = ListFor(worldName);
+		if (list.Count <= Keep)
 		{
 			return;
 		}
-		if (files.Length <= Keep)
-		{
-			return;
-		}
-		// Names carry a timestamp, so a plain name sort is chronological.
-		Array.Sort(files, StringComparer.OrdinalIgnoreCase);
-		int num = files.Length - Keep;
-		for (int i = 0; i < num; i++)
+		// Newest first, so everything past Keep is the oldest.
+		for (int i = Keep; i < list.Count; i++)
 		{
 			try
 			{
-				File.Delete(files[i]);
+				File.Delete(list[i]);
 			}
 			catch
 			{
@@ -188,8 +181,143 @@ internal static class WorldBackups
 		return list;
 	}
 
+	/// <summary>
+	/// Backups belonging to one world, newest first. Backups are named
+	/// <c>&lt;world&gt;_&lt;timestamp&gt;.wld</c>, so a prefix match is enough - and it must
+	/// be the sanitised name, the same transformation the writer applied.
+	///
+	/// The match is done in code rather than with a wildcard pattern: <c>Directory.GetFiles</c>
+	/// treats <c>[</c> and <c>]</c> as pattern syntax, so a world called "My[World]" would
+	/// silently find nothing, and its backups could never be restored.
+	/// </summary>
+	public static List<string> ListFor(string worldName)
+	{
+		List<string> list = new List<string>();
+		if (string.IsNullOrEmpty(worldName))
+		{
+			return list;
+		}
+		try
+		{
+			if (!Directory.Exists(Folder))
+			{
+				return list;
+			}
+			string prefix = Sanitize(worldName) + "_";
+			string[] files = Directory.GetFiles(Folder, "*.wld");
+			List<string> list2 = new List<string>();
+			for (int i = 0; i < files.Length; i++)
+			{
+				if (Path.GetFileName(files[i]).StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+				{
+					list2.Add(files[i]);
+				}
+			}
+			list2.Sort(StringComparer.OrdinalIgnoreCase);
+			for (int j = list2.Count - 1; j >= 0; j--)
+			{
+				list.Add(list2[j]);
+			}
+		}
+		catch (Exception ex)
+		{
+			Program.LogWarn("Backups", "could not list backups: " + ex.Message);
+		}
+		return list;
+	}
+
+	/// <summary>
+	/// Copies a backup over the live save file. The save being replaced is first kept as
+	/// <c>&lt;file&gt;.prerestore</c>, so restoring the wrong backup is itself undoable.
+	///
+	/// Callers must make sure no world is loaded: writing over a save that the game will later
+	/// overwrite again simply loses the restore.
+	/// </summary>
+	public static bool Restore(string backupFile, string worldFile, out string error)
+	{
+		error = null;
+		try
+		{
+			if (string.IsNullOrEmpty(backupFile) || !File.Exists(backupFile))
+			{
+				error = "That backup no longer exists.";
+				return false;
+			}
+			if (string.IsNullOrEmpty(worldFile))
+			{
+				error = "No world file to restore into.";
+				return false;
+			}
+			// A backup that is not a world file would silently destroy the save; the header is
+			// the cheapest check that it is at least shaped like one.
+			if (!LooksLikeWorld(backupFile))
+			{
+				error = "That file does not look like a world save.";
+				return false;
+			}
+			if (File.Exists(worldFile))
+			{
+				File.Copy(worldFile, worldFile + ".prerestore", overwrite: true);
+			}
+			File.Copy(backupFile, worldFile, overwrite: true);
+			Program.LogInfo("Backups", "restored " + Path.GetFileName(backupFile) + " over " + Path.GetFileName(worldFile));
+			return true;
+		}
+		catch (Exception ex)
+		{
+			error = ex.Message;
+			Program.LogWarn("Backups", "could not restore a backup: " + ex.Message);
+			return false;
+		}
+	}
+
+	/// <summary>
+	/// The first bytes of a world save are a header (version number then metadata). An empty
+	/// or tiny file is rejected rather than copied over a real world.
+	/// </summary>
+	internal static bool LooksLikeWorld(string path)
+	{
+		try
+		{
+			FileInfo fileInfo = new FileInfo(path);
+			// Smallest plausible save is a few hundred bytes of header; 64 is generous.
+			return fileInfo.Exists && fileInfo.Length >= 64;
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	/// <summary>
+	/// Turns a backup file name into something a list row can show:
+	/// <c>MyWorld_20260101_120000.wld</c> becomes <c>2026-01-01 12:00</c>.
+	/// </summary>
+	public static string Describe(string backupFile)
+	{
+		string fileName = Path.GetFileNameWithoutExtension(backupFile);
+		int num = fileName.LastIndexOf('_');
+		if (num <= 0)
+		{
+			return fileName;
+		}
+		// The name is <world>_<yyyyMMdd>_<HHmmss>; the last two underscores separate the date.
+		int num2 = fileName.LastIndexOf('_', num - 1);
+		if (num2 <= 0 || num - num2 != 9 || fileName.Length - num != 7)
+		{
+			return fileName;
+		}
+		string text = fileName.Substring(num2 + 1, 8);
+		string text2 = fileName.Substring(num + 1, 6);
+		if (text.Length != 8 || text2.Length != 6)
+		{
+			return fileName;
+		}
+		return text.Substring(0, 4) + "-" + text.Substring(4, 2) + "-" + text.Substring(6, 2) + " " + text2.Substring(0, 2) + ":" + text2.Substring(2, 2);
+	}
+
 	/// <summary>Strips characters that are illegal in file names.</summary>
-	private static string Sanitize(string name)
+	internal static string Sanitize(string name)
 	{
 		char[] array = name.ToCharArray();
 		char[] invalidFileNameChars = Path.GetInvalidFileNameChars();
