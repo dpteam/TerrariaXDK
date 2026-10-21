@@ -330,6 +330,9 @@ internal sealed class TcpPeer : IPeerTransport
 			// Announce the newcomer to everybody else and to the host session.
 			Broadcast(WireFormat.Frame(OpJoin, JoinPayload(connection)), connection);
 			_inbox.Enqueue(() => _session.AddRemoteGamer(connection.Gamertag, connection.Id));
+			// MOTD and rules: without this a joining player had no idea what this server
+			// expected, and the host had no way to say it.
+			SendWelcomeLines(connection);
 			ReceiveLoop(connection);
 		}
 		catch (Exception ex)
@@ -415,18 +418,26 @@ internal sealed class TcpPeer : IPeerTransport
 				connection.Send(WireFormat.LengthPrefix(array));
 				continue;
 			}
+			if (frame[0] == OpMod)
+			{
+				// Mod traffic is relayed verbatim to the other players and handed to the local
+				// handlers; it never touches the game's own packet stream.
+				Broadcast(WireFormat.LengthPrefix(frame), connection);
+				if (ModNet.TryDecode(frame, out var modId, out var modPayload))
+				{
+					ModNet.Dispatch(modId, modPayload);
+				}
+				continue;
+			}
 			if (frame[0] != OpData || frame.Length < 2)
 			{
-				if (frame[0] == OpMod)
-				{
-					// Mod traffic is relayed verbatim to the other players and handed to the
-					// local handlers; it never touches the game's own packet stream.
-					Broadcast(WireFormat.LengthPrefix(frame), connection);
-					if (ModNet.TryDecode(frame, out var modId, out var modPayload))
-					{
-						ModNet.Dispatch(modId, modPayload);
-					}
-				}
+				continue;
+			}
+			// A muted player's chat is dropped here, before it is relayed or applied locally:
+			// dropping it on the receiving side would still let it reach other clients, and
+			// dropping it only in the UI would still wake the host.
+			if (ShouldDropMuted(connection, frame))
+			{
 				continue;
 			}
 			byte[] packet = new byte[frame.Length - 1];
@@ -488,9 +499,108 @@ internal sealed class TcpPeer : IPeerTransport
 		}
 	}
 
-	private void SendRoster(Connection connection)
+	/// <summary>
+	/// Sends the MOTD and rules to one connection as ordinary chat lines, so they appear in
+	/// the same feed as everything else and the client needs no new packet type.
+	/// </summary>
+	private void SendWelcomeLines(Connection connection)
 	{
-		using MemoryStream memoryStream = new MemoryStream();
+		List<string> list = HostModeration.WelcomeLines();
+		for (int i = 0; i < list.Count; i++)
+		{
+			connection.Send(WireFormat.Frame(OpData, HostModeration.BuildChatPayload(list[i], 255, 235, 150)));
+		}
+	}
+
+	/// <summary>
+	/// Sends a chat line to exactly one player. Used by <c>!whisper</c>: the game's own send
+	/// path broadcasts or targets a gamer, which is not the same as "this connection".
+	/// </summary>
+	internal bool SendTextTo(string gamertag, string text, out string sent)
+	{
+		sent = null;
+		if (string.IsNullOrWhiteSpace(gamertag) || string.IsNullOrEmpty(text))
+		{
+			return false;
+		}
+		Connection connection = FindConnection(gamertag);
+		if (connection == null)
+		{
+			return false;
+		}
+		sent = connection.Gamertag;
+		connection.Send(WireFormat.Frame(OpData, HostModeration.BuildChatPayload(text, 200, 220, 255)));
+		return true;
+	}
+
+	/// <summary>
+	/// Resolves a typed name to the connection's real gamertag, using the same exact-then-unique
+	/// prefix rule as <see cref="Kick"/>. Exposed so commands can report the resolved name.
+	/// </summary>
+	internal bool ResolveName(string gamertag, out string resolved)
+	{
+		resolved = null;
+		Connection connection = FindConnection(gamertag);
+		if (connection == null)
+		{
+			return false;
+		}
+		resolved = connection.Gamertag;
+		return true;
+	}
+
+	/// <summary>Exact name match first, then a unique prefix. Null when ambiguous or absent.</summary>
+	private Connection FindConnection(string gamertag)
+	{
+		if (string.IsNullOrWhiteSpace(gamertag))
+		{
+			return null;
+		}
+		string text = gamertag.Trim();
+		lock (_connections)
+		{
+			for (int i = 0; i < _connections.Count; i++)
+			{
+				if (string.Equals(_connections[i].Gamertag, text, StringComparison.OrdinalIgnoreCase))
+				{
+					return _connections[i];
+				}
+			}
+			Connection result = null;
+			int num = 0;
+			for (int j = 0; j < _connections.Count; j++)
+			{
+				if (_connections[j].Gamertag.StartsWith(text, StringComparison.OrdinalIgnoreCase))
+				{
+					result = _connections[j];
+					num++;
+				}
+			}
+			return (num == 1) ? result : null;
+		}
+	}
+
+	/// <summary>
+	/// True when this chat packet must be dropped because the sender is muted. Called from the
+	/// host relay loop, so the message reaches neither the other players nor the host itself.
+	/// OpData frames are <c>[opcode][gamePacket...]</c> and message 25 is a chat line.
+	/// </summary>
+	private bool ShouldDropMuted(Connection connection, byte[] frame)
+	{
+		if (frame.Length < 2 || frame[0] != OpData || frame[1] != 25)
+		{
+			return false;
+		}
+		if (!HostModeration.IsMuted(connection.Gamertag))
+		{
+			return false;
+		}
+		connection.MaybeMuteNotice();
+		return true;
+	}
+
+	private void SendRoster(Connection connection)
+	{		using MemoryStream memoryStream = new MemoryStream();
 		BinaryWriter binaryWriter = new BinaryWriter(memoryStream, Encoding.UTF8);
 		binaryWriter.Write(OpRoster);
 		Connection[] array;
@@ -960,6 +1070,8 @@ internal sealed class TcpPeer : IPeerTransport
 		if (CurrentHost == this)
 		{
 			CurrentHost = null;
+			// Mutes are per hosting session: the next world starts with nobody silenced.
+			HostModeration.ResetMutes();
 		}
 		MasterPublisher.Stop();
 		try
@@ -1168,6 +1280,32 @@ internal sealed class TcpPeer : IPeerTransport
 			try
 			{
 				Client.Close();
+			}
+			catch
+			{
+			}
+		}
+
+		/// <summary>Last time this player was told they are muted, in Environment.TickCount ms.</summary>
+		private int _lastMuteNotice;
+
+		/// <summary>
+		/// Reminds a muted player why their message vanished, at most once per
+		/// <see cref="HostModeration.MuteNoticeSeconds"/>. Silently swallowing chat looks like
+		/// a bug on the client side, but replying to every line would be worse than the silence.
+		/// </summary>
+		public void MaybeMuteNotice()
+		{
+			int tickCount = Environment.TickCount;
+			// TickCount wraps every ~49 days; an unsigned subtraction keeps the comparison sane.
+			if (unchecked((uint)(tickCount - _lastMuteNotice)) < (uint)(HostModeration.MuteNoticeSeconds * 1000) && _lastMuteNotice != 0)
+			{
+				return;
+			}
+			_lastMuteNotice = tickCount;
+			try
+			{
+				Send(WireFormat.Frame(OpData, HostModeration.BuildChatPayload(HostModeration.MuteNotice, 255, 190, 160)));
 			}
 			catch
 			{

@@ -714,6 +714,9 @@ public sealed class Main : Game
 		settings.Set("Network", "PublishToMaster", Terraria.Net.MasterServerClient.Publish ? "True" : "False", "List this world on the master server while hosting.\n; Off by default: publishing your address is a choice.");
 		settings.Set("Network", "PublicAddress", Terraria.Net.NetworkConfig.PublicAddress, "Address advertised to the master server, e.g. 'myserver.example.com'.\n; Leave empty to let the master use the address it sees.");
 		Terraria.Net.MasterServerClient.Save(settings);
+		settings.Set("Network", "Motd", "", "Message shown to every player who joins this host.");
+		settings.Set("Network", "Rules", "", "Rules shown to every player who joins this host.");
+		Terraria.Net.HostModeration.Load(settings);
 		settings.Set("Network", "AutoRefreshSeconds", "20", "Seconds between automatic server list refreshes while the list is open.\n; 0 disables it; manual refresh is F5 / LB.");
 		Terraria.Net.ServerListRefresh.Load(settings);
 		Terraria.Input.KeyBindings.Load(settings);

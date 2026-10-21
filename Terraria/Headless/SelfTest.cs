@@ -71,6 +71,7 @@ internal static class SelfTest
 		RunCheck("world backups", CheckWorldBackups);
 		RunCheck("backup restore", CheckBackupRestore);
 		RunCheck("host commands", CheckHostCommands);
+		RunCheck("moderation", CheckModeration);
 		RunCheck("ban list", CheckBanList);
 		ReportMemory();
 		Console.WriteLine();
@@ -3114,6 +3115,33 @@ internal static class SelfTest
 				return Fail("the reply packet has the wrong length");
 			}
 
+			// Moderation on a live connection: a muted player's chat must not reach the others,
+			// and unmuting must restore it. This is the whole point of !mute, and the relay is
+			// the only place where it can be enforced for real.
+			DrainPackets(clientSession1);
+			DrainPackets(clientSession2);
+			SetMuted(true, "Stub Gamer (1)");
+			byte[] chat = HostModeration.BuildChatPayload("<Stub Gamer (1)> secret", 255, 255, 255);
+			clientSession1.LocalGamers[0].SendData(chat, Microsoft.Xna.Framework.Net.SendDataOptions.ReliableInOrder);
+			PumpUntil(delegate
+			{
+				return false;
+			}, 600, hostSession, clientSession1, clientSession2);
+			if (clientSession2.LocalGamers[0].IsDataAvailable)
+			{
+				return Fail("a muted player's chat reached another client");
+			}
+			SetMuted(false, "Stub Gamer (1)");
+			clientSession1.LocalGamers[0].SendData(chat, Microsoft.Xna.Framework.Net.SendDataOptions.ReliableInOrder);
+			if (!PumpUntil(delegate
+			{
+				return clientSession2.LocalGamers[0].IsDataAvailable;
+			}, 4000, hostSession, clientSession1, clientSession2))
+			{
+				return Fail("chat stayed blocked after unmuting");
+			}
+			DrainPackets(clientSession2);
+
 			// A kick from the host must actually disconnect that player - this is what !kick
 			// uses, and it is the only admin action that touches a live connection.
 			TcpPeer hostPeer = TcpPeer.CurrentHost;
@@ -3197,6 +3225,34 @@ internal static class SelfTest
 			NetworkConfig.UseTcpTransport = savedTcp;
 			NetworkConfig.Password = savedPassword;
 			NetworkConfig.ActivePort = 0;
+		}
+	}
+
+	/// <summary>Mutes or unmutes a name for the duration of one assertion, restoring the old state.</summary>
+	private static void SetMuted(bool muted, string gamertag)
+	{
+		if (muted)
+		{
+			HostModeration.Mute(gamertag);
+		}
+		else
+		{
+			HostModeration.Unmute(gamertag);
+		}
+	}
+
+	/// <summary>Empties a session's inbound chat queue so the next assertion starts clean.</summary>
+	private static void DrainPackets(NetworkSession session)
+	{
+		if (session == null || session.LocalGamers.Count == 0)
+		{
+			return;
+		}
+		byte[] array = new byte[4096];
+		Microsoft.Xna.Framework.Net.NetworkGamer gamer;
+		while (session.LocalGamers[0].IsDataAvailable)
+		{
+			session.LocalGamers[0].ReceiveData(array, out gamer);
 		}
 	}
 
@@ -4162,6 +4218,127 @@ internal static class SelfTest
 			{
 			}
 			BanList.Reload();
+		}
+	}
+
+	// --- Moderation ---------------------------------------------------------
+
+	/// <summary>
+	/// Mutes are per session and match exactly (a prefix mute would silence "Bobby" because
+	/// "Bob" was muted). The MOTD and rules persist, and the chat line the host sends to one
+	/// player must be byte-compatible with what the game's own reader expects.
+	/// </summary>
+	private static bool CheckModeration()
+	{
+		string motd = HostModeration.Motd;
+		string rules = HostModeration.Rules;
+		try
+		{
+			HostModeration.ResetMutes();
+			if (HostModeration.Count != 0)
+			{
+				return Fail("the mute list did not start empty");
+			}
+			if (!HostModeration.Mute("Loud"))
+			{
+				return Fail("a player could not be muted");
+			}
+			if (!HostModeration.IsMuted("Loud") || !HostModeration.IsMuted("loud"))
+			{
+				return Fail("a muted player was not recognised (case-insensitively)");
+			}
+			if (HostModeration.IsMuted("LoudTwo") || HostModeration.IsMuted("Lou"))
+			{
+				return Fail("a substring of a muted name was treated as muted");
+			}
+			if (HostModeration.IsMuted("") || HostModeration.IsMuted(null))
+			{
+				return Fail("an empty name was treated as muted");
+			}
+			if (HostModeration.Mute("loud"))
+			{
+				return Fail("muting the same player twice reported a change");
+			}
+			if (!HostModeration.Unmute("LOUD") || HostModeration.IsMuted("Loud"))
+			{
+				return Fail("unmute did not lift the mute");
+			}
+			if (HostModeration.Unmute("Loud"))
+			{
+				return Fail("unmute of a player who was not muted reported success");
+			}
+			// Mutes are per hosting session.
+			HostModeration.Mute("Loud");
+			HostModeration.ResetMutes();
+			if (HostModeration.Count != 0)
+			{
+				return Fail("mutes survived a session reset");
+			}
+
+			// MOTD / rules: empty by default, one line each when set, MOTD first.
+			HostModeration.Motd = "";
+			HostModeration.Rules = "";
+			if (HostModeration.WelcomeLines().Count != 0)
+			{
+				return Fail("empty MOTD and rules produced welcome lines");
+			}
+			HostModeration.Motd = "Be nice";
+			if (HostModeration.WelcomeLines().Count != 1 || HostModeration.WelcomeLines()[0] != "Be nice")
+			{
+				return Fail("the MOTD was not offered to joining players");
+			}
+			HostModeration.Rules = "No griefing";
+			List<string> lines = HostModeration.WelcomeLines();
+			if (lines.Count != 2 || lines[0] != "Be nice" || lines[1] != "Rules: No griefing")
+			{
+				return Fail("MOTD and rules were not ordered as expected");
+			}
+
+			// The chat packet must parse exactly like the game's own message 25: type, colour
+			// bytes, then a BinaryReader string.
+			byte[] payload = HostModeration.BuildChatPayload("hello", 10, 20, 30);
+			if (payload[0] != 25 || payload[1] != 10 || payload[2] != 20 || payload[3] != 30)
+			{
+				return Fail("the chat payload header is wrong");
+			}
+			using (System.IO.MemoryStream stream = new System.IO.MemoryStream(payload, 4, payload.Length - 4))
+			{
+				using System.IO.BinaryReader reader = new System.IO.BinaryReader(stream, Encoding.UTF8);
+				if (reader.ReadString() != "hello")
+				{
+					return Fail("the chat payload text does not round-trip");
+				}
+				if (stream.Position != stream.Length)
+				{
+					return Fail("the chat payload has trailing bytes");
+				}
+			}
+			// Non-ASCII must survive, since player names and messages are not English-only.
+			byte[] cyrillic = HostModeration.BuildChatPayload("привет", 1, 2, 3);
+			using (System.IO.MemoryStream stream2 = new System.IO.MemoryStream(cyrillic, 4, cyrillic.Length - 4))
+			{
+				using System.IO.BinaryReader reader2 = new System.IO.BinaryReader(stream2, Encoding.UTF8);
+				if (reader2.ReadString() != "привет")
+				{
+					return Fail("a non-ASCII chat line did not round-trip");
+				}
+			}
+			// An empty text is still a valid (empty) message, not a crash.
+			if (HostModeration.BuildChatPayload(null, 0, 0, 0).Length != 5)
+			{
+				return Fail("a null chat line produced a malformed payload");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("moderation check threw: " + ex.Message);
+		}
+		finally
+		{
+			HostModeration.ResetMutes();
+			HostModeration.Motd = motd;
+			HostModeration.Rules = rules;
 		}
 	}
 

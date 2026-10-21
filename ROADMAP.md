@@ -201,8 +201,10 @@
       или IP, проверка в handshake до регистрации пира. Пароль хоста сделан в этапе 3.
       Осталось: логин/вайтлист.
 - [x] **7.3 (частично) Модерация.** Команды хоста в чате: `!kick`, `!who`, `!say`,
-      `!bans`, `!unban`, `!help`. Покрыто тестами `host commands`, `ban list` и киком в
-      `host and two clients`. Осталось: `mute`, `whisper`, `motd`, `rules`.
+      `!mute`/`!unmute`, `!whisper`, `!motd`, `!rules`, `!bans`, `!unban`, `!help`.
+      Мут проверяется в relay-цикле, MOTD/правила уходят при подключении. Покрыто
+      тестами `host commands`, `moderation`, `ban list` и живым мут+кик в
+      `host and two clients`. Осталось: `displaylogs`, единая система прав.
 - [ ] **7.4 Защита мира.** Регионы (`region`), `protectspawn`, `DisableBuild`,
       запрет предметов (`additem`/`usegroup`).
 - [ ] **7.5 Анти-чит.** Подключить существующий `spamCheck`, добавить детект no-clip,

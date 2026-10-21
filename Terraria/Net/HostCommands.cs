@@ -24,7 +24,7 @@ namespace Terraria.Net;
 internal static class HostCommands
 {
 	/// <summary>Every command name, for chat completion.</summary>
-	public static readonly string[] Names = new string[7]
+	public static readonly string[] Names = new string[12]
 	{
 		"!kick",
 		"!ban",
@@ -32,10 +32,15 @@ internal static class HostCommands
 		"!bans",
 		"!who",
 		"!say",
+		"!mute",
+		"!unmute",
+		"!whisper",
+		"!motd",
+		"!rules",
 		"!help"
 	};
 
-	private const string HelpText = "!kick <player> [reason], !ban <player|ip>, !unban <player|ip>, !bans, !who, !say <text>";
+	private const string HelpText = "!kick <player> [reason], !ban/!unban <player|ip>, !bans, !who, !mute/!unmute <player>, !whisper <player> <text>, !motd [text], !rules [text], !say <text>";
 
 	/// <summary>True when this process is hosting a multiplayer world.</summary>
 	public static bool IsAvailable => Main.NetMode == 2 && TcpPeer.CurrentHost != null;
@@ -110,8 +115,150 @@ internal static class HostCommands
 			}
 			Say("[Server] " + rest, 255, 255, 160);
 			return true;
+		case "!mute":
+			DoMute(rest, out error);
+			return true;
+		case "!unmute":
+			DoUnmute(rest, out error);
+			return true;
+		case "!whisper":
+			DoWhisper(rest, out error);
+			return true;
+		case "!motd":
+			DoMotd(rest);
+			return true;
+		case "!rules":
+			DoRules(rest);
+			return true;
 		}
 		return false;
+	}
+
+	private static void DoMute(string rest, out string error)
+	{
+		error = null;
+		string target;
+		string reason;
+		SplitTarget(rest, out target, out reason);
+		if (target.Length == 0)
+		{
+			error = "Usage: !mute <player>";
+			return;
+		}
+		// Resolve to the name the host actually has, so the mute is not keyed to a prefix.
+		string text = target;
+		TcpPeer host = TcpPeer.CurrentHost;
+		if (host != null)
+		{
+			string resolved;
+			if (host.ResolveName(target, out resolved))
+			{
+				text = resolved;
+			}
+		}
+		if (!HostModeration.Mute(text))
+		{
+			error = "'" + text + "' is already muted.";
+			return;
+		}
+		Say("Muted " + text + ".", 255, 190, 160);
+	}
+
+	private static void DoUnmute(string rest, out string error)
+	{
+		error = null;
+		if (rest.Length == 0)
+		{
+			error = "Usage: !unmute <player>";
+			return;
+		}
+		if (!HostModeration.Unmute(rest))
+		{
+			error = "'" + rest + "' is not muted.";
+			return;
+		}
+		Say("Unmuted " + rest + ".", 180, 230, 180);
+	}
+
+	private static void DoWhisper(string rest, out string error)
+	{
+		error = null;
+		string target;
+		string message;
+		SplitTarget(rest, out target, out message);
+		if (target.Length == 0 || message.Length == 0)
+		{
+			error = "Usage: !whisper <player> <text>";
+			return;
+		}
+		string sent;
+		if (!TcpPeer.CurrentHost.SendTextTo(target, "-> " + message, out sent))
+		{
+			error = "No single player matching '" + target + "'.";
+			return;
+		}
+		// The host sees what it sent, otherwise a whisper looks like nothing happened.
+		Say("-> " + sent + ": " + message, 170, 190, 220);
+	}
+
+	private static void DoMotd(string rest)
+	{
+		if (rest.Length == 0)
+		{
+			Say(string.IsNullOrEmpty(HostModeration.Motd) ? "No MOTD set." : ("MOTD: " + HostModeration.Motd), 255, 235, 150);
+			return;
+		}
+		HostModeration.Motd = rest;
+		Persist();
+		// New joiners get it from the handshake; the current players get it now.
+		Broadcast("[Server] " + rest, 255, 235, 150);
+	}
+
+	private static void DoRules(string rest)
+	{
+		if (rest.Length == 0)
+		{
+			Say(string.IsNullOrEmpty(HostModeration.Rules) ? "No rules set." : ("Rules: " + HostModeration.Rules), 255, 235, 150);
+			return;
+		}
+		HostModeration.Rules = rest;
+		Persist();
+		Broadcast("[Server] Rules: " + rest, 255, 235, 150);
+	}
+
+	/// <summary>Writes the MOTD and rules to Settings.ini so they outlive the session.</summary>
+	private static void Persist()
+	{
+		try
+		{
+			Settings settings = new Settings(Terraria.Storage.AppPaths.SettingsFile);
+			HostModeration.Save(settings);
+			settings.Close();
+		}
+		catch (Exception ex)
+		{
+			Program.LogWarn("HostCommands", "could not save the server text: " + ex.Message);
+		}
+	}
+
+	/// <summary>
+	/// Says something to every connected player and to the host's own feed. Used for MOTD and
+	/// rules, which are meant for everyone, unlike <c>!whisper</c>.
+	/// </summary>
+	private static void Broadcast(string text, int r, int g, int b)
+	{
+		Say(text, r, g, b);
+		TcpPeer host = TcpPeer.CurrentHost;
+		if (host == null)
+		{
+			return;
+		}
+		string[] names = host.ConnectedNames().ToArray();
+		for (int i = 0; i < names.Length; i++)
+		{
+			string sent;
+			host.SendTextTo(names[i], text, out sent);
+		}
 	}
 
 	private static void DoWho()

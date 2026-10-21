@@ -309,13 +309,18 @@ internal static class ChatInput
 			}
 			return;
 		}
-		Main.NewText("<Player> " + text, 255, 255, 255);
-		AddHistory("<Player> " + text);
+		// The speaker's name used to be the literal "<Player>" locally, and remote players got
+		// the text with no name at all - the packet carries only the string, so the name has to
+		// be baked in on the sending side.
+		string speaker = ChatName();
+		string line = "<" + speaker + "> " + text;
+		Main.NewText(line, 255, 255, 255);
+		AddHistory(line);
 		if (Main.NetMode != 0)
 		{
 			try
 			{
-				NetMessage.SendText(text, 255, 255, 255, 255);
+				NetMessage.SendText(line, 255, 255, 255, 255);
 				NetMessage.SendMessage();
 			}
 			catch (Exception ex)
@@ -323,6 +328,27 @@ internal static class ChatInput
 				Program.LogWarn("Chat", "send failed: " + ex.Message);
 			}
 		}
+	}
+
+	/// <summary>
+	/// Who is speaking: the character's name, falling back to the network identity. The
+	/// character name is what the player chose in character creation and what the world shows
+	/// elsewhere, so chat matches the rest of the game.
+	/// </summary>
+	internal static string ChatName()
+	{
+		try
+		{
+			UI ui = UI.MainUI;
+			if (ui != null && ui.ActivePlayer != null && !string.IsNullOrWhiteSpace(ui.ActivePlayer.CharacterName))
+			{
+				return ui.ActivePlayer.CharacterName;
+			}
+		}
+		catch
+		{
+		}
+		return PlayerIdentity.Current;
 	}
 
 	/// <summary>
