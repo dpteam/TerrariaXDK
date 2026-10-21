@@ -56,6 +56,7 @@ internal static class SelfTest
 		RunCheck("session record", CheckSessionRecord);
 		RunCheck("json", CheckJson);
 		RunCheck("master server", CheckMasterServer);
+		RunCheck("master endpoints", CheckMasterEndpoints);
 		RunCheck("lan discovery", CheckLanDiscovery);
 		RunCheck("mod packets", CheckModPackets);
 		RunCheck("saved servers", CheckSavedServers);
@@ -2724,6 +2725,67 @@ internal static class SelfTest
 			catch
 			{
 			}
+		}
+	}
+
+	// --- Master endpoints ---------------------------------------------------
+
+	/// <summary>
+	/// The Network screen lets the master address be typed in. A typo must not wipe the
+	/// working configuration, and a comma-separated list must keep its order (primary first,
+	/// mirrors after).
+	/// </summary>
+	private static bool CheckMasterEndpoints()
+	{
+		string[] saved = MasterServerClient.Endpoints;
+		try
+		{
+			if (!MasterServerClient.SetEndpoints("example.com:17777"))
+			{
+				return Fail("a plain master address was rejected");
+			}
+			if (MasterServerClient.PrimaryEndpoint != "example.com:17777")
+			{
+				return Fail("the master address was not stored as typed: " + MasterServerClient.PrimaryEndpoint);
+			}
+			// Port is optional and falls back to the configured one.
+			if (!MasterServerClient.SetEndpoints("master.example"))
+			{
+				return Fail("an address without a port was rejected");
+			}
+			if (!MasterServerClient.PrimaryEndpoint.StartsWith("master.example:"))
+			{
+				return Fail("an address without a port was not normalised");
+			}
+			// A list keeps order: the first entry is the primary.
+			if (!MasterServerClient.SetEndpoints("a.example:1111, b.example:2222"))
+			{
+				return Fail("a comma-separated list was rejected");
+			}
+			string[] array = MasterServerClient.Endpoints;
+			if (array.Length != 2 || array[0] != "a.example:1111" || array[1] != "b.example:2222")
+			{
+				return Fail("the endpoint list lost its order: " + string.Join(", ", array));
+			}
+			// Garbage is refused and the previous list is kept.
+			if (MasterServerClient.SetEndpoints("") || MasterServerClient.SetEndpoints("host:99999") || MasterServerClient.SetEndpoints("host:abc"))
+			{
+				return Fail("an invalid master address was accepted");
+			}
+			array = MasterServerClient.Endpoints;
+			if (array.Length != 2 || array[0] != "a.example:1111")
+			{
+				return Fail("a rejected address damaged the existing endpoint list");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("master endpoint check threw: " + ex.Message);
+		}
+		finally
+		{
+			MasterServerClient.SetEndpoints(string.Join(",", saved));
 		}
 	}
 

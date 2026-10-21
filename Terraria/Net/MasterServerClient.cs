@@ -119,6 +119,56 @@ internal static class MasterServerClient
 		}
 	}
 
+	/// <summary>
+	/// Replaces the endpoint list from a user-typed "host:port[,host:port]" string. Returns
+	/// false when nothing in the text parses, so the settings screen can keep the old value
+	/// instead of silently wiping the configuration.
+	/// </summary>
+	public static bool SetEndpoints(string text)
+	{
+		if (string.IsNullOrWhiteSpace(text))
+		{
+			return false;
+		}
+		List<string> list = new List<string>(2);
+		string[] array = text.Split(',');
+		for (int i = 0; i < array.Length; i++)
+		{
+			string text2 = array[i].Trim();
+			if (text2.Length == 0)
+			{
+				continue;
+			}
+			string host;
+			int port;
+			if (NetworkConfig.TryParseAddress(text2, out host, out port))
+			{
+				list.Add(host + ":" + port.ToString(CultureInfo.InvariantCulture));
+			}
+		}
+		if (list.Count == 0)
+		{
+			return false;
+		}
+		lock (sync)
+		{
+			endpoints.Clear();
+			endpoints.AddRange(list);
+		}
+		ResetBackoff();
+		return true;
+	}
+
+	/// <summary>The primary endpoint as typed by the user, for the settings screen.</summary>
+	public static string PrimaryEndpoint
+	{
+		get
+		{
+			string[] array = Endpoints;
+			return (array.Length == 0) ? string.Empty : array[0];
+		}
+	}
+
 	public static void Save(Settings settings)
 	{
 		settings.Update("Network", "MasterServer", string.Join(",", endpoints.ToArray()), "Master server 'host:port'; a comma-separated list adds fallbacks.");
