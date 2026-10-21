@@ -14,7 +14,7 @@ namespace Terraria;
 /// </summary>
 internal static class HudMenu
 {
-	private const int Rows = 5;
+	private const int Rows = 6;
 
 	private static int _selected;
 
@@ -98,6 +98,11 @@ internal static class HudMenu
 			HudSettings.AlwaysCompass = !HudSettings.AlwaysCompass;
 			SetStatus("Compass: " + (HudSettings.AlwaysCompass ? "always on" : "only with a compass"));
 			break;
+		case 5:
+			// Same spirit as the widgets above: an option that used to exist only in the file.
+			Main.HardmodeAlert = !Main.HardmodeAlert;
+			SetStatus("Hardmode alert: " + (Main.HardmodeAlert ? "On" : "Off"));
+			break;
 		}
 		Main.PlaySound(12);
 		Persist();
@@ -115,6 +120,7 @@ internal static class HudMenu
 		{
 			Settings settings = new Settings(Terraria.Storage.AppPaths.SettingsFile);
 			HudSettings.Save(settings);
+			settings.Update("Additions", "HardmodeAlert", Main.HardmodeAlert ? "True" : "False", "Shows an introduction the first time a world enters hardmode.");
 			settings.Close();
 		}
 		catch (Exception ex)
@@ -179,7 +185,8 @@ internal static class HudMenu
 			"Reset zoom",
 			"Clock: " + (HudSettings.AlwaysWatch ? "always on" : "with a watch"),
 			"Depth: " + (HudSettings.AlwaysDepth ? "always on" : "with a depth meter"),
-			"Compass: " + (HudSettings.AlwaysCompass ? "always on" : "with a compass")
+			"Compass: " + (HudSettings.AlwaysCompass ? "always on" : "with a compass"),
+			"Hardmode alert: " + (Main.HardmodeAlert ? "On" : "Off")
 		};
 		for (int i = 0; i < Rows; i++)
 		{

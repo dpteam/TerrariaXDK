@@ -699,7 +699,8 @@ public sealed class Main : Game
 		settings.Set("Display", "ZoomLevel", "0", "Camera zoom: 0 = default, 1 = closest. Adjust in game with + and -.");
 		settings.Set("Display", "AlwaysOnWatch", "False", "Always show the clock, without wearing a watch.");
 		settings.Set("Display", "AlwaysOnDepth", "False", "Always show the depth, without wearing a depth meter.");
-		settings.Set("Display", "AlwaysOnCompass", "False", "Always show the horizontal position, without wearing a compass.");		HardmodeAlert = settings.Get("Additions", "HardmodeAlert").ToLower().Equals("true");
+		settings.Set("Display", "AlwaysOnCompass", "False", "Always show the horizontal position, without wearing a compass.");
+		HardmodeAlert = settings.Get("Additions", "HardmodeAlert").ToLower().Equals("true");
 		Terraria.Input.KeyboardMouseInput.Enabled = settings.Get("Input", "KeyboardMouse").ToLower().Equals("true");
 		Terraria.Cheats.CheatState.Enabled = settings.Get("Cheats", "Enabled").ToLower().Equals("true");
 		Terraria.Net.NetworkConfig.Port = ParsePort(settings.Get("Network", "Port"), 7777);
