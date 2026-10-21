@@ -100,6 +100,33 @@ public sealed class ModContext
 	/// <summary>True when there is someone to send to (host or joined client).</summary>
 	public bool CanSendPackets => Terraria.Net.ModNet.IsConnected;
 
+	/// <summary>
+	/// Returns a handle for changing an existing item's stats, or null if the name is unknown.
+	///
+	/// The name is the one the game shows ("Copper Shortsword"), not a type id: ids are a
+	/// property of this build's content, names are what a mod author and a save file have in
+	/// common. The override applies right after <c>Item.SetDefaults</c>, so it reaches every
+	/// copy of the item everywhere, including ones loaded from a save.
+	///
+	/// Returns null rather than throwing so one typo does not take down the whole mod: the miss
+	/// is logged, and the rest of the mod's overrides still apply.
+	/// </summary>
+	public ItemOverride Item(string name)
+	{
+		if (string.IsNullOrEmpty(name))
+		{
+			return null;
+		}
+		Item item = default(Item);
+		item.SetDefaults(name);
+		if (item.Type <= 0)
+		{
+			Log("unknown item '" + name + "'; no override applied");
+			return null;
+		}
+		return new ItemOverride(item.Type, name);
+	}
+
 	private string Resolve(string relativePath)
 	{
 		if (string.IsNullOrEmpty(relativePath))

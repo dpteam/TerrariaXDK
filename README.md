@@ -1,4 +1,4 @@
-﻿# TerrariaXDK
+# TerrariaXDK
 
 Порт **Terraria (Xbox 360, v0.7.8)** на десктоп через [FNA](https://fna-xna.github.io/) /
 SDL2, с добавленными клавиатурой-мышью, встроенным мультиплеером, читами для сингла и
@@ -372,7 +372,7 @@ Storage/Textures/Atlases/_sheetSprites/ARM_BONE.png
 .\TerrariaXDK.exe --selftest
 ```
 
-Проверяет без графики (79 проверок в Release, 81 в Debug):
+Проверяет без графики (80 проверок в Release, 82 в Debug):
 1. **пути** — что всё пишется в `Storage/` рядом с exe, а не в профиль пользователя;
 2. **манифест контента** — что каждый `Content.Load(...)` путь реально существует;
 3. **осиротевшие файлы** — что в `Content/` нет ничего, что игра не грузит;
@@ -506,8 +506,8 @@ Passed: 64  Skipped: 5  Failed: 0
 настоящий мастер-сервер и честно пишет `skip`, если тот не запущен (сервис лежит в
 `tools/MasterServer`, см. `docs/MULTIPLAYER.md`).
 
-Всего проверок 79 в Release и 81 в Debug: Debug добавляет `debug kit` и `debug console` и
-только их. С запущенным мастером и с `Content/` Release проходит всё: 79 из 79.
+Всего проверок 80 в Release и 82 в Debug: Debug добавляет `debug kit` и `debug console` и
+только их. С запущенным мастером и с `Content/` Release проходит всё: 80 из 80.
 
 ### CI
 
@@ -565,7 +565,8 @@ Passed: 64  Skipped: 5  Failed: 0
 - `ROADMAP.md` — порядок работ и критерии готовности.
 - `PROMPT.md` — исходное задание по проекту.
 - `docs/MULTIPLAYER.md` — как устроен встроенный сетевой стек.
-- `docs/MODDING.md` — как писать моды.
+- `docs/MODDING.md` — как писать моды, включая правку статов предметов и конвертер
+  tConfig-паков в проект (`--tconfig-convert`).
 - `docs/CONTENT_AUDIT.md` — что и почему вычищено из `Content/`.
 - `docs/XNB.md` — `tools/XnbToPng`: как достать PNG из `.xnb` и почему декодер устроен
   именно так.

@@ -59,6 +59,13 @@ internal static class AppPaths
 	/// </summary>
 	public static string Textures => Path.Combine(Root, "Textures");
 
+	/// <summary>
+	/// Generated or hand-written mod projects, one folder per mod. Kept apart from
+	/// <see cref="Mods"/> because that folder is loaded at startup: a half-built project there
+	/// would be scanned as a mod and reported as broken.
+	/// </summary>
+	public static string ModSources => Path.Combine(Root, "ModSources");
+
 	public static string LogFile => Path.Combine(Logs, "terraria-debug.log");
 
 	public static string CrashLogFile => Path.Combine(Logs, "client-crashlog.txt");
@@ -88,9 +95,9 @@ internal static class AppPaths
 	/// <summary>Creates the directory tree. Safe to call more than once.</summary>
 	public static void EnsureDirectories()
 	{
-		string[] array = new string[9]
+		string[] array = new string[10]
 		{
-			Root, Saves, Logs, Mods, Backups, Config, Cache, Lang, Textures
+			Root, Saves, Logs, Mods, Backups, Config, Cache, Lang, Textures, ModSources
 		};
 		foreach (string path in array)
 		{

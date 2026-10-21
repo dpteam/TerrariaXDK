@@ -78,6 +78,7 @@ internal static class SelfTest
 		RunCheck("key bindings", CheckKeyBindings);
 		RunCheck("settings persistence", CheckSettingsPersistence);
 		RunCheck("tconfig import", CheckTConfigImport);
+		RunCheck("tconfig convert", CheckTConfigConvert);
 		RunCheck("mod load order", CheckModLoadOrder);
 		RunCheck("virtual keyboard", CheckVirtualKeyboard);
 		RunCheck("name prompt", CheckNamePrompt);
@@ -1517,6 +1518,158 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("tConfig import failed: " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Mods.ItemOverrides.Clear();
+			try
+			{
+				if (System.IO.Directory.Exists(text))
+				{
+					System.IO.Directory.Delete(text, recursive: true);
+				}
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	// --- Virtual keyboard ---------------------------------------------------
+
+	/// <summary>
+	/// The tConfig converter: a pack becomes a project that builds.
+	///
+	/// Three things are worth checking and they are not the same thing: that the conversion
+	/// reads the pack the way the runtime importer does, that the generated source names
+	/// properties that actually exist on <see cref="Terraria.Mods.ItemOverride"/>, and that the
+	/// mod API itself reaches the item. The middle one is the quiet failure mode: a renamed
+	/// property produces a project that does not compile, and nobody notices until they try.
+	/// </summary>
+	private static bool CheckTConfigConvert()
+	{
+		string text = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-tconfig-convert");
+		string text2 = System.IO.Path.Combine(text, "TestPack", "Item");
+		string text3 = System.IO.Path.Combine(text, "out");
+		try
+		{
+			if (System.IO.Directory.Exists(text))
+			{
+				System.IO.Directory.Delete(text, recursive: true);
+			}
+			System.IO.Directory.CreateDirectory(text2);
+			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Shortsword.ini"), "damage=12\r\nuseTime=17\r\nautoReuse=True\r\nbogusField=1\r\n");
+			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Pickaxe.ini"), "pick=45\r\n");
+			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Not A Real Item.ini"), "damage=5\r\n");
+			string error;
+			Terraria.Mods.TConfigConverter.Result result = Terraria.Mods.TConfigConverter.Convert(
+				System.IO.Path.Combine(text, "TestPack"), text3, null, out error);
+			if (result == null)
+			{
+				return Fail("conversion refused a valid pack: " + error);
+			}
+			if (result.Items != 2 || result.Fields != 4)
+			{
+				return Fail("expected 2 items and 4 fields, got " + result.Items + " and " + result.Fields);
+			}
+			if (result.UnknownItems != 1 || result.UnsupportedFields != 1)
+			{
+				return Fail("expected 1 unknown item and 1 dropped field, got "
+					+ result.UnknownItems + " and " + result.UnsupportedFields);
+			}
+			string text4 = System.IO.File.ReadAllText(result.SourceFile);
+			if (!text4.Contains("ModInfo(\"TestPack\""))
+			{
+				return Fail("the generated mod does not declare its name");
+			}
+			if (!text4.Contains("Copper Shortsword") || !text4.Contains(".Damage = 12;")
+				|| !text4.Contains(".UseTime = 17;") || !text4.Contains(".AutoReuse = true;"))
+			{
+				return Fail("the generated source does not carry the pack's values");
+			}
+			if (!text4.Contains(".Pick = 45;"))
+			{
+				return Fail("the generated source dropped the second item");
+			}
+			string text5 = System.IO.File.ReadAllText(result.ProjectFile);
+			if (!text5.Contains("<TargetFramework>net40</TargetFramework>") || !text5.Contains("TerrariaXDK"))
+			{
+				return Fail("the generated project does not target net40 against the game");
+			}
+			string text6 = System.IO.File.ReadAllText(System.IO.Path.Combine(text3, "README.md"));
+			if (!text6.Contains("bogusField") || !text6.Contains("Not A Real Item"))
+			{
+				return Fail("the README does not say what was dropped");
+			}
+			// Every field the importer accepts must have a property on ItemOverride, or the
+			// generated project will not compile.
+			string[] array = new string[28]
+			{
+				"damage", "defense", "pick", "axe", "hammer", "useAnimation", "useTime", "useSound", "shoot", "shootSpeed",
+				"knockBack", "mana", "healLife", "healMana", "buffType", "buffTime", "rare", "value", "maxStack", "autoReuse",
+				"melee", "magic", "ranged", "consumable", "potion", "accessory", "noMelee", "crit"
+			};
+			for (int i = 0; i < array.Length; i++)
+			{
+				if (!Terraria.Mods.ItemOverrides.IsSupportedField(array[i]))
+				{
+					return Fail("the supported field list lost '" + array[i] + "'");
+				}
+				string text7 = Terraria.Mods.TConfigConverter.PropertyName(array[i]);
+				if (array[i] == "consumable")
+				{
+					// Accepted by the importer (as a recorded error) but deliberately absent
+					// from the mod API, so the converter must drop it rather than emit it.
+					if (text7 != null)
+					{
+						return Fail("the converter claims 'consumable' has a property");
+					}
+					continue;
+				}
+				if (text7 == null)
+				{
+					return Fail("field '" + array[i] + "' has no property name");
+				}
+				System.Reflection.PropertyInfo property = typeof(Terraria.Mods.ItemOverride).GetProperty(text7);
+				if (property == null || property.GetSetMethod() == null)
+				{
+					return Fail("ItemOverride has no settable '" + text7 + "' for field '" + array[i] + "'");
+				}
+			}
+			// And the API itself: an override set through a mod context must reach the item.
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ModContext modContext = new Terraria.Mods.ModContext("Test", text3);
+			Terraria.Mods.ItemOverride itemOverride = modContext.Item("Copper Shortsword");
+			if (itemOverride == null)
+			{
+				return Fail("the mod API did not resolve an item by name");
+			}
+			itemOverride.Damage = 33;
+			itemOverride.ShootSpeed = 7.5f;
+			itemOverride.Melee = false;
+			Item item = default(Item);
+			item.SetDefaults("Copper Shortsword");
+			if (item.Damage != 33)
+			{
+				return Fail("the mod API did not reach the item (damage " + item.Damage + ")");
+			}
+			if (item.ShootSpeed < 7.49f || item.ShootSpeed > 7.51f)
+			{
+				return Fail("a float override did not apply (shootSpeed " + item.ShootSpeed + ")");
+			}
+			if (item.IsMelee)
+			{
+				return Fail("a bool override did not apply");
+			}
+			if (modContext.Item("Not A Real Item") != null)
+			{
+				return Fail("the mod API resolved an item that does not exist");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("tConfig conversion failed: " + ex.GetType().Name + ": " + ex.Message);
 		}
 		finally
 		{

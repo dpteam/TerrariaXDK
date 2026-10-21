@@ -126,7 +126,7 @@ internal static class TConfigImporter
 	/// flattened into `section.key`. tConfig writes flat files, but tolerating sections costs
 	/// nothing and avoids mis-parsing hand-edited packs.
 	/// </summary>
-	private static IEnumerable<KeyValuePair<string, string>> ParseIni(string path)
+	internal static IEnumerable<KeyValuePair<string, string>> ParseIni(string path)
 	{
 		string[] lines;
 		try

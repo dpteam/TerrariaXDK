@@ -1062,10 +1062,15 @@ public sealed class Main : Game
 		SignedInGamer.SignedOut += SignedInGamer_SignedOut;
 		NetworkSession.InviteAccepted += Netplay.NetworkSession_InviteAccepted;
 		Terraria.Input.ChatInput.Initialize();
+		// Old tConfig packs dropped into Storage/tConfig are picked up first, as item overrides.
+		//
+		// Order matters: both a pack and a mod write into the same field table, and the last
+		// writer wins. A pack is a legacy folder that takes no part in the mod signature and
+		// cannot be required by a host; a mod is explicit, versioned and shared. So the pack is
+		// applied first and the mod gets the final word on any field they both touch.
+		Terraria.Mods.TConfigImporter.ImportIfPresent();
 		Terraria.Mods.ModLoader.GraphicsDevice = GraphicsDevice;
 		Terraria.Mods.ModLoader.Initialize();
-		// Old tConfig packs dropped into Storage/tConfig are picked up as item overrides.
-		Terraria.Mods.TConfigImporter.ImportIfPresent();
 	}
 
 	protected override void LoadContent()

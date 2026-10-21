@@ -52,6 +52,13 @@ internal static class Program
 					Environment.ExitCode = ExportLanguage(text3);
 					return;
 				}
+				if (text == "--tconfig-convert")
+				{
+					// Turns an old tConfig pack into a mod project. Headless for the same reason:
+					// it reads INI files and item names, and needs no window to do it.
+					Environment.ExitCode = ConvertTConfig(args, i + 1);
+					return;
+				}
 			}
 		}
 		InitLogger();
@@ -134,6 +141,80 @@ internal static class Program
 		}
 		Console.WriteLine("Wrote " + text);
 		Console.WriteLine("Edit it and start the game: the file is read on top of the built-in text.");
+		return 0;
+	}
+
+	/// <summary>
+	/// <c>--tconfig-convert &lt;pack&gt; [--out &lt;dir&gt;] [--name &lt;Mod&gt;]</c>: writes a mod
+	/// project that does what the pack did, and returns an exit code.
+	///
+	/// The pack is read the same way the runtime importer reads it, so the conversion cannot
+	/// disagree with what the game would have done with the folder.
+	/// </summary>
+	private static int ConvertTConfig(string[] args, int start)
+	{
+		Terraria.Storage.AppPaths.Headless = true;
+		try
+		{
+			Terraria.Storage.AppPaths.EnsureDirectories();
+		}
+		catch
+		{
+		}
+		string pack = null;
+		string output = null;
+		string name = null;
+		for (int i = start; i < args.Length; i++)
+		{
+			string text = args[i].ToLowerInvariant();
+			if (text == "--out")
+			{
+				output = (i + 1 < args.Length) ? args[++i] : null;
+			}
+			else if (text == "--name")
+			{
+				name = (i + 1 < args.Length) ? args[++i] : null;
+			}
+			else if (pack == null)
+			{
+				pack = args[i];
+			}
+		}
+		if (pack == null)
+		{
+			Console.Error.WriteLine("Usage: TerrariaXDK.exe --tconfig-convert <pack> [--out <dir>] [--name <Mod>]");
+			Console.Error.WriteLine("  <pack>  folder with Item/*.ini, e.g. Storage/tConfig/MyPack");
+			Console.Error.WriteLine("  --out   where to write the project (default: Storage/ModSources/<Mod>)");
+			return 2;
+		}
+		if (output == null)
+		{
+			string text2 = (name != null) ? name : new DirectoryInfo(Path.GetFullPath(pack)).Name;
+			output = Path.Combine(Terraria.Storage.AppPaths.ModSources, text2);
+		}
+		string error;
+		Terraria.Mods.TConfigConverter.Result result = Terraria.Mods.TConfigConverter.Convert(pack, output, name, out error);
+		if (result == null)
+		{
+			Console.Error.WriteLine("Cannot convert: " + error);
+			return 1;
+		}
+		Console.WriteLine("Wrote " + result.ProjectFile);
+		Console.WriteLine("  " + result.Items + " item(s), " + result.Fields + " field(s)");
+		if (result.UnknownItems > 0)
+		{
+			Console.WriteLine("  " + result.UnknownItems + " item(s) skipped: not in this build");
+		}
+		if (result.UnsupportedFields > 0)
+		{
+			Console.WriteLine("  " + result.UnsupportedFields + " field(s) dropped: no equivalent here");
+		}
+		for (int j = 0; j < result.Warnings.Count && j < 20; j++)
+		{
+			Console.WriteLine("  - " + result.Warnings[j]);
+		}
+		Console.WriteLine("Build it with: dotnet build \"" + result.ProjectFile + "\"");
+		Console.WriteLine("Then copy the DLL into Storage/Mods/" + Path.GetFileNameWithoutExtension(result.ProjectFile) + "/");
 		return 0;
 	}
 
