@@ -360,7 +360,15 @@ public static class WorldSelect
 					{
 						text += " [mods]";
 					}
-					Color color = joinableSession.AvailableSession.ModMismatch ? new Color(235, 130, 120) : white;
+					// A listing from a server running a different wire version: the handshake
+					// will refuse it, so say so before the player waits for a connection.
+					int protocol = joinableSession.AvailableSession.ProtocolVersion;
+					if (protocol > 0 && protocol != Terraria.Net.TcpPeer.ProtocolVersionPublic)
+					{
+						text += " [v" + protocol + "]";
+					}
+					bool incompatible = joinableSession.AvailableSession.ModMismatch || (protocol > 0 && protocol != Terraria.Net.TcpPeer.ProtocolVersionPublic);
+					Color color = incompatible ? new Color(235, 130, 120) : white;
 					UI.DrawStringLC(UI.BoldSmallFont, text, destRect.X + 32, destRect.Center.Y, color);
 					int maxPlayers2 = joinableSession.AvailableSession.OpenPublicGamerSlots + joinableSession.PlayerCount;
 					s2 = Lang.MenuText[78] + joinableSession.PlayerCount.ToStringLookup() + "/" + Math.Max(1, maxPlayers2).ToStringLookup();
