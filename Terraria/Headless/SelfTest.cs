@@ -72,6 +72,7 @@ internal static class SelfTest
 		RunCheck("backup restore", CheckBackupRestore);
 		RunCheck("host commands", CheckHostCommands);
 		RunCheck("moderation", CheckModeration);
+		RunCheck("permissions", CheckPermissions);
 		RunCheck("ban list", CheckBanList);
 		ReportMemory();
 		Console.WriteLine();
@@ -3142,6 +3143,39 @@ internal static class SelfTest
 			}
 			DrainPackets(clientSession2);
 
+			// A command typed by a client is addressed to the server: it must not appear as
+			// chat for anybody else, whether it is allowed or refused.
+			// Client 1 still has the "you are muted" notice from the check above, so drain it
+			// first: otherwise this assertion measures the wrong message.
+			DrainPackets(clientSession1);
+			byte[] command = ChatPacket.Build("<Stub Gamer (2)> !who", 255, 255, 255);
+			clientSession2.LocalGamers[0].SendData(command, Microsoft.Xna.Framework.Net.SendDataOptions.ReliableInOrder);
+			PumpUntil(delegate
+			{
+				return false;
+			}, 600, hostSession, clientSession1, clientSession2);
+			if (clientSession1.LocalGamers[0].IsDataAvailable)
+			{
+				return Fail("a client's command was relayed as chat");
+			}
+			// Client 2 has no group, so the command is refused. Nobody may be kicked by it.
+			if (TcpPeer.CurrentHost == null || TcpPeer.CurrentHost.ConnectedCount != 2)
+			{
+				return Fail("a refused command changed the roster");
+			}
+			// And a plain chat line from the same client is still relayed: the command branch
+			// must not swallow ordinary messages.
+			byte[] plain = ChatPacket.Build("<Stub Gamer (2)> hello", 255, 255, 255);
+			clientSession2.LocalGamers[0].SendData(plain, Microsoft.Xna.Framework.Net.SendDataOptions.ReliableInOrder);
+			if (!PumpUntil(delegate
+			{
+				return clientSession1.LocalGamers[0].IsDataAvailable;
+			}, 4000, hostSession, clientSession1, clientSession2))
+			{
+				return Fail("ordinary chat stopped working after command handling was added");
+			}
+			DrainPackets(clientSession1);
+
 			// A kick from the host must actually disconnect that player - this is what !kick
 			// uses, and it is the only admin action that touches a live connection.
 			TcpPeer hostPeer = TcpPeer.CurrentHost;
@@ -4066,7 +4100,7 @@ internal static class SelfTest
 			}
 			// A non-command is not executed (returns false so chat falls through).
 			string error;
-			if (HostCommands.TryExecute("hello", out error))
+			if (HostCommands.TryExecute("hello", null, out error))
 			{
 				return Fail("plain chat was executed as a command");
 			}
@@ -4076,7 +4110,7 @@ internal static class SelfTest
 			try
 			{
 				Main.NetMode = 0;
-				if (!HostCommands.TryExecute("!kick bob", out error))
+				if (!HostCommands.TryExecute("!kick bob", null, out error))
 				{
 					return Fail("a host command was not handled when not hosting");
 				}
@@ -4339,6 +4373,283 @@ internal static class SelfTest
 			HostModeration.ResetMutes();
 			HostModeration.Motd = motd;
 			HostModeration.Rules = rules;
+		}
+	}
+
+	// --- Permissions --------------------------------------------------------
+
+	/// <summary>
+	/// Before this, the only rule was "the host can do everything, nobody else can do
+	/// anything". The parts worth pinning down: the host cannot be locked out by a broken
+	/// file, a remote player can never become the owner by using the host's name, unknown
+	/// permission names are reported instead of silently denying everything, and every
+	/// command is actually gated (a command with no gate is the classic hole).
+	/// </summary>
+	private static bool CheckPermissions()
+	{
+		string backup = null;
+		bool had = System.IO.File.Exists(Permissions.FilePath);
+		try
+		{
+			if (had)
+			{
+				backup = System.IO.File.ReadAllText(Permissions.FilePath, Encoding.UTF8);
+			}
+			if (System.IO.File.Exists(Permissions.FilePath))
+			{
+				System.IO.File.Delete(Permissions.FilePath);
+			}
+			Permissions.Reload();
+
+			// No file at all: built-in groups exist, nobody is in one.
+			if (Permissions.GroupNames().Count == 0)
+			{
+				return Fail("no built-in groups exist");
+			}
+			if (Permissions.PermissionsOf("admin") != Permission.All)
+			{
+				return Fail("the built-in admin group is not '*'");
+			}
+			if (Permissions.GroupOf("Alice") != null)
+			{
+				return Fail("a player with no assignment has a group");
+			}
+			// A player with no group may play, and nothing else.
+			if (!Permissions.Allows("Alice", Permission.Play, isLocalHost: false))
+			{
+				return Fail("an ordinary player may not play");
+			}
+			if (Permissions.Allows("Alice", Permission.Kick, isLocalHost: false) || Permissions.Allows("Alice", Permission.Manage, isLocalHost: false))
+			{
+				return Fail("an ordinary player may moderate");
+			}
+			// The host is the owner from code: even with a nonsense name and an empty file.
+			if (!Permissions.Allows("whoever", Permission.Kick, isLocalHost: true) || !Permissions.Allows("whoever", Permission.Manage, isLocalHost: true))
+			{
+				return Fail("the host is not the owner");
+			}
+			// A remote player must never be the owner, even using the host's own name.
+			string hostName = Main.Gamertag;
+			Main.Gamertag = "HostPerson";
+			try
+			{
+				if (Permissions.Allows("HostPerson", Permission.Kick, isLocalHost: false))
+				{
+					return Fail("a remote player got host powers by using the host's name");
+				}
+			}
+			finally
+			{
+				Main.Gamertag = hostName;
+			}
+
+			// Assigning: unknown groups are refused with the list of real ones.
+			string error;
+			if (Permissions.Assign("Alice", "admiral", out error) || string.IsNullOrEmpty(error))
+			{
+				return Fail("a typo-shaped group was accepted");
+			}
+			if (!Permissions.Assign("Alice", "mod", out error))
+			{
+				return Fail("assigning the built-in mod group failed");
+			}
+			if (Permissions.GroupOf("alice") != "mod")
+			{
+				return Fail("assignment is case sensitive");
+			}
+			// mod: inspect + kick + mute, and explicitly not ban, manage or server text.
+			if (!Permissions.Allows("Alice", Permission.Kick, isLocalHost: false) || !Permissions.Allows("Alice", Permission.Mute, isLocalHost: false))
+			{
+				return Fail("a moderator cannot kick or mute");
+			}
+			if (!Permissions.Allows("Alice", Permission.Inspect, isLocalHost: false))
+			{
+				return Fail("a moderator cannot inspect the roster");
+			}
+			if (Permissions.Allows("Alice", Permission.Ban, isLocalHost: false))
+			{
+				return Fail("a moderator can ban");
+			}
+			if (Permissions.Allows("Alice", Permission.Manage, isLocalHost: false))
+			{
+				return Fail("a moderator can hand out powers");
+			}
+			// Privilege escalation through !op must not be possible either.
+			if (Permissions.Allows("Alice", Permission.ServerText, isLocalHost: false))
+			{
+				return Fail("a moderator can rewrite the MOTD");
+			}
+
+			// Role changes take effect immediately, and revoking removes access.
+			if (!Permissions.Assign("Alice", "admin", out error) || !Permissions.Allows("Alice", Permission.Manage, isLocalHost: false))
+			{
+				return Fail("promoting to admin did not take effect");
+			}
+			if (!Permissions.Revoke("alice") || Permissions.Allows("Alice", Permission.Kick, isLocalHost: false))
+			{
+				return Fail("revoking did not remove access");
+			}
+			if (Permissions.Revoke("Alice"))
+			{
+				return Fail("revoking a player with no group reported success");
+			}
+
+			// The file: written, then read back.
+			Permissions.Assign("Bob", "mod", out error);
+			Permissions.Reload();
+			if (Permissions.GroupOf("Bob") != "mod" || !Permissions.Allows("Bob", Permission.Kick, isLocalHost: false))
+			{
+				return Fail("an assignment did not survive a reload");
+			}
+
+			// A hand-written file with an unknown permission and an unknown group: both are
+			// reported, the known parts still work, and the host is still the owner.
+			string text = string.Join("\r\n", new string[7]
+			{
+				"[groups]",
+				"mod = inspect, kick, mutes",
+				"trusted = *",
+				"[users]",
+				"Carol = trusted",
+				"Dave = ghostgroup",
+				"Eve = mod"
+			});
+			System.IO.File.WriteAllText(Permissions.FilePath, text, Encoding.UTF8);
+			Permissions.Reload();
+			if (!Permissions.Allows("Carol", Permission.Manage, isLocalHost: false))
+			{
+				return Fail("'*' did not grant everything");
+			}
+			if (!Permissions.Allows("Eve", Permission.Kick, isLocalHost: false) || Permissions.Allows("Eve", Permission.Mute, isLocalHost: false))
+			{
+				return Fail("a group with one unknown permission lost its known ones (" + Permissions.Describe(Permissions.PermissionsOf("mod")) + ")");
+			}
+			if (Permissions.Allows("Dave", Permission.Kick, isLocalHost: false))
+			{
+				return Fail("a player in an unknown group got permissions");
+			}
+			if (!Permissions.Allows("anyone", Permission.Kick, isLocalHost: true))
+			{
+				return Fail("the host lost ownership after a partially broken file");
+			}
+			IList<string> problems = Permissions.LoadProblems;
+			bool flag = false;
+			bool flag2 = false;
+			for (int i = 0; i < problems.Count; i++)
+			{
+				if (problems[i].Contains("mutes"))
+				{
+					flag = true;
+				}
+				if (problems[i].Contains("ghostgroup"))
+				{
+					flag2 = true;
+				}
+			}
+			if (!flag || !flag2)
+			{
+				return Fail("the file's problems were not reported (" + problems.Count + " problem(s))");
+			}
+
+			// Every command that changes something must be gated: a command with no permission
+			// is the classic hole, and it is invisible until someone abuses it.
+			string[] gated = new string[12]
+			{
+				"!who",
+				"!bans",
+				"!groups",
+				"!kick",
+				"!ban",
+				"!unban",
+				"!mute",
+				"!unmute",
+				"!whisper",
+				"!motd",
+				"!rules",
+				"!op"
+			};
+			for (int j = 0; j < gated.Length; j++)
+			{
+				if (!HostCommands.IsCommand(gated[j]))
+				{
+					return Fail("'" + gated[j] + "' is not a known command");
+				}
+			}
+			if (HostCommands.Names.Length != 15)
+			{
+				return Fail("the command list has " + HostCommands.Names.Length + " entries, expected 15");
+			}
+			// The chat packet helpers: the host recognises a client command by reading the line
+			// back out of the packet, so a round-trip mismatch would silently disable commands.
+			byte[] built = ChatPacket.Build("<Stub Gamer (2)> !who", 255, 255, 255);
+			if (built[0] != ChatPacket.MessageId)
+			{
+				return Fail("a built chat packet does not start with message 25");
+			}
+			string readBack;
+			if (!ChatPacket.TryReadText(built, 0, out readBack) || readBack != "<Stub Gamer (2)> !who")
+			{
+				return Fail("a chat packet did not round-trip (got '" + readBack + "')");
+			}
+			string stripped = ChatPacket.StripSpeaker(readBack);
+			if (stripped != "!who")
+			{
+				return Fail("the speaker prefix was not stripped (got '" + stripped + "')");
+			}
+			if (!HostCommands.IsCommand(stripped))
+			{
+				return Fail("a stripped command was not recognised");
+			}
+			// Text that merely starts with '<' must not be mangled.
+			if (ChatPacket.StripSpeaker("<3 nice") != "<3 nice")
+			{
+				return Fail("a message starting with '<' was mangled");
+			}
+			if (ChatPacket.StripSpeaker("no prefix") != "no prefix" || ChatPacket.StripSpeaker(null) != null)
+			{
+				return Fail("a line without a speaker was changed");
+			}
+
+			// Permissions.Describe round-trips through ParsePermissions.
+			Permission[] values = new Permission[4]
+			{
+				Permission.None,
+				Permission.All,
+				Permission.Kick | Permission.Mute,
+				Permission.Play
+			};
+			for (int k = 0; k < values.Length; k++)
+			{
+				Permission parsed = Permissions.ParsePermissions(Permissions.Describe(values[k]), null);
+				if (parsed != values[k])
+				{
+					return Fail("'" + Permissions.Describe(values[k]) + "' parsed back as " + parsed);
+				}
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("permissions check threw: " + ex.Message);
+		}
+		finally
+		{
+			Permissions.Reload();
+			try
+			{
+				if (backup != null)
+				{
+					System.IO.File.WriteAllText(Permissions.FilePath, backup, Encoding.UTF8);
+				}
+				else if (System.IO.File.Exists(Permissions.FilePath))
+				{
+					System.IO.File.Delete(Permissions.FilePath);
+				}
+			}
+			catch
+			{
+			}
+			Permissions.Reload();
 		}
 	}
 

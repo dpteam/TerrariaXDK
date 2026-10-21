@@ -290,7 +290,8 @@ internal static class ChatInput
 		{
 			Program.LogInfo("Chat", "host command: " + text);
 			string error2;
-			Terraria.Net.HostCommands.TryExecute(text, out error2);
+			// null actor = this machine's player, i.e. the host: always the owner.
+			Terraria.Net.HostCommands.TryExecute(text, null, out error2);
 			if (!string.IsNullOrEmpty(error2))
 			{
 				Main.NewText(error2, 255, 200, 120);

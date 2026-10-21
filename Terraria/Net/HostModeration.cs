@@ -122,25 +122,10 @@ internal static class HostModeration
 	/// <summary>
 	/// Builds a chat packet (message 25) so the host can talk to one player without going
 	/// through the game's own send path, which has no "send to this connection" option.
-	///
-	/// The game reads this with a <see cref="BinaryReader"/>, so the string must be written the
-	/// same way: 7-bit-encoded length, then UTF-8 bytes.
 	/// </summary>
 	internal static byte[] BuildChatPayload(string text, int r, int g, int b)
 	{
-		MemoryStream memoryStream = new MemoryStream();
-		using (BinaryWriter binaryWriter = new BinaryWriter(memoryStream, Encoding.UTF8))
-		{
-			binaryWriter.Write((byte)25);
-			binaryWriter.Write((byte)r);
-			binaryWriter.Write((byte)g);
-			binaryWriter.Write((byte)b);
-			binaryWriter.Write(text ?? string.Empty);
-			binaryWriter.Flush();
-		}
-		// MemoryStream.ToArray() still works after the writer closed it, and returns exactly
-		// the bytes written regardless of the stream's position.
-		return memoryStream.ToArray();
+		return ChatPacket.Build(text, r, g, b);
 	}
 
 	/// <summary>The lines a joining player should see, in order. Empty strings are skipped.</summary>

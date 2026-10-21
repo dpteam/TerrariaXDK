@@ -433,10 +433,9 @@ internal sealed class TcpPeer : IPeerTransport
 			{
 				continue;
 			}
-			// A muted player's chat is dropped here, before it is relayed or applied locally:
-			// dropping it on the receiving side would still let it reach other clients, and
-			// dropping it only in the UI would still wake the host.
-			if (ShouldDropMuted(connection, frame))
+			// Chat from a client: muted lines are dropped, commands run on the host instead of
+			// being chat, everything else is relayed. See HandleIncomingChat.
+			if (HandleIncomingChat(connection, frame))
 			{
 				continue;
 			}
@@ -581,21 +580,57 @@ internal sealed class TcpPeer : IPeerTransport
 	}
 
 	/// <summary>
-	/// True when this chat packet must be dropped because the sender is muted. Called from the
-	/// host relay loop, so the message reaches neither the other players nor the host itself.
-	/// OpData frames are <c>[opcode][gamePacket...]</c> and message 25 is a chat line.
+	/// Decides what to do with an incoming chat line from a client, and does the host-side part.
+	/// Returns true when the frame must NOT be relayed to the other players.
+	///
+	/// Three cases, in order:
+	/// <list type="number">
+	/// <item>The sender is muted: the line is dropped and they are reminded why.</item>
+	/// <item>The line is a command: it runs on the host, as that player, with that player's
+	/// permissions. It is never relayed - a command is addressed to the server, not to the
+	/// other players.</item>
+	/// <item>Ordinary chat: relayed as before.</item>
+	/// </list>
+	///
+	/// The identity comes from <paramref name="connection"/>, never from the message text:
+	/// otherwise "&lt;Host&gt; !ban everyone" typed by a client would be executed as the host.
 	/// </summary>
-	private bool ShouldDropMuted(Connection connection, byte[] frame)
+	private bool HandleIncomingChat(Connection connection, byte[] frame)
 	{
-		if (frame.Length < 2 || frame[0] != OpData || frame[1] != 25)
+		if (frame.Length < 2 || frame[0] != OpData || frame[1] != ChatPacket.MessageId)
 		{
 			return false;
 		}
-		if (!HostModeration.IsMuted(connection.Gamertag))
+		string text;
+		if (!ChatPacket.TryReadText(frame, 1, out text))
 		{
 			return false;
 		}
-		connection.MaybeMuteNotice();
+		if (HostModeration.IsMuted(connection.Gamertag))
+		{
+			connection.MaybeMuteNotice();
+			return true;
+		}
+		// Clients wrap every line as "<Name> text", so unwrap before asking whether this is a
+		// command. The name in that prefix is never trusted: the actor below comes from the
+		// connection, otherwise a client could type "<Host> !ban everyone".
+		string text2 = ChatPacket.StripSpeaker(text);
+		if (!HostCommands.IsCommand(text2))
+		{
+			return false;
+		}
+		// Commands touch chat text and the player lists, which are game-thread state, so they
+		// are queued rather than run on this transport thread.
+		string actor = connection.Gamertag;
+		string command = text2;
+		_inbox.Enqueue(delegate
+		{
+			string error;
+			if (!HostCommands.TryExecute(command, actor, out error) && !string.IsNullOrEmpty(error))
+			{
+				Main.NewText(error, 255, 200, 120);
+			}
+		});
 		return true;
 	}
 

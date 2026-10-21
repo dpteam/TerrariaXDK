@@ -24,7 +24,7 @@ namespace Terraria.Net;
 internal static class HostCommands
 {
 	/// <summary>Every command name, for chat completion.</summary>
-	public static readonly string[] Names = new string[12]
+	public static readonly string[] Names = new string[15]
 	{
 		"!kick",
 		"!ban",
@@ -37,10 +37,47 @@ internal static class HostCommands
 		"!whisper",
 		"!motd",
 		"!rules",
+		"!op",
+		"!deop",
+		"!groups",
 		"!help"
 	};
 
-	private const string HelpText = "!kick <player> [reason], !ban/!unban <player|ip>, !bans, !who, !mute/!unmute <player>, !whisper <player> <text>, !motd [text], !rules [text], !say <text>";
+	private const string HelpText = "!kick <player> [reason], !ban/!unban <player|ip>, !bans, !who, !mute/!unmute <player>, !whisper <player> <text>, !motd [text], !rules [text], !say <text>, !op <player> [group], !deop <player>, !groups";
+
+	/// <summary>
+	/// Permission each command needs. Anything not listed here (only <c>!help</c>) is open to
+	/// everyone - a help text is not a privilege.
+	/// </summary>
+	private static Permission RequiredFor(string word)
+	{
+		switch (word)
+		{
+		case "!who":
+		case "!bans":
+		case "!groups":
+			return Permission.Inspect;
+		case "!kick":
+			return Permission.Kick;
+		case "!ban":
+		case "!unban":
+			return Permission.Ban;
+		case "!mute":
+		case "!unmute":
+			return Permission.Mute;
+		case "!whisper":
+			return Permission.Whisper;
+		case "!motd":
+		case "!rules":
+		case "!say":
+			return Permission.ServerText;
+		case "!op":
+		case "!deop":
+			return Permission.Manage;
+		default:
+			return Permission.None;
+		}
+	}
 
 	/// <summary>True when this process is hosting a multiplayer world.</summary>
 	public static bool IsAvailable => Main.NetMode == 2 && TcpPeer.CurrentHost != null;
@@ -70,10 +107,14 @@ internal static class HostCommands
 	}
 
 	/// <summary>
-	/// Runs a command. Returns false when it is not a host command at all, so the caller can
-	/// fall back to normal chat.
+	/// Runs a command as a specific player. <paramref name="actor"/> is null for the local
+	/// host (who is always the owner); a remote player's name comes from the connection, never
+	/// from the message text, so it cannot be spoofed by typing a different name.
+	///
+	/// Returns false when the text is not a command at all, so the caller can fall back to
+	/// normal chat.
 	/// </summary>
-	public static bool TryExecute(string text, out string error)
+	public static bool TryExecute(string text, string actor, out string error)
 	{
 		error = null;
 		if (!IsCommand(text))
@@ -82,10 +123,21 @@ internal static class HostCommands
 		}
 		if (!IsAvailable)
 		{
-			error = "Only the host can use " + FirstWord(text) + ".";
+			// Not hosting: the caller's chat should still be delivered normally, so this is
+			// reported as an error but not as "handled".
+			error = "Commands only work while hosting a multiplayer world.";
 			return true;
 		}
 		string word = FirstWord(text).ToLowerInvariant();
+		// Only "no actor" means the host's own keyboard: TcpPeer always passes the connection's
+		// gamertag, so a remote player cannot become the owner by choosing the host's name.
+		bool isLocalHost = actor == null;
+		Permission permission = RequiredFor(word);
+		if (permission != Permission.None && !Permissions.Allows(actor, permission, isLocalHost))
+		{
+			error = (actor ?? "You") + " may not use " + word + ".";
+			return true;
+		}
 		string rest = text.Substring(word.Length).Trim();
 		switch (word)
 		{
@@ -130,8 +182,92 @@ internal static class HostCommands
 		case "!rules":
 			DoRules(rest);
 			return true;
+		case "!op":
+			DoOp(rest, out error);
+			return true;
+		case "!deop":
+			DoDeop(rest, out error);
+			return true;
+		case "!groups":
+			DoGroups();
+			return true;
 		}
 		return false;
+	}
+
+	private static void DoOp(string rest, out string error)
+	{
+		error = null;
+		string target;
+		string group;
+		SplitTarget(rest, out target, out group);
+		if (target.Length == 0)
+		{
+			error = "Usage: !op <player> [group]";
+			return;
+		}
+		// Default to "mod": promoting someone should not silently hand out !op as well.
+		if (group.Length == 0)
+		{
+			group = "mod";
+		}
+		if (!Permissions.Assign(target, group, out error))
+		{
+			return;
+		}
+		Say(target + " is now in group '" + group + "' (" + Permissions.Describe(Permissions.PermissionsOf(group)) + ").", 180, 230, 180);
+	}
+
+	private static void DoDeop(string rest, out string error)
+	{
+		error = null;
+		if (rest.Length == 0)
+		{
+			error = "Usage: !deop <player>";
+			return;
+		}
+		if (!Permissions.Revoke(rest))
+		{
+			error = "'" + rest + "' had no group.";
+			return;
+		}
+		Say(rest + " lost their group.", 255, 190, 160);
+	}
+
+	private static void DoGroups()
+	{
+		List<string> list = Permissions.GroupNames();
+		if (list.Count == 0)
+		{
+			Say("No groups defined.", 200, 200, 210);
+			return;
+		}
+		for (int i = 0; i < list.Count; i++)
+		{
+			Say(list[i] + ": " + Permissions.Describe(Permissions.PermissionsOf(list[i])), 200, 220, 255);
+		}
+		List<KeyValuePair<string, string>> list2 = Permissions.UserList();
+		if (list2.Count == 0)
+		{
+			Say("Nobody has a group yet (the host is always the owner).", 200, 200, 210);
+			return;
+		}
+		string text = string.Empty;
+		for (int j = 0; j < list2.Count; j++)
+		{
+			if (j > 0)
+			{
+				text += ", ";
+			}
+			text += list2[j].Key + "=" + list2[j].Value;
+		}
+		Say(text, 200, 200, 210);
+		// File problems are only useful to whoever maintains the file, i.e. the host.
+		IList<string> loadProblems = Permissions.LoadProblems;
+		for (int k = 0; k < loadProblems.Count; k++)
+		{
+			Say("permissions.ini: " + loadProblems[k], 255, 170, 140);
+		}
 	}
 
 	private static void DoMute(string rest, out string error)
