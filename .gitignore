@@ -43,24 +43,28 @@ packages/
 *.snupkg
 
 # --- Runtime / local data ---------------------------------------------------
+# Anchored to the repository root on purpose (leading "/"). Without the slash these
+# patterns match a directory of that name at ANY depth, and "Mods/" silently excluded
+# the whole Terraria/Mods/ source folder - the mod API was missing from the repository
+# and only the machine that had the files could build.
 # Game settings written next to the executable
-Settings.ini
+/Settings.ini
 # Debug + crash output produced by Program.cs
-terraria-debug.log
-client-crashlog.txt
+/terraria-debug.log
+/client-crashlog.txt
 # Local save data if the game is ever run from the source tree
-Players/
-Worlds/
+/Players/
+/Worlds/
+/Storage/
 *.wld
 *.plr
 *.bak
 *.old
-Mods/
-mods/
+/Mods/
 *.tconfig
-banlist.txt
-serverconfig.txt
-motd.txt
+/banlist.txt
+/serverconfig.txt
+/motd.txt
 
 # --- Temporary / editor -----------------------------------------------------
 *.tmp

@@ -29,6 +29,31 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
+      - name: Check that no source file is ignored
+        # A .gitignore rule without a leading slash matches at any depth, so "Mods/" quietly
+        # excluded the whole Terraria/Mods/ folder. The build then failed here with
+        # "namespace Terraria.Mods does not exist" while working perfectly on the machine that
+        # still had the files - the worst kind of failure. This step turns it into a clear
+        # message that names the files.
+        shell: pwsh
+        run: |
+          $tracked = git ls-files | ForEach-Object { $_.Replace('/', '\') }
+          $missing = @()
+          foreach ($dir in @('Terraria', 'tools')) {
+            if (-not (Test-Path $dir)) { continue }
+            Get-ChildItem $dir -Recurse -File -Include *.cs, *.csproj, *.ps1 |
+              Where-Object { $_.FullName -notmatch '\\obj\\|\\bin\\' } |
+              ForEach-Object {
+                $relative = $_.FullName.Substring((Get-Location).Path.Length + 1)
+                if ($tracked -notcontains $relative) { $missing += $relative }
+              }
+          }
+          if ($missing.Count -gt 0) {
+            $missing | ForEach-Object { Write-Host "not in git: $_" }
+            throw "$($missing.Count) source file(s) are not tracked - check .gitignore for a pattern without a leading slash"
+          }
+          Write-Host "all source files are tracked"
+
       - name: Build
         # Warnings are errors here on purpose: the project builds clean, and a new warning is
         # usually a real defect (an unused field, an always-true check). Adding one should be a

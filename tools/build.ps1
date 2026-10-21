@@ -126,9 +126,43 @@ function Link-Content([string]$destination)
 	}
 }
 
+# A .gitignore pattern without a leading slash matches at any depth. "Mods/" therefore hid the
+# whole Terraria/Mods/ folder, and the project built here while CI failed with
+# "namespace Terraria.Mods does not exist". This turns that into a message naming the files.
+# Skipped outside a git checkout: a packed folder has no .git and no reason to complain.
+function Assert-SourcesTracked
+{
+	if (-not (Test-Path (Join-Path $root '.git'))) { return }
+	$tracked = & git ls-files 2>$null
+	if ($LASTEXITCODE -ne 0) { return }
+	$set = @{}
+	foreach ($item in $tracked) { $set[$item.Replace('/', '\')] = $true }
+	$missing = @()
+	foreach ($directory in @('Terraria', 'tools'))
+	{
+		$path = Join-Path $root $directory
+		if (-not (Test-Path $path)) { continue }
+		Get-ChildItem $path -Recurse -File | Where-Object { $_.Extension -in @('.cs', '.csproj', '.ps1') -and $_.FullName -notmatch '\\obj\\|\\bin\\' } | ForEach-Object {
+			$relative = $_.FullName.Substring($root.Length + 1)
+			if (-not $set.ContainsKey($relative)) { $missing += $relative }
+		}
+	}
+	if ($missing.Count -gt 0)
+	{
+		$missing | ForEach-Object { Write-Host "  not in git: $_" -ForegroundColor Red }
+		Fail "$($missing.Count) source file(s) are not tracked - check .gitignore for a pattern without a leading slash"
+	}
+}
+
 Push-Location $root
 try
 {
+	# A .gitignore pattern without a leading slash matches at any depth, so "Mods/" once hid the
+	# whole Terraria/Mods/ folder: the build worked here and failed in CI with "namespace
+	# Terraria.Mods does not exist". Checked on every build, and skipped when this is not a git
+	# checkout (a packed folder, for instance).
+	Assert-SourcesTracked
+
 	Write-Host "== build ($Configuration)" -ForegroundColor Cyan
 	& dotnet build $project -c $Configuration -v q --nologo
 	if ($LASTEXITCODE -ne 0)
