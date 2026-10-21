@@ -673,6 +673,8 @@ public sealed class Main : Game
 		settings.Set("Network", "Port", "7777", "TCP/UDP port used when this game hosts a multiplayer world in-process.");
 		settings.Set("Network", "Password", "", "Password clients must send to join this host.\n; Leave empty to accept anyone.");
 		settings.Set("Network", "JoinAddress", "", "Optional 'host:port' to offer as a one-click join target in the netplay menu.\n; Leave empty to only browse LAN worlds.");
+		// Observe by default: see AntiCheatMode for why refusing is not the default.
+		settings.Set("Network", "AntiCheat", "Observe", "Movement validation for remote players while hosting: Off, Observe (log what would be refused) or Enforce (refuse it too).");
 		settings.Set("Mods", "Enabled", "True", "Loads mods from the Mods folder next to the executable.");
 		settings.Set("Mods", "RequireMatchingMods", "True", "Rejects multiplayer clients whose mod set differs from the host's.");
 		Gamertag = settings.Get("Game", "Gamertag");
@@ -722,6 +724,8 @@ public sealed class Main : Game
 		settings.Set("Network", "ProtectSpawnRadius", "16", "Tiles around the world spawn that remote players cannot modify (0 = no protection).");
 		Terraria.Net.HostModeration.Load(settings);
 		Terraria.Net.WorldProtection.Load(settings);
+		// Read before the hosting profile so the profile can override it below.
+		Terraria.Net.AntiCheat.Load(settings);
 		// The optional hosting profile wins over Settings.ini for the keys it defines. Applied
 		// after everything it can override, so a partial file is enough.
 		settings.Set("Network", "MaxPlayers", "7", "How many remote players the host accepts (1-255).");

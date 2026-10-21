@@ -24,7 +24,7 @@ namespace Terraria.Net;
 internal static class HostCommands
 {
 	/// <summary>Every command name, for chat completion.</summary>
-	public static readonly string[] Names = new string[22]
+	public static readonly string[] Names = new string[23]
 	{
 		"!kick",
 		"!ban",
@@ -47,6 +47,7 @@ internal static class HostCommands
 		"!stats",
 		"!world",
 		"!serverconfig",
+		"!anticheat",
 		"!help"
 	};
 
@@ -78,6 +79,10 @@ internal static class HostCommands
 			return Permission.Inspect;
 		case "!serverconfig":
 			return Permission.Manage;
+		case "!anticheat":
+			// Reading the counters is harmless; changing the mode is a server policy decision.
+			// The subcommand decides, and it is checked in DoAntiCheat.
+			return Permission.Inspect;
 		case "!kick":
 			return Permission.Kick;
 		case "!ban":
@@ -233,6 +238,9 @@ internal static class HostCommands
 		case "!serverconfig":
 			DoServerConfig(rest, out error);
 			return true;
+		case "!anticheat":
+			DoAntiCheat(rest, actor, isLocalHost, out error);
+			return true;
 		}
 		return false;
 	}
@@ -267,6 +275,40 @@ internal static class HostCommands
 			return;
 		}
 		Say(Texts.Format("chat.host.serverconfig.wrote", ServerConfig.FileName), 180, 230, 180);
+	}
+
+	/// <summary>
+	/// <c>!anticheat</c> shows the counters; <c>!anticheat off|observe|enforce</c> changes the
+	/// mode and saves it. Changing the mode needs <see cref="Permission.Manage"/>: reading who
+	/// is being flagged is harmless, switching protection off is not.
+	/// </summary>
+	private static void DoAntiCheat(string rest, string actor, bool isLocalHost, out string error)
+	{
+		error = null;
+		string text = (rest ?? string.Empty).Trim();
+		if (text.Length == 0 || text.Equals("show", StringComparison.OrdinalIgnoreCase))
+		{
+			Say(Texts.Format("chat.host.anticheat.none", AntiCheat.Describe()), 200, 220, 255);
+			Say(Texts.Get("chat.host.anticheat.hint"), 170, 180, 200);
+			return;
+		}
+		if (!Permissions.Allows(actor, Permission.Manage, isLocalHost))
+		{
+			error = Texts.Get("chat.host.region.need.manage");
+			return;
+		}
+		AntiCheatMode antiCheatMode;
+		if (!AntiCheat.TryParseExact(text, out antiCheatMode))
+		{
+			error = Texts.Get("chat.host.anticheat.usage");
+			return;
+		}
+		AntiCheat.Mode = antiCheatMode;
+		// Persisted through the hosting profile when there is one, and through Settings.ini
+		// otherwise - the same rule as every other host setting.
+		ServerConfig.Persist("AntiCheat", AntiCheat.ToSetting(antiCheatMode),
+			"Movement validation for remote players: Off, Observe (log only) or Enforce (refuse).");
+		Say(Texts.Format("chat.host.anticheat.set", AntiCheat.ToSetting(antiCheatMode)), 180, 230, 180);
 	}
 
 	private static void DoAddItem(string rest, out string error)

@@ -93,6 +93,7 @@ internal static class SelfTest
 		RunCheck("texture overrides", CheckTextureOverrides);
 		RunCheck("png corpus", CheckPngCorpus);
 		RunCheck("atlas overrides", CheckAtlasOverrides);
+		RunCheck("anti-cheat", CheckAntiCheat);
 		RunCheck("hud settings", CheckHudSettings);
 		RunCheck("direct connect", CheckDirectConnect);
 		RunCheck("session record", CheckSessionRecord);
@@ -4863,9 +4864,9 @@ internal static class SelfTest
 					return Fail("'" + gated[j] + "' is not a known command");
 				}
 			}
-			if (HostCommands.Names.Length != 22)
+			if (HostCommands.Names.Length != 23)
 			{
-				return Fail("the command list has " + HostCommands.Names.Length + " entries, expected 22");
+				return Fail("the command list has " + HostCommands.Names.Length + " entries, expected 23");
 			}
 			// The chat packet helpers: the host recognises a client command by reading the line
 			// back out of the packet, so a round-trip mismatch would silently disable commands.
@@ -7795,6 +7796,334 @@ internal static class SelfTest
 			}
 		}
 		return array;
+	}
+
+	// --- Anti-cheat ---------------------------------------------------------
+
+	/// <summary>
+	/// Movement validation. The check that matters most is not "a cheater is caught" - that is
+	/// easy - but "an honest player is not", because a false positive freezes a real player for
+	/// everyone else and is far worse than the cheat it was meant to stop.
+	///
+	/// So the honest cases come first and are the ones worth reading: a sprint at the game's own
+	/// maximum speed, a long fall at terminal velocity, a lag spike that batches ten ticks into
+	/// one packet, a respawn jump to spawn, and a grappling hook. All of those must pass.
+	///
+	/// Then the dishonest ones: a teleport across the map, a fly hack that drains the budget,
+	/// NaN, and a position outside the world.
+	///
+	/// The clock is a parameter, so "ten seconds passed" costs nothing and the arithmetic is
+	/// exact rather than dependent on how fast the machine runs.
+	/// </summary>
+	private static bool CheckAntiCheat()
+	{
+		AntiCheatMode savedMode = Terraria.Net.AntiCheat.Mode;
+		try
+		{
+			// --- mode parsing -----------------------------------------------
+			if (Terraria.Net.AntiCheat.Parse("enforce") != AntiCheatMode.Enforce
+				|| Terraria.Net.AntiCheat.Parse("Off") != AntiCheatMode.Off
+				|| Terraria.Net.AntiCheat.Parse(" 1 ") != AntiCheatMode.Observe)
+			{
+				return Fail("the mode parser does not understand the documented spellings");
+			}
+			// Garbage must never switch protection on: Observe is the safe reading.
+			if (Terraria.Net.AntiCheat.Parse("yolo") != AntiCheatMode.Observe
+				|| Terraria.Net.AntiCheat.Parse("") != AntiCheatMode.Observe
+				|| Terraria.Net.AntiCheat.Parse(null) != AntiCheatMode.Observe)
+			{
+				return Fail("an unreadable mode did not fall back to Observe");
+			}
+			// The host command is stricter on purpose: it must refuse what it cannot name.
+			AntiCheatMode ignored;
+			if (Terraria.Net.AntiCheat.TryParseExact("yolo", out ignored)
+				|| !Terraria.Net.AntiCheat.TryParseExact("enforce", out ignored) || ignored != AntiCheatMode.Enforce)
+			{
+				return Fail("the host command accepts something it should not, or rejects a real mode");
+			}
+			// Round trip through the settings text.
+			if (Terraria.Net.AntiCheat.Parse(Terraria.Net.AntiCheat.ToSetting(AntiCheatMode.Enforce)) != AntiCheatMode.Enforce)
+			{
+				return Fail("the settings text does not round-trip");
+			}
+
+			// --- the clock ---------------------------------------------------
+			// TickCount is a signed int that wraps every ~24.8 days. A negative difference means
+			// either a clock that went backwards or a gap longer than that - and for a budget,
+			// "unknown, so no credit" is the only safe reading. A wrap must never hand out a month
+			// of movement credit.
+			int backwards = Terraria.Net.AntiCheat.Delta(0, int.MaxValue);
+			if (backwards != 0)
+			{
+				// Without the clamp this would be about 2^31, i.e. "move anywhere for 24 days".
+				return Fail("a backwards clock produced " + backwards + " ms of credit");
+			}
+			if (Terraria.Net.AntiCheat.Delta(1000, 900) != 100)
+			{
+				return Fail("a normal interval was not measured");
+			}
+			if (Terraria.Net.AntiCheat.Delta(5, 5) != 0)
+			{
+				return Fail("two identical timestamps produced elapsed time");
+			}
+
+			// --- values that can never be real -------------------------------
+			if (Terraria.Net.AntiCheat.IsFinite(float.NaN) || Terraria.Net.AntiCheat.IsFinite(float.PositiveInfinity)
+				|| Terraria.Net.AntiCheat.IsFinite(1E+09f))
+			{
+				return Fail("a non-finite value was treated as a position");
+			}
+			if (!Terraria.Net.AntiCheat.IsFinite(1234.5f) || !Terraria.Net.AntiCheat.IsFinite(0f))
+			{
+				return Fail("a real coordinate was rejected as non-finite");
+			}
+
+			// --- honest movement, in Observe and in Enforce -------------------
+			// Every case below is two packets: the first establishes where the player is, the
+			// second is the one under test. Without the first packet every case would pass
+			// trivially, because a player with no history has nothing to be compared against -
+			// which is itself the reason the first sample is accepted unconditionally.
+			//
+			// Each is also a case where a naive per-packet distance check produces a false
+			// positive, which is why they are listed instead of just "walking works".
+			for (int mode = 0; mode < 2; mode++)
+			{
+				AntiCheatMode antiCheatMode = (mode == 0) ? AntiCheatMode.Observe : AntiCheatMode.Enforce;
+				Terraria.Net.AntiCheat.Mode = antiCheatMode;
+
+				// Sprint: 270 px in 1000 ms, under the 900 px/s the budget refills at.
+				Terraria.Net.AntiCheat.Reset();
+				if (!TwoStep(1, 0, 1000, new Vector2(0f, 0f), new Vector2(270f, 0f), false, false))
+				{
+					return Fail("a sprint (270 px/s) was flagged in " + antiCheatMode);
+				}
+				// Terminal fall: 600 px/s, measured as two packets because that is what 60Hz means.
+				Terraria.Net.AntiCheat.Reset();
+				if (!TwoStep(2, 0, 550, new Vector2(0f, 0f), new Vector2(0f, 330f), false, false)
+					|| !TwoStep(2, 550, 550, new Vector2(0f, 330f), new Vector2(0f, 660f), false, false))
+				{
+					return Fail("a terminal-velocity fall was flagged in " + antiCheatMode);
+				}
+				// Lag spike: nothing arrives for half a second, then the backlog arrives with a
+				// large jump. The distance is large AND the gap is large, so the budget covers it.
+				Terraria.Net.AntiCheat.Reset();
+				if (!TwoStep(3, 0, 500, new Vector2(0f, 0f), new Vector2(400f, 0f), false, false))
+				{
+					return Fail("a 500 ms lag spike was flagged in " + antiCheatMode);
+				}
+				// Respawn: thousands of pixels in one tick, legitimate, knowable only from state.
+				Terraria.Net.AntiCheat.Reset();
+				if (!TwoStep(4, 0, 16, new Vector2(3000f, 900f), new Vector2(3000f, 905f), false, false)
+					|| !TwoStep(4, 16, 16, new Vector2(3000f, 905f), new Vector2(8000f, 400f), true, false))
+				{
+					return Fail("a respawn jump was flagged in " + antiCheatMode);
+				}
+				// Grappling: far faster than walking, and allowed because the player really is
+				// attached to a hook.
+				Terraria.Net.AntiCheat.Reset();
+				if (!TwoStep(5, 0, 16, new Vector2(0f, 0f), new Vector2(50f, 0f), false, false)
+					|| !TwoStep(5, 16, 16, new Vector2(50f, 0f), new Vector2(400f, 0f), false, true))
+				{
+					return Fail("a grappling hook pull was flagged in " + antiCheatMode);
+				}
+			}
+
+			// --- cheating, refused in Enforce and only logged in Observe ------
+			Terraria.Net.AntiCheat.Mode = AntiCheatMode.Enforce;
+			Terraria.Net.AntiCheat.Reset();
+			string reason;
+			// A teleport across the map: 5000 px in one tick. `Allow` returning false is the
+			// success here, so the condition must not be negated.
+			if (!TwoStep(10, 0, 16, new Vector2(100f, 100f), new Vector2(110f, 100f), false, false))
+			{
+				return Fail("the setup move for the teleport test was refused");
+			}
+			if (Terraria.Net.AntiCheat.Allow(10, 32, new Vector2(110f, 100f), new Vector2(5100f, 100f), false, false, 0, 0, out reason))
+			{
+				return Fail("a 5000 px teleport was allowed in Enforce");
+			}
+			if (reason == null || reason.IndexOf("moved", StringComparison.Ordinal) < 0)
+			{
+				return Fail("a refused move did not say why: '" + reason + "'");
+			}
+			if (Terraria.Net.AntiCheat.Rejected != 1)
+			{
+				return Fail("a refused move was not counted (rejected " + Terraria.Net.AntiCheat.Rejected + ")");
+			}
+			// The reference must not move to the refused position: that is what keeps a cheater
+			// frozen instead of walking away one refused hop at a time. A second packet claiming
+			// the same far-off spot must be refused as well, not accepted as "no movement".
+			Terraria.Net.AntiCheatTrack after = Terraria.Net.AntiCheat.TrackOf(10);
+			if (after == null || after.Last != new Vector2(110f, 100f))
+			{
+				return Fail("a refused move advanced the last accepted position to " + ((after == null) ? "nothing" : after.Last.ToString()));
+			}
+			if (Terraria.Net.AntiCheat.Allow(10, 48, new Vector2(5100f, 100f), new Vector2(5100f, 100f), false, false, 0, 0, out reason))
+			{
+				return Fail("a second packet from the refused position was accepted");
+			}
+			// The same move in Observe is relayed, and the verdict is recorded.
+			Terraria.Net.AntiCheat.Mode = AntiCheatMode.Observe;
+			Terraria.Net.AntiCheat.Reset();
+			if (!TwoStep(10, 0, 16, new Vector2(100f, 100f), new Vector2(110f, 100f), false, false))
+			{
+				return Fail("the setup move for the observe test was refused");
+			}
+			if (!Terraria.Net.AntiCheat.Allow(10, 32, new Vector2(110f, 100f), new Vector2(5100f, 100f), false, false, 0, 0, out reason))
+			{
+				return Fail("Observe refused a move; it must only observe");
+			}
+			if (Terraria.Net.AntiCheat.Suspicious == 0)
+			{
+				return Fail("Observe did not record the move it let through");
+			}
+			if (Terraria.Net.AntiCheat.TrackOf(10) == null || Terraria.Net.AntiCheat.TrackOf(10).Violations != 1)
+			{
+				return Fail("Observe did not count the violation for the player");
+			}
+
+			// A fly hack, sustained. Two speeds are worth distinguishing, because they are not
+			// equally detectable and pretending otherwise would make the numbers meaningless:
+			// a dramatic one is caught in about a second, and one only a little above the
+			// legitimate maximum takes long enough that the budget has to drain first.
+			Terraria.Net.AntiCheat.Mode = AntiCheatMode.Enforce;
+			if (!SpeedHackCaught(11, 1200f, 80, out int caughtAt))
+			{
+				return Fail("a 1200 px/s fly hack (2x terminal velocity) was not caught within 80 packets");
+			}
+			Console.WriteLine("    fly hack at 1200 px/s caught after " + caughtAt + " packet(s)");
+			if (!SpeedHackCaught(12, 812f, 400, out caughtAt))
+			{
+				return Fail("an 812 px/s hack (just above the budget) was not caught within 400 packets");
+			}
+			Console.WriteLine("    hack at 812 px/s caught after " + caughtAt + " packet(s)");
+
+			// NaN and infinity are refused in Observe too: they are not a judgement call, and
+			// applying one corrupts the host's world for everyone else.
+			Terraria.Net.AntiCheat.Mode = AntiCheatMode.Observe;
+			Terraria.Net.AntiCheat.Reset();
+			if (Terraria.Net.AntiCheat.Allow(13, 0, new Vector2(0f, 0f), new Vector2(float.NaN, 0f), false, false, 0, 0, out reason)
+				|| reason == null || reason.IndexOf("not a number", StringComparison.Ordinal) < 0)
+			{
+				return Fail("a NaN position was accepted, or refused without saying why");
+			}
+			// Outside the world, with the margin: 8000x2400 tiles is 128000x38400 px.
+			Terraria.Net.AntiCheat.Reset();
+			if (Terraria.Net.AntiCheat.Allow(14, 0, new Vector2(0f, 0f), new Vector2(-5000f, 0f), false, false, 128000, 38400, out reason)
+				|| reason == null || reason.IndexOf("outside", StringComparison.Ordinal) < 0)
+			{
+				return Fail("a position outside the world was accepted, or refused without saying why");
+			}
+			// The margin itself: a player at the very edge is fine.
+			Terraria.Net.AntiCheat.Reset();
+			if (!Terraria.Net.AntiCheat.Allow(15, 0, new Vector2(0f, 0f), new Vector2(127990f, 38390f), false, false, 128000, 38400, out reason))
+			{
+				return Fail("a player at the world edge was refused: " + reason);
+			}
+
+			// --- the mode switch itself --------------------------------------
+			Terraria.Net.AntiCheat.Mode = AntiCheatMode.Off;
+			Terraria.Net.AntiCheat.Reset();
+			if (!Terraria.Net.AntiCheat.Allow(15, 0, new Vector2(0f, 0f), new Vector2(50000f, 0f), false, false, 128000, 38400, out reason))
+			{
+				return Fail("Off still refused a move");
+			}
+			if (Terraria.Net.AntiCheat.Suspicious != 0 || Terraria.Net.AntiCheat.TrackOf(15) != null)
+			{
+				return Fail("Off still recorded state");
+			}
+			// Off must also not refuse a NaN: the mode means "do nothing", and pretending
+			// otherwise would make the setting a lie.
+			if (!Terraria.Net.AntiCheat.Allow(15, 16, new Vector2(0f, 0f), new Vector2(float.NaN, 0f), false, false, 0, 0, out reason))
+			{
+				return Fail("Off refused a NaN, which contradicts the mode");
+			}
+			// Forget drops one player's history without touching anyone else's.
+			Terraria.Net.AntiCheat.Mode = AntiCheatMode.Observe;
+			Terraria.Net.AntiCheat.Reset();
+			TwoStep(20, 0, 16, new Vector2(0f, 0f), new Vector2(10f, 0f), false, false);
+			TwoStep(21, 0, 16, new Vector2(0f, 0f), new Vector2(10f, 0f), false, false);
+			Terraria.Net.AntiCheat.Forget(20);
+			if (Terraria.Net.AntiCheat.TrackOf(20) != null || Terraria.Net.AntiCheat.TrackOf(21) == null)
+			{
+				return Fail("Forget did not drop exactly one player");
+			}
+			// An out-of-range index is ignored, not a crash: this is called from the network path.
+			if (!Terraria.Net.AntiCheat.Allow(-1, 0, Vector2.Zero, Vector2.Zero, false, false, 0, 0, out reason)
+				|| !Terraria.Net.AntiCheat.Allow(99999, 0, Vector2.Zero, Vector2.Zero, false, false, 0, 0, out reason))
+			{
+				return Fail("an out-of-range player index was refused");
+			}
+			Terraria.Net.AntiCheat.Forget(-1);
+			Terraria.Net.AntiCheat.Forget(99999);
+
+			// The host command's report names every player with violations.
+			Terraria.Net.AntiCheat.Reset();
+			TwoStep(30, 0, 16, new Vector2(0f, 0f), new Vector2(10f, 0f), false, false);
+			Terraria.Net.AntiCheat.Allow(30, 32, new Vector2(10f, 0f), new Vector2(9000f, 0f), false, false, 0, 0, out reason);
+			string text = Terraria.Net.AntiCheat.Describe();
+			if (text.IndexOf("player 30", StringComparison.Ordinal) < 0)
+			{
+				return Fail("Describe() does not name a player with violations: '" + text + "'");
+			}
+			if (text.IndexOf("Observe", StringComparison.Ordinal) < 0)
+			{
+				return Fail("Describe() does not state the mode: '" + text + "'");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("anti-cheat check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Net.AntiCheat.Mode = savedMode;
+			Terraria.Net.AntiCheat.Reset();
+		}
+	}
+
+	/// <summary>
+	/// One move that must be allowed: the first packet places the player, the second is the one
+	/// under test, <paramref name="elapsedMs"/> later. Returns what <c>Allow</c> said for the
+	/// second, so the same helper serves the honest and the dishonest cases.
+	/// </summary>
+	private static bool TwoStep(int player, int startMs, int elapsedMs, Vector2 from, Vector2 to, bool dead, bool grappling)
+	{
+		string reason;
+		if (!Terraria.Net.AntiCheat.Allow(player, startMs, from, from, grappling, dead, 0, 0, out reason))
+		{
+			// The setup itself must never be refused; if it is, the test is measuring nothing.
+			Console.WriteLine("    setup for player " + player + " was refused: " + reason);
+			return false;
+		}
+		return Terraria.Net.AntiCheat.Allow(player, startMs + elapsedMs, from, to, grappling, dead, 0, 0, out reason);
+	}
+
+	/// <summary>
+	/// Sends a player moving at a fixed speed, one packet per 16 ms, until the host refuses a
+	/// move. Returns whether it was caught within <paramref name="maxPackets"/>, plus the packet
+	/// index it was caught at - the number is the useful part, because it says how long a real
+	/// host would watch a cheat before acting.
+	/// </summary>
+	private static bool SpeedHackCaught(int player, float pixelsPerSecond, int maxPackets, out int caughtAt)
+	{
+		caughtAt = -1;
+		Terraria.Net.AntiCheat.Reset();
+		string reason;
+		Vector2 vector = new Vector2(0f, 0f);
+		float num = pixelsPerSecond * 0.016f;
+		for (int i = 0; i < maxPackets; i++)
+		{
+			Vector2 vector2 = new Vector2(vector.X + num, vector.Y);
+			if (!Terraria.Net.AntiCheat.Allow(player, i * 16, vector, vector2, false, false, 0, 0, out reason))
+			{
+				caughtAt = i;
+				return true;
+			}
+			vector = vector2;
+		}
+		return false;
 	}
 
 	private static bool Fail(string message)

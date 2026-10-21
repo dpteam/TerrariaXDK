@@ -69,6 +69,40 @@ public sealed class NetMessage
 	}
 
 	/// <summary>
+	/// Tells a player that a move was refused, at most once every few seconds per player. A client
+	/// that keeps sending bad positions must not be able to turn the refusal into a chat flood -
+	/// the throttle is the same one world protection uses, so one player has one budget.
+	/// </summary>
+	private static void RefuseSuspiciousMove(NetClient sender, string reason)
+	{
+		string text = null;
+		try
+		{
+			if (sender != null && sender.NetGamer != null)
+			{
+				text = sender.NetGamer.Gamertag;
+			}
+		}
+		catch
+		{
+		}
+		if (string.IsNullOrEmpty(text))
+		{
+			return;
+		}
+		if (!Terraria.Net.WorldProtection.ShouldNotify(text))
+		{
+			return;
+		}
+		Terraria.Net.TcpPeer host = Terraria.Net.TcpPeer.CurrentHost;
+		string sent;
+		if (host != null)
+		{
+			host.SendTextTo(text, Texts.Format("chat.anticheat.refused", reason), out sent);
+		}
+	}
+
+	/// <summary>
 	/// Tells a player that an item is not allowed, at most once every few seconds per player so
 	/// a client resending its inventory cannot flood the chat or the log.
 	/// </summary>
@@ -2074,25 +2108,55 @@ public sealed class NetMessage
 		{
 			int num86 = PacketIn.ReadByte();
 			Player player10 = Main.PlayerSet[num86 & 0x1F];
-			player10.direction = (sbyte)(((num86 & 0x40) != 0) ? 1 : (-1));
+			// The move has to be judged before anything is applied: refusing after assignment
+			// would leave the host holding a position it just decided not to trust, and the
+			// echo below would still broadcast it.
+			//
+			// Read into locals first, so the validation sees the whole packet and the apply
+			// happens only once. In single player and on clients the check does nothing at all
+			// (it is gated on hosting), which is why this stays a small change here.
+			sbyte b = (sbyte)(((num86 & 0x40) != 0) ? 1 : (-1));
 			int num87 = (((num86 & 0x80) != 0) ? PacketIn.ReadByte() : 0);
+			sbyte b2 = player10.SelectedItem;
+			bool flag13 = false;
+			if ((num86 & 0x20) != 0)
+			{
+				b2 = PacketIn.ReadSByte();
+				flag13 = true;
+			}
+			Vector2 vector = PacketIn.ReadVector2();
+			HalfVector2 halfVector = default(HalfVector2);
+			halfVector.PackedValue = PacketIn.ReadUInt32();
+			if (Main.NetMode == 2 && sender != null && Terraria.Net.AntiCheat.Enabled)
+			{
+				// A dead player is about to respawn at spawn, and a grappling hook pulls far faster
+				// than walking; both are legitimate and both are large jumps.
+				string reason;
+				if (!Terraria.Net.AntiCheat.Allow(num86 & 0x1F, System.Environment.TickCount, player10.Position, vector,
+					player10.grappling[0] >= 0, player10.IsDead, Main.MaxTilesX << 4, Main.MaxTilesY << 4, out reason))
+				{
+					// Refused: tell the sender (throttled, so a resending client cannot flood the
+					// chat) and stop. No assignment, no echo - for everyone else the packet simply
+					// does not exist.
+					RefuseSuspiciousMove(sender, reason);
+					break;
+				}
+			}
+			player10.direction = b;
 			player10.controlUp = (num87 & 1) != 0;
 			player10.IsControlDown = (num87 & 2) != 0;
 			player10.controlLeft = (num87 & 4) != 0;
 			player10.controlRight = (num87 & 8) != 0;
 			player10.controlJump = (num87 & 0x10) != 0;
 			player10.controlUseItem = (num87 & 0x20) != 0;
-			if ((num86 & 0x20) != 0)
+			if (flag13)
 			{
-				player10.SelectedItem = PacketIn.ReadSByte();
+				player10.SelectedItem = b2;
 			}
-			player10.Position = PacketIn.ReadVector2();
+			player10.Position = vector;
 			player10.XYWH.X = (int)player10.Position.X;
 			player10.XYWH.Y = (int)player10.Position.Y;
-			player10.velocity = new HalfVector2
-			{
-				PackedValue = PacketIn.ReadUInt32()
-			}.ToVector2();
+			player10.velocity = halfVector.ToVector2();
 			player10.fallStart = (short)(player10.XYWH.Y >> 4);
 			if (Main.NetMode == 2 && sender.ServerState == 10)
 			{

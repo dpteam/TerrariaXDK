@@ -77,6 +77,13 @@ internal static class Texts
 		Add(dictionary, "chat.host.not.hosting", "Commands only work while hosting a multiplayer world.");
 		Add(dictionary, "chat.host.forbidden", "{0} may not use {1}.");
 		Add(dictionary, "chat.host.you", "You");
+		Add(dictionary, "chat.anticheat.refused", "Move refused: {0}");
+		Add(dictionary, "chat.host.anticheat.none", "Anti-cheat: {0}");
+		Add(dictionary, "chat.host.anticheat.set", "Anti-cheat is now {0}");
+		Add(dictionary, "chat.host.anticheat.usage", "Usage: !anticheat [off|observe|enforce]");
+		Add(dictionary, "chat.host.anticheat.saved", "Saved to {0}.");
+		Add(dictionary, "chat.host.anticheat.hint",
+			"!anticheat off|observe|enforce changes it. Observe only logs, Enforce also refuses the move.");
 		Add(dictionary, "chat.host.usage.say", "Usage: !say <text>");
 		Add(dictionary, "chat.host.server.prefix", "[Server] {0}");
 		Add(dictionary, "chat.host.server.rules", "[Server] Rules: {0}");

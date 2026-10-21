@@ -110,6 +110,10 @@ internal static class ServerConfig
 			{
 				WorldProtection.SpawnRadius = ReadInt(settings, "ProtectSpawnRadius", WorldProtection.SpawnRadius, 0, 200);
 			}
+			if (Has(settings, "AntiCheat"))
+			{
+				AntiCheat.Mode = AntiCheat.Parse(settings.Get("Network", "AntiCheat"));
+			}
 			lock (Sync)
 			{
 				_active = true;
