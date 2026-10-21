@@ -90,6 +90,13 @@ internal static class VirtualKeyboard
 	/// <summary>Value of <see cref="_textCount"/> at the previous update.</summary>
 	private static int _textSeen;
 
+	/// <summary>
+	/// True once FNA has delivered a typed character at least once in this session. The key-based
+	/// fallback is only for a platform that never delivers any: if it does, using both would type
+	/// every letter twice.
+	/// </summary>
+	private static bool _textEver;
+
 	/// <summary>Diagnostics for the log: how the text actually arrived.</summary>
 	private static int _typedByText;
 
@@ -237,6 +244,7 @@ internal static class VirtualKeyboard
 			return;
 		}
 		_textCount++;
+		_textEver = true;
 		switch (c)
 		{
 		case '\b':
@@ -461,12 +469,12 @@ internal static class VirtualKeyboard
 				ClickCell(KeyboardMouseInput.MouseX, KeyboardMouseInput.MouseY);
 				return;
 			}
-			// Did FNA deliver any character since the previous frame? If it did, the typing path
-			// works and the fallback below must stay out of the way, or every letter would be
-			// entered twice.
+			// Did FNA deliver any character since the previous frame? And has it ever? The fallback
+			// below is for a platform that never delivers them: if it does deliver, using both
+			// would type every letter twice.
 			bool textArrived = _textCount != _textSeen;
 			_textSeen = _textCount;
-			if (!textArrived)
+			if (!textArrived && !_textEver)
 			{
 				// No characters from the platform: type them from the key edges instead. This is
 				// the difference between "letters do nothing at all" and a keyboard that works on
@@ -676,8 +684,9 @@ internal static class VirtualKeyboard
 	}
 
 	/// <summary>
-	/// Types the characters the platform did not deliver. Only runs on a frame where no text event
-	/// arrived, so a working SDL text input never produces a doubled letter.
+	/// Types the characters the platform did not deliver. Only used when nothing has ever arrived
+	/// through FNA's text input in this session, so a working text input never produces a doubled
+	/// letter.
 	///
 	/// This is the safety net for the whole point of the on-screen keyboard: with a real keyboard
 	/// attached, typing must work even if the platform's text events do not come through (focus
@@ -727,7 +736,7 @@ internal static class VirtualKeyboard
 			return;
 		}
 		Program.LogDebug("VirtualKeyboard", "closed: " + _typedByText + " char(s) from text input, "
-			+ _typedByKeys + " from key edges, started=" + _textInputStarted);
+			+ _typedByKeys + " from key edges, started=" + _textInputStarted + " delivered=" + _textEver);
 	}
 
 	/// <summary>
