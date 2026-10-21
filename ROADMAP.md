@@ -321,8 +321,9 @@
       на каждый push/PR. `--selftest` больше не требует ни `Content/`, ни нативных DLL
       (не инициализирует `FNAPlatform`), а контентные проверки без ассетов пишут `skip`
       с причиной вместо `FAIL`. Проверено на копии exe без Content и без SDL2:
-      `Passed: 56  Skipped: 4  Failed: 0`. Третьим пропуском стал `world file inspector`, четвёртым — `png corpus` (настоящие PNG лежат
-      в `_RemovedContent/`, вне git):
+      `Passed: 68  Skipped: 4  Failed: 0` (без запущенного мастера — ещё и `master server live`
+      пропускается). Третьим пропуском стал `world file inspector`, четвёртым — `png corpus`
+      (настоящие PNG лежат в `_RemovedContent/`, вне git):
       без `tutorial.wld` ему нечего разбирать, а его собственный `catch (Exception)`
       раньше превращал `skip` в `FAIL` — то есть CI краснел на чистом клоне.
 

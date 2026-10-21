@@ -335,7 +335,7 @@ Storage/Textures/Atlases/_sheetSprites/ARM_BONE.png
 .\TerrariaXDK.exe --selftest
 ```
 
-Проверяет без графики (71 проверка в Release, 73 в Debug):
+Проверяет без графики (72 проверки в Release, 74 в Debug):
 1. **пути** — что всё пишется в `Storage/` рядом с exe, а не в профиль пользователя;
 2. **манифест контента** — что каждый `Content.Load(...)` путь реально существует;
 3. **осиротевшие файлы** — что в `Content/` нет ничего, что игра не грузит;
@@ -457,8 +457,8 @@ Passed: 64  Skipped: 5  Failed: 0
 настоящий мастер-сервер и честно пишет `skip`, если тот не запущен (сервис лежит в
 `tools/MasterServer`, см. `docs/MULTIPLAYER.md`).
 
-Всего проверок 71 в Release и 73 в Debug: Debug добавляет `debug kit` и `debug console` и
-только их. С запущенным мастером и с `Content/` Release доходит до 71 пройденной.
+Всего проверок 72 в Release и 74 в Debug: Debug добавляет `debug kit` и `debug console` и
+только их. С запущенным мастером и с `Content/` Release проходит всё: 72 из 72.
 
 ### CI
 
