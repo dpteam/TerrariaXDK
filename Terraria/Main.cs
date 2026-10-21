@@ -641,6 +641,10 @@ public sealed class Main : Game
 		GraphicsGame.SynchronizeWithVerticalRetrace = true;
 		IsFixedTimeStep = true;
 		Content.RootDirectory = "Content";
+		// A content manager that lets a loose PNG replace a compiled texture. Set here, before
+		// anything loads, so every Content.Load<Texture2D> in the game goes through it.
+		Content = new Terraria.Textures.TextureContentManager(Services);
+		Content.RootDirectory = "Content";
 		Settings settings = new Settings(Terraria.Storage.AppPaths.SettingsFile);
 		// The console got this from Xbox Live. Defaulting to a literal "Terrarian" made every
 		// unconfigured player share one name in LAN lists and rosters, so the OS account is a

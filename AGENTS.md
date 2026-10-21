@@ -127,6 +127,14 @@ CI и чистый клон.
 ## 5. Content
 
 - Игра грузит **только** `.xnb` (плюс `Content/Worlds/tutorial.wld` и `Content/ExtMusic/*.wav`).
+- **Замена контента идёт через `Storage/`, а не правкой `Content/`.** Текстура — PNG в
+  `Storage/Textures/` с тем же относительным путём (`Textures/Images/_sheetTiles.png`),
+  текст — `Storage/Lang/<code>.txt`. `Content/` остаётся неизменяемым: обновление игры его
+  затрёт, а пользовательская правка должна пережить обновление.
+- Все `Content.Load<Texture2D>(...)` проходят через `TextureContentManager`
+  (`Game.Content` подменяется в конструкторе `Main`). Поэтому новую текстуру **не нужно**
+  нигде регистрировать в списке «поддерживает замену» — она получает её автоматически.
+  Не обходите это, вызывая `new ContentManager(...)` где-то ещё.
 - `Content/` — только чтение. Ничего не пишите туда, и не возвращайте `.dds`/`.png`.
 - `.dds`/`.png` в `Content/` — сырьё, игрой не читаются.
 - Перед удалением любого файла: искать в коде **без расширения** (`_sheetSprites`,
@@ -161,6 +169,7 @@ CI и чистый клон.
 | Кэш сети | `Storage/Cache/servers.json`, `favorites.txt` | `MasterServerClient`, `ServerFavorites` |
 | Кэш | `Storage/Cache/` (свободная папка: скретч, будущие кэши) | `AppPaths` |
 | Правки переводов | `Storage/Lang/<code>.txt` (EN/DE/IT/FR/ES) | `LangOverrides` |
+| Замена текстур | `Storage/Textures/<путь как в Content>.png` | `TextureContentManager`, `TextureOverrides` |
 
 - **Никогда не хардкодьте пути.** Единственный источник — `Terraria/Storage/AppPaths.cs`.
   Нужна новая папка — добавьте свойство туда и в `EnsureDirectories()`.

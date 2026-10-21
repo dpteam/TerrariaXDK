@@ -88,6 +88,9 @@ internal static class SelfTest
 		RunCheck("feature text", CheckFeatureTexts);
 		RunCheck("reject reasons", CheckRejectReasons);
 		RunCheck("portable paths", CheckPortablePaths);
+		RunCheck("png decoder", CheckPngDecoder);
+		RunCheck("texture overrides", CheckTextureOverrides);
+		RunCheck("png corpus", CheckPngCorpus);
 		RunCheck("hud settings", CheckHudSettings);
 		RunCheck("direct connect", CheckDirectConnect);
 		RunCheck("session record", CheckSessionRecord);
@@ -7016,6 +7019,470 @@ internal static class SelfTest
 			catch
 			{
 			}
+		}
+	}
+
+	// --- PNG ----------------------------------------------------------------
+
+	/// <summary>
+	/// The PNG reader, checked against bytes derived from the specification rather than against
+	/// its own encoder.
+	///
+	/// The filtered rows below are written out by hand: for a 3x2 grey image, filtering the
+	/// second row with Up means "raw minus the row above", which is <c>20</c> for <c>30-10</c>.
+	/// A round trip through a helper that both filtered and unfiltered could pass with the sign
+	/// flipped; these literals cannot.
+	/// </summary>
+	private static bool CheckPngDecoder()
+	{
+		try
+		{
+			Terraria.Textures.ImageData image;
+			string error;
+
+			// --- the five filters, on a 2x2 8-bit grey image -----------------
+			// Filter 0 (None): bytes are the pixels.
+			byte[] none = new byte[6] { 0, 10, 20, 0, 30, 40 };
+			if (!Terraria.Textures.PngDecoder.TryDecode(
+				PngTestData.Build(2, 2, 8, 0, none, null, null), out image, out error))
+			{
+				return Fail("filter 0 failed: " + error);
+			}
+			if (image.Width != 2 || image.Height != 2 || image.R(0, 0) != 10 || image.R(1, 0) != 20
+				|| image.R(0, 1) != 30 || image.R(1, 1) != 40 || image.A(0, 0) != 255)
+			{
+				return Fail("filter 0 decoded the wrong pixels");
+			}
+			// Filter 1 (Sub): each byte minus the byte one pixel to the left (bpp = 1 here).
+			// Row 1: 30-0 = 30, 40-30 = 10.
+			byte[] sub = new byte[6] { 1, 10, 10, 1, 30, 10 };
+			if (!Terraria.Textures.PngDecoder.TryDecode(
+				PngTestData.Build(2, 2, 8, 0, sub, null, null), out image, out error))
+			{
+				return Fail("filter 1 failed: " + error);
+			}
+			if (image.R(0, 1) != 30 || image.R(1, 1) != 40)
+			{
+				return Fail("filter 1 decoded " + image.R(0, 1) + "," + image.R(1, 1) + " instead of 30,40");
+			}
+			// Filter 2 (Up): raw minus the pixel above. Row 1: 30-10 = 20, 40-20 = 20.
+			byte[] up = new byte[6] { 0, 10, 20, 2, 20, 20 };
+			if (!Terraria.Textures.PngDecoder.TryDecode(
+				PngTestData.Build(2, 2, 8, 0, up, null, null), out image, out error))
+			{
+				return Fail("filter 2 failed: " + error);
+			}
+			if (image.R(0, 1) != 30 || image.R(1, 1) != 40)
+			{
+				return Fail("filter 2 decoded " + image.R(0, 1) + "," + image.R(1, 1) + " instead of 30,40");
+			}
+			// Filter 3 (Average): raw minus floor((left + above) / 2).
+			// Row 1: 30 - floor((0+10)/2) = 25, 40 - floor((30+20)/2) = 15.
+			byte[] average = new byte[6] { 0, 10, 20, 3, 25, 15 };
+			if (!Terraria.Textures.PngDecoder.TryDecode(
+				PngTestData.Build(2, 2, 8, 0, average, null, null), out image, out error))
+			{
+				return Fail("filter 3 failed: " + error);
+			}
+			if (image.R(0, 1) != 30 || image.R(1, 1) != 40)
+			{
+				return Fail("filter 3 decoded " + image.R(0, 1) + "," + image.R(1, 1) + " instead of 30,40");
+			}
+			// Filter 4 (Paeth): the predictor picks the closest of left/above/upper-left.
+			// Row 1: 30 - 10 = 20 (above wins), 40 - 30 = 10 (left wins).
+			byte[] paeth = new byte[6] { 0, 10, 20, 4, 20, 10 };
+			if (!Terraria.Textures.PngDecoder.TryDecode(
+				PngTestData.Build(2, 2, 8, 0, paeth, null, null), out image, out error))
+			{
+				return Fail("filter 4 failed: " + error);
+			}
+			if (image.R(0, 1) != 30 || image.R(1, 1) != 40)
+			{
+				return Fail("filter 4 decoded " + image.R(0, 1) + "," + image.R(1, 1) + " instead of 30,40");
+			}
+
+			// --- colour types ------------------------------------------------
+			// RGBA: channels must land in the right places, not shifted.
+			byte[] rgba = new byte[9] { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
+			if (!Terraria.Textures.PngDecoder.TryDecode(
+				PngTestData.Build(2, 1, 8, 6, rgba, null, null), out image, out error))
+			{
+				return Fail("RGBA failed: " + error);
+			}
+			if (image.R(0, 0) != 1 || image.G(0, 0) != 2 || image.B(0, 0) != 3 || image.A(0, 0) != 4
+				|| image.R(1, 0) != 5 || image.A(1, 0) != 8)
+			{
+				return Fail("RGBA channels were misplaced");
+			}
+			// Palette with tRNS: index 1 becomes fully transparent, index 0 keeps 255.
+			byte[] palette = new byte[6] { 255, 0, 0, 0, 255, 0 };
+			byte[] trns = new byte[2] { 255, 0 };
+			byte[] indices = new byte[3] { 0, 0, 1 };
+			if (!Terraria.Textures.PngDecoder.TryDecode(
+				PngTestData.Build(2, 1, 8, 3, indices, palette, trns), out image, out error))
+			{
+				return Fail("palette failed: " + error);
+			}
+			if (image.R(0, 0) != 255 || image.G(0, 0) != 0 || image.A(0, 0) != 255)
+			{
+				return Fail("a palette entry was decoded wrongly");
+			}
+			if (image.R(1, 0) != 0 || image.G(1, 0) != 255 || image.A(1, 0) != 0)
+			{
+				return Fail("tRNS transparency was not applied to a palette index");
+			}
+			// 1-bit palette: two pixels share a byte, the first in the high bit.
+			byte[] bits = new byte[2] { 0, 96 };
+			if (!Terraria.Textures.PngDecoder.TryDecode(
+				PngTestData.Build(4, 1, 1, 3, bits, palette, null), out image, out error))
+			{
+				return Fail("1-bit palette failed: " + error);
+			}
+			// 0b0110_0000 = indices 0,1,1,0.
+			if (image.R(0, 0) != 255 || image.G(0, 0) != 0)
+			{
+				return Fail("the first 1-bit pixel was read from the wrong bit");
+			}
+			if (image.R(1, 0) != 0 || image.G(1, 0) != 255)
+			{
+				return Fail("the second 1-bit pixel was read from the wrong bit");
+			}
+			if (image.G(2, 0) != 255 || image.R(3, 0) != 255 || image.G(3, 0) != 0)
+			{
+				return Fail("sub-byte pixels after the second were read wrongly");
+			}
+			// Grey+alpha, and 16-bit keeping the high byte.
+			byte[] greyAlpha = new byte[3] { 0, 100, 200 };
+			if (!Terraria.Textures.PngDecoder.TryDecode(
+				PngTestData.Build(1, 1, 8, 4, greyAlpha, null, null), out image, out error))
+			{
+				return Fail("grey+alpha failed: " + error);
+			}
+			if (image.R(0, 0) != 100 || image.G(0, 0) != 100 || image.B(0, 0) != 100 || image.A(0, 0) != 200)
+			{
+				return Fail("grey+alpha was decoded wrongly");
+			}
+			byte[] deep = new byte[9] { 0, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0 };
+			if (!Terraria.Textures.PngDecoder.TryDecode(
+				PngTestData.Build(1, 1, 16, 6, deep, null, null), out image, out error))
+			{
+				return Fail("16-bit failed: " + error);
+			}
+			if (image.R(0, 0) != 0x12 || image.G(0, 0) != 0x56 || image.B(0, 0) != 0x9A || image.A(0, 0) != 0xDE)
+			{
+				return Fail("16-bit samples were not collapsed to the high byte");
+			}
+
+			// --- refusals, each naming what is wrong -------------------------
+			if (!ExpectPngFailure(PngTestData.Build(2, 2, 8, 0, new byte[6] { 0, 1, 2, 7, 3, 4 }, null, null), "filter type", "an unknown row filter"))
+			{
+				return Fail("an unknown filter type was accepted");
+			}
+			if (!ExpectPngFailure(PngTestData.BuildWithCorruptData(2, 2, 8, 0, new byte[4] { 0xFF, 0xFF, 0xFF, 0xFF }), "corrupt", "corrupt image data"))
+			{
+				return Fail("corrupt image data was accepted");
+			}
+			if (!ExpectPngFailure(new byte[12] { 137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0 }, "IEND", "a PNG without IEND"))
+			{
+				return Fail("a truncated PNG was accepted");
+			}
+			if (!ExpectPngFailure(new byte[16] { 137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0, 73, 72, 68, 82 }, "chunk", "a PNG whose chunk header is broken"))
+			{
+				return Fail("a broken chunk header was accepted");
+			}
+			if (!ExpectPngFailure(new byte[4] { 1, 2, 3, 4 }, "not a PNG", "a file that is not a PNG"))
+			{
+				return Fail("a non-PNG was accepted");
+			}
+			// Interlacing is refused by name, not mis-decoded into noise.
+			byte[] interlaced = PngTestData.Build(2, 2, 8, 0, new byte[6] { 0, 1, 2, 0, 3, 4 }, null, null);
+			// IHDR data starts after the 4-byte length and 4-byte type: width 16..19, height
+			// 20..23, bit depth 24, colour type 25, compression 26, filter 27, interlace 28.
+			interlaced[28] = 1;
+			if (!ExpectPngFailure(interlaced, "interlac", "an interlaced PNG"))
+			{
+				return Fail("an interlaced PNG was not refused");
+			}
+			// A colour type the format does not define, and an unsupported bit depth: both must
+			// be named, not turned into an exception from deep inside the pixel loop.
+			byte[] badType = PngTestData.Build(2, 1, 8, 6, new byte[9] { 0, 1, 2, 3, 4, 5, 6, 7, 8 }, null, null);
+			badType[25] = 5;
+			if (!ExpectPngFailure(badType, "colour type", "an undefined colour type"))
+			{
+				return Fail("an undefined colour type was accepted");
+			}
+			byte[] badDepth = PngTestData.Build(2, 1, 8, 6, new byte[9] { 0, 1, 2, 3, 4, 5, 6, 7, 8 }, null, null);
+			badDepth[24] = 3;
+			if (!ExpectPngFailure(badDepth, "bit depth", "an invalid bit depth"))
+			{
+				return Fail("bit depth 3 was accepted for RGBA");
+			}
+			// A header claiming 16384x2000 (32 megapixels) is refused before anything is
+			// allocated for it. Both dimensions are within the per-dimension limit, so this
+			// exercises the total-pixel bound specifically.
+			byte[] huge = PngTestData.Build(2, 1, 8, 6, new byte[9] { 0, 1, 2, 3, 4, 5, 6, 7, 8 }, null, null);
+			huge[16] = 0;
+			huge[17] = 0;
+			huge[18] = 0x40;
+			huge[19] = 0x00;
+			huge[20] = 0;
+			huge[21] = 0;
+			huge[22] = 0x07;
+			huge[23] = 0xD0;
+			if (!ExpectPngFailure(huge, "megapixel", "an image over the total size limit"))
+			{
+				return Fail("a 16384x2000 image was not refused, or was refused for the wrong reason");
+			}
+
+			// --- premultiplied alpha -----------------------------------------
+			Terraria.Textures.ImageData sample = new Terraria.Textures.ImageData(2, 1);
+			sample.Set(0, 0, 200, 100, 50, 128);
+			sample.Set(1, 0, 0, 0, 0, 0);
+			Microsoft.Xna.Framework.Color[] colors = Terraria.Textures.TextureContentManager.ToColors(sample);
+			if (colors.Length != 2)
+			{
+				return Fail("ToColors produced " + colors.Length + " colours for 2 pixels");
+			}
+			// 200*128/255 = 100.4 -> 100, 100*128/255 = 50.2 -> 50, 50*128/255 = 25.1 -> 25.
+			if (colors[0].A != 128 || colors[0].R != 100 || colors[0].G != 50 || colors[0].B != 25)
+			{
+				return Fail("alpha was not premultiplied: got a=" + colors[0].A + " rgb=" + colors[0].R + "," + colors[0].G + "," + colors[0].B);
+			}
+			// A fully transparent pixel keeps zero colour, so filtering cannot pull colour out of it.
+			if (colors[1].A != 0 || colors[1].R != 0 || colors[1].G != 0 || colors[1].B != 0)
+			{
+				return Fail("a transparent pixel kept non-zero colour");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("png decoder check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	/// <summary>True when decoding fails with a message containing <paramref name="fragment"/>.</summary>
+	private static bool ExpectPngFailure(byte[] png, string fragment, string what)
+	{
+		Terraria.Textures.ImageData image;
+		string error;
+		if (Terraria.Textures.PngDecoder.TryDecode(png, out image, out error))
+		{
+			Console.WriteLine("    decoded " + what + " to " + ((image == null) ? "null" : image.Describe()));
+			Console.WriteLine("    " + what + " was accepted");
+			return false;
+		}
+		if (error == null || error.IndexOf(fragment, StringComparison.OrdinalIgnoreCase) < 0)
+		{
+			Console.WriteLine("    " + what + " failed with '" + error + "', expected it to mention '" + fragment + "'");
+			return false;
+		}
+		return true;
+	}
+
+	// --- Texture overrides --------------------------------------------------
+
+	/// <summary>
+	/// The loose-PNG override path: which file wins, and what happens when it is broken.
+	///
+	/// The interesting cases are the failures, because they decide whether a bad texture takes
+	/// the game with it: a missing file must fall through to the compiled asset silently, a
+	/// broken one must fall through **with a reason in the log**, and an unsupported format must
+	/// say so by name instead of pretending nothing is there.
+	///
+	/// This also runs the decoder over the real PNGs the project still has
+	/// (<c>_RemovedContent/</c>), which is the only ground truth available: those files were
+	/// written by a real encoder, so a broken Paeth or a wrong bit order shows up as nonsense
+	/// rather than passing a self-consistent round trip.
+	/// </summary>
+	private static bool CheckTextureOverrides()
+	{
+		string root = Terraria.Textures.TextureOverrides.Root;
+		List<string> created = new List<string>();
+		try
+		{
+			Terraria.Textures.TextureOverrides.ResetProblems();
+			Terraria.Textures.TextureOverrides.EnsureFolder();
+			if (!Directory.Exists(root))
+			{
+				return Fail("the override folder was not created: " + root);
+			}
+			// The readme explains the naming rule, and must survive a second run.
+			if (!File.Exists(Path.Combine(root, "readme.txt")))
+			{
+				return Fail("the override folder has no readme");
+			}
+
+			// A missing override is simply "no override".
+			if (Terraria.Textures.TextureOverrides.Resolve("Images/NoSuchTexture") != null)
+			{
+				return Fail("a missing override resolved to a path");
+			}
+			string path;
+			if (Terraria.Textures.TextureOverrides.Load("Images/NoSuchTexture", out path) != null)
+			{
+				return Fail("a missing override decoded to an image");
+			}
+			if (Terraria.Textures.TextureOverrides.Problems.Count != 0)
+			{
+				return Fail("a missing override was reported as a problem");
+			}
+
+			// A real override wins over the compiled asset.
+			string target = Portability.Combine(root, "Images/selftest_texture.png");
+			Directory.CreateDirectory(Path.GetDirectoryName(target));
+			created.Add(target);
+			File.WriteAllBytes(target, PngTestData.Build(2, 1, 8, 6, new byte[9] { 0, 255, 0, 0, 255, 0, 255, 0, 255 }, null, null));
+			if (Terraria.Textures.TextureOverrides.Resolve("Images/selftest_texture") == null)
+			{
+				return Fail("an existing override did not resolve");
+			}
+			Terraria.Textures.ImageData image = Terraria.Textures.TextureOverrides.Load("Images/selftest_texture", out path);
+			if (image == null)
+			{
+				return Fail("an existing override did not decode");
+			}
+			if (image.Width != 2 || image.R(0, 0) != 255 || image.A(0, 0) != 255 || image.G(1, 0) != 255)
+			{
+				return Fail("the override decoded to the wrong pixels");
+			}
+			if (Terraria.Textures.TextureOverrides.Problems.Count != 0)
+			{
+				return Fail("a valid override was reported as a problem");
+			}
+			// It must be listed, so a player can see what is installed.
+			bool listed = false;
+			List<string> installed = Terraria.Textures.TextureOverrides.Installed();
+			for (int i = 0; i < installed.Count; i++)
+			{
+				if (installed[i].IndexOf("Images/selftest_texture.png", StringComparison.OrdinalIgnoreCase) >= 0)
+				{
+					listed = true;
+				}
+			}
+			if (!listed)
+			{
+				return Fail("an installed override was not listed");
+			}
+
+			// A broken override must not throw, and must say why.
+			Terraria.Textures.TextureOverrides.ResetProblems();
+			File.WriteAllBytes(target, new byte[16] { 137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0, 0, 0, 0, 0 });
+			if (Terraria.Textures.TextureOverrides.Load("Images/selftest_texture", out path) != null)
+			{
+				return Fail("a broken override decoded to an image");
+			}
+			IList<string> problems = Terraria.Textures.TextureOverrides.Problems;
+			if (problems.Count != 1 || problems[0].IndexOf("built-in", StringComparison.OrdinalIgnoreCase) < 0)
+			{
+				return Fail("a broken override did not explain that the built-in texture is used");
+			}
+
+			// An unsupported format is reported by name: "I put it there and nothing happened"
+			// is the worst possible outcome.
+			Terraria.Textures.TextureOverrides.ResetProblems();
+			File.Delete(target);
+			string dds = Portability.Combine(root, "Images/selftest_texture.dds");
+			File.WriteAllBytes(dds, new byte[4] { 68, 68, 83, 32 });
+			created.Add(dds);
+			if (Terraria.Textures.TextureOverrides.Resolve("Images/selftest_texture") != null)
+			{
+				return Fail("a .dds override resolved to a path");
+			}
+			problems = Terraria.Textures.TextureOverrides.Problems;
+			if (problems.Count != 1 || problems[0].IndexOf(".png", StringComparison.OrdinalIgnoreCase) < 0)
+			{
+				return Fail("a .dds override was not reported as unsupported");
+			}
+
+			// Real files are a separate check: everything above is testable on a bare install,
+			// and one missing corpus must not turn the whole check into a skip.
+			return true;
+		}
+		finally
+		{
+			Terraria.Textures.TextureOverrides.ResetProblems();
+			for (int k = 0; k < created.Count; k++)
+			{
+				try
+				{
+					if (File.Exists(created[k]))
+					{
+						File.Delete(created[k]);
+					}
+				}
+				catch
+				{
+				}
+			}
+			// Leave the folder itself: it is a normal part of Storage/ now.
+		}
+	}
+
+	/// <summary>
+	/// The decoder against real files, which is the only ground truth available.
+	///
+	/// The hand-written cases pin exact pixels for each format feature, but they cannot catch a
+	/// shared misunderstanding between decoder and test. These files were written by real
+	/// encoders, so a broken Paeth predictor or a reversed bit order shows up as noise: thousands
+	/// of distinct colours where the art has a few dozen.
+	///
+	/// They live in <c>_RemovedContent/</c>, outside git, so a clean clone skips rather than fails.
+	/// </summary>
+	private static bool CheckPngCorpus()
+	{
+		string corpus = Path.GetFullPath(Path.Combine(Terraria.Storage.AppPaths.BaseDirectory, "..", "..", "..", "..", "_RemovedContent"));
+		if (!Directory.Exists(corpus))
+		{
+			Skip("no real PNGs to check the decoder against (" + corpus + " is missing)");
+		}
+		string[] files = Directory.GetFiles(corpus, "*.png", SearchOption.AllDirectories);
+		if (files.Length < 5)
+		{
+			Skip("only " + files.Length + " real PNG(s) available");
+		}
+		try
+		{
+			int decoded = 0;
+			for (int i = 0; i < files.Length; i++)
+			{
+				Terraria.Textures.ImageData real;
+				string error;
+				if (!Terraria.Textures.PngDecoder.TryDecode(File.ReadAllBytes(files[i]), out real, out error))
+				{
+					return Fail(Path.GetFileName(files[i]) + " did not decode: " + error);
+				}
+				if (real.Width <= 0 || real.Height <= 0)
+				{
+					return Fail(Path.GetFileName(files[i]) + " decoded to " + real.Width + "x" + real.Height);
+				}
+				HashSet<int> distinct = new HashSet<int>();
+				for (int y = 0; y < real.Height; y++)
+				{
+					for (int x = 0; x < real.Width; x++)
+					{
+						if (distinct.Count < 4096)
+						{
+							distinct.Add((real.R(x, y) << 16) | (real.G(x, y) << 8) | real.B(x, y));
+						}
+					}
+				}
+				if (distinct.Count > 2000)
+				{
+					return Fail(Path.GetFileName(files[i]) + " decoded to " + distinct.Count + " distinct colours - that looks like noise");
+				}
+				if (distinct.Count < 2)
+				{
+					return Fail(Path.GetFileName(files[i]) + " decoded to a single flat colour - that cannot be right");
+				}
+				decoded++;
+			}
+			Program.LogInfo("SelfTest", "decoded " + decoded + " real PNG(s) from _RemovedContent");
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("png corpus check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 

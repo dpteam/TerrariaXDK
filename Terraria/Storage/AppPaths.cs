@@ -51,6 +51,14 @@ internal static class AppPaths
 	/// </summary>
 	public static string Lang => Path.Combine(Root, "Lang");
 
+	/// <summary>
+	/// Loose PNG files that stand in for compiled textures, mirroring the content tree:
+	/// <c>Textures/Images/_sheetTiles.png</c> replaces <c>Images/_sheetTiles.xnb</c>. Kept out of
+	/// <c>Content/</c> because Content is read-only for the game and this folder is meant to be
+	/// edited by hand.
+	/// </summary>
+	public static string Textures => Path.Combine(Root, "Textures");
+
 	public static string LogFile => Path.Combine(Logs, "terraria-debug.log");
 
 	public static string CrashLogFile => Path.Combine(Logs, "client-crashlog.txt");
@@ -80,9 +88,9 @@ internal static class AppPaths
 	/// <summary>Creates the directory tree. Safe to call more than once.</summary>
 	public static void EnsureDirectories()
 	{
-		string[] array = new string[8]
+		string[] array = new string[9]
 		{
-			Root, Saves, Logs, Mods, Backups, Config, Cache, Lang
+			Root, Saves, Logs, Mods, Backups, Config, Cache, Lang, Textures
 		};
 		foreach (string path in array)
 		{
