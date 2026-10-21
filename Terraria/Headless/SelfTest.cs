@@ -87,6 +87,7 @@ internal static class SelfTest
 		RunCheck("language overrides", CheckLangOverrides);
 		RunCheck("feature text", CheckFeatureTexts);
 		RunCheck("reject reasons", CheckRejectReasons);
+		RunCheck("portable paths", CheckPortablePaths);
 		RunCheck("hud settings", CheckHudSettings);
 		RunCheck("direct connect", CheckDirectConnect);
 		RunCheck("session record", CheckSessionRecord);
@@ -454,53 +455,12 @@ internal static class SelfTest
 		{
 			Skip("Content folder not installed at " + contentRoot);
 		}
-		List<string> list = RequiredAssets();
-		HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		foreach (string item in list)
-		{
-			hashSet.Add(item.Replace('/', '\\') + ".xnb");
-		}
-		string[] array = new string[3]
-		{
-			"Worlds\\tutorial.wld", "ExtMusic\\Music_1.wav", "ExtMusic\\Snow.wav"
-		};
-		List<string> list2 = new List<string>();
-		foreach (string item2 in Directory.GetFiles(contentRoot, "*", SearchOption.AllDirectories))
-		{
-			string text = item2.Substring(contentRoot.Length + 1);
-			string extension = Path.GetExtension(text);
-			if (extension.Equals(".xnb", StringComparison.OrdinalIgnoreCase))
-			{
-				if (!hashSet.Contains(text))
-				{
-					list2.Add(text);
-				}
-				continue;
-			}
-			if (extension.Equals(".wld", StringComparison.OrdinalIgnoreCase))
-			{
-				if (!text.Equals("Worlds\\tutorial.wld", StringComparison.OrdinalIgnoreCase))
-				{
-					list2.Add(text);
-				}
-				continue;
-			}
-			if (extension.Equals(".wav", StringComparison.OrdinalIgnoreCase) || extension.Equals(".ogg", StringComparison.OrdinalIgnoreCase))
-			{
-				if (!text.StartsWith("ExtMusic\\", StringComparison.OrdinalIgnoreCase))
-				{
-					list2.Add(text);
-				}
-				continue;
-			}
-			// Anything else in Content is unexpected.
-			list2.Add(text);
-		}
-		if (list2.Count == 0)
+		List<string> list = ContentAudit.FindUnexpected(contentRoot, RequiredAssets());
+		if (list.Count == 0)
 		{
 			return true;
 		}
-		return Fail(list2.Count + " unexpected content file(s): " + string.Join(", ", list2.ToArray()));
+		return Fail(list.Count + " unexpected content file(s): " + string.Join(", ", list.ToArray()));
 	}
 
 	// --- Transport ----------------------------------------------------------
@@ -6888,6 +6848,170 @@ internal static class SelfTest
 			try
 			{
 				hostSession?.Dispose();
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	// --- Portability --------------------------------------------------------
+
+	/// <summary>
+	/// Paths that are compared must not depend on the separator.
+	///
+	/// This is not hypothetical: the content audit converted the manifest to <c>\</c> and
+	/// compared it against a directory listing, which reports the platform separator. It passed
+	/// on Windows and would have reported every single file as unexpected on Linux - the check
+	/// that exists to catch dead weight would have cried wolf about the whole game.
+	///
+	/// So the audit is run against a scratch tree here, with files created through the real
+	/// file system, and both spellings of a name are tried.
+	/// </summary>
+	private static bool CheckPortablePaths()
+	{
+		string root = Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-content");
+		Terraria.CollectorsEdition.ResetForTests();
+		try
+		{
+			// Conversion, including the cases that are easy to get wrong.
+			if (Terraria.Portability.Portable("Images\\_sheetTiles.xnb") != "Images/_sheetTiles.xnb")
+			{
+				return Fail("a Windows path was not converted to the portable form");
+			}
+			if (Terraria.Portability.Portable("/Images/logo.xnb") != "Images/logo.xnb")
+			{
+				return Fail("a leading separator survived the portable form");
+			}
+			if (Terraria.Portability.Portable("C:\\Games\\Terraria") != "C:/Games/Terraria")
+			{
+				return Fail("a drive-qualified path was mangled: '" + Terraria.Portability.Portable("C:\\Games\\Terraria") + "'");
+			}
+			if (Terraria.Portability.Native("Images/logo.xnb") != ("Images" + Terraria.Portability.Separator + "logo.xnb"))
+			{
+				return Fail("the native form did not use the platform separator");
+			}
+			// A relative name must survive both directions unchanged.
+			if (Terraria.Portability.Portable(Terraria.Portability.Native("a/b/c")) != "a/b/c")
+			{
+				return Fail("a portable path did not round-trip through the native form");
+			}
+			// RelativeTo must strip the root, whatever spelling either side used.
+			if (Terraria.Portability.RelativeTo("C:\\Game\\Content", "C:\\Game\\Content\\Images\\a.xnb") != "Images/a.xnb")
+			{
+				return Fail("RelativeTo('C:/Game/Content', .../Images/a.xnb) = '"
+					+ Terraria.Portability.RelativeTo("C:\\Game\\Content", "C:\\Game\\Content\\Images\\a.xnb") + "'");
+			}
+			if (Terraria.Portability.RelativeTo("C:/Game/Content/", "C:/Game/Content/Images/a.xnb") != "Images/a.xnb")
+			{
+				return Fail("RelativeTo did not tolerate a trailing separator");
+			}
+			// "Content" must not be stripped out of "Contents".
+			if (Terraria.Portability.RelativeTo("C:/Game/Content", "C:/Game/Contents/a.xnb") != "C:/Game/Contents/a.xnb")
+			{
+				return Fail("RelativeTo stripped a root that was only a prefix of the name");
+			}
+
+			// A real directory tree, written through the file system.
+			if (Directory.Exists(root))
+			{
+				Directory.Delete(root, recursive: true);
+			}
+			Directory.CreateDirectory(Path.Combine(root, "Images"));
+			Directory.CreateDirectory(Path.Combine(root, "Worlds"));
+			Directory.CreateDirectory(Path.Combine(root, "ExtMusic"));
+			Directory.CreateDirectory(Path.Combine(root, "Fonts", "HD"));
+			File.WriteAllBytes(Path.Combine(root, "Images", "_sheetTiles.xnb"), new byte[1]);
+			File.WriteAllBytes(Path.Combine(root, "Fonts", "HD", "Item_0.xnb"), new byte[1]);
+			File.WriteAllBytes(Path.Combine(root, "Worlds", "tutorial.wld"), new byte[1]);
+			File.WriteAllBytes(Path.Combine(root, "ExtMusic", "Music_1.wav"), new byte[1]);
+			string[] manifest = new string[2] { "Images/_sheetTiles", "Fonts/HD/Item_0" };
+			List<string> unexpected = Terraria.Headless.ContentAudit.FindUnexpected(root, manifest);
+			if (unexpected.Count != 0)
+			{
+				// This is the exact failure the old code had on Linux: every file looks stale.
+				return Fail("a healthy content tree reported " + unexpected.Count + " unexpected file(s): "
+					+ string.Join(", ", unexpected.ToArray()));
+			}
+			// A stray raw file must still be reported, or the audit would be silently useless.
+			File.WriteAllBytes(Path.Combine(root, "Images", "leftover.dds"), new byte[1]);
+			unexpected = Terraria.Headless.ContentAudit.FindUnexpected(root, manifest);
+			if (unexpected.Count != 1 || !unexpected[0].EndsWith("leftover.dds", StringComparison.OrdinalIgnoreCase))
+			{
+				return Fail("a stray raw file was not reported (got " + unexpected.Count + ")");
+			}
+			if (unexpected[0].IndexOf('\\') >= 0 || unexpected[0].IndexOf('/') < 0)
+			{
+				return Fail("the audit reported a non-portable name: '" + unexpected[0] + "'");
+			}
+
+			// A manifest written with backslashes must match too: the two sides are normalised
+			// independently, so a manifest that predates this change keeps working.
+			string[] backslashManifest = new string[2] { "Images\\_sheetTiles", "Fonts\\HD\\Item_0" };
+			if (Terraria.Headless.ContentAudit.FindUnexpected(root, backslashManifest).Count != 1)
+			{
+				return Fail("a manifest with backslashes did not match the files on disk");
+			}
+
+			// The Collectors Edition flag: the settings value decides, and "Auto" falls through.
+			Settings settings = new Settings(Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-ce.ini"));
+			try
+			{
+				bool value;
+				settings.Set("Game", "CollectorsEdition", "True");
+				if (!Terraria.CollectorsEdition.TryReadSetting(settings, out value) || !value)
+				{
+					return Fail("CollectorsEdition=True was not read as on");
+				}
+				settings.Update("Game", "CollectorsEdition", "False");
+				if (!Terraria.CollectorsEdition.TryReadSetting(settings, out value) || value)
+				{
+					return Fail("CollectorsEdition=False was not read as off");
+				}
+				settings.Update("Game", "CollectorsEdition", "Auto");
+				if (Terraria.CollectorsEdition.TryReadSetting(settings, out value))
+				{
+					return Fail("CollectorsEdition=Auto was treated as a decision");
+				}
+				// Garbage must not be read as "off": a typo should not take the pet away.
+				settings.Update("Game", "CollectorsEdition", "maybe");
+				if (Terraria.CollectorsEdition.TryReadSetting(settings, out value))
+				{
+					return Fail("an unreadable CollectorsEdition value was treated as a decision");
+				}
+				Terraria.CollectorsEdition.Load(settings);
+				bool offWindows = !Terraria.Portability.IsWindows;
+				if (offWindows && Terraria.CollectorsEdition.IsActive())
+				{
+					return Fail("the flag is on off Windows, where there is no registry to read");
+				}
+			}
+			finally
+			{
+				settings.Discard();
+				try
+				{
+					File.Delete(Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-ce.ini"));
+				}
+				catch
+				{
+				}
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("portable path check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.CollectorsEdition.ResetForTests();
+			try
+			{
+				if (Directory.Exists(root))
+				{
+					Directory.Delete(root, recursive: true);
+				}
 			}
 			catch
 			{

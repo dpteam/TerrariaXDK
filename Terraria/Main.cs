@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Text;
 using System.Threading;
-using Microsoft.Win32;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Audio;
 using Microsoft.Xna.Framework.GamerServices;
@@ -616,19 +615,9 @@ public sealed class Main : Game
 
 	private void SpecialCheck()
 	{
-		try
-		{
-			RegistryKey currentUser = Registry.CurrentUser;
-			currentUser = currentUser.CreateSubKey("Software\\Terraria");
-			if (currentUser != null && currentUser.GetValue("Bunny") != null && currentUser.GetValue("Bunny").ToString() == "1")
-			{
-				CollectorsEditionPC = true;
-			}
-		}
-		catch
-		{
-			CollectorsEditionPC = false;
-		}
+		// Was a bare registry read: Windows-only, and its exception was swallowed, so the flag
+		// was simply always false elsewhere. See CollectorsEdition for the two sources now.
+		CollectorsEditionPC = CollectorsEdition.IsActive();
 	}
 
 	private static int ParsePort(string text, int fallback)
@@ -661,6 +650,9 @@ public sealed class Main : Game
 		settings.Set("Game", "PSMode", "False", "Determines whether the game will run in 'PlayStation 3' mode, rather than 'Xbox 360' mode.\n; This will change the font, controller, D-Pad, and button sprites used in game.");
 		settings.Set("Game", "TouchpadButton", "False", "If you want the game to account for a touchpad button, enable this setting. This will not change the controller labels in-game.\n; This will only function if PSMode is enabled and is akin to the PS4 control scheme.");
 		settings.Set("Game", "UnlockAllRecipes", "False");
+		// The PC Collectors Edition flag used to come only from the registry, so it was false on
+		// every install where the PC edition was never installed - and always false off Windows.
+		settings.Set("Game", "CollectorsEdition", "Auto", "Grants the Collectors Edition bunny pet. Auto = ask the Windows registry (HKCU\\Software\\Terraria), True/False = decide here.");
 		settings.Set("Display", "ScreenHeight", "0", "Internal render resolution: 0 = 540p, 1 = 720p, 2 = 1080p.\n; Higher values look sharper and cost more.");
 		settings.Set("Display", "Language", "0", "0 = follow the system, 1 = English, 2 = Deutsch, 3 = Italiano, 4 = Français, 5 = Español.");
 		settings.Set("Display", "Width", "1280", "Window width in pixels.");
@@ -684,6 +676,8 @@ public sealed class Main : Game
 		PSMode = settings.Get("Game", "PSMode").ToLower().Equals("true");
 		TouchpadButton = PSMode && settings.Get("Game", "TouchpadButton").ToLower().Equals("true");
 		UnlockAllRecipes = settings.Get("Game", "UnlockAllRecipes").ToLower().Equals("true");
+		// Resolved now, applied after the splash: the settings file is closed by then.
+		Terraria.CollectorsEdition.Load(settings);
 		ScreenMultiplier = 1f;
 		ResolutionHeight = 720;
 		ResolutionWidth = 960;

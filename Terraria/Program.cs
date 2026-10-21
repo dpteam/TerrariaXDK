@@ -60,6 +60,7 @@ internal static class Program
 		LogInfo("Init", "Date      : " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
 		LogInfo("Init", "OS        : " + Environment.OSVersion);
 		LogInfo("Init", "Runtime   : " + Environment.Version);
+		LogInfo("Init", "Platform  : " + Terraria.Portability.Describe());
 		try
 		{
 			string text2 = (Environment.CurrentDirectory = AppDomain.CurrentDomain.BaseDirectory);
