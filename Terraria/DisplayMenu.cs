@@ -14,7 +14,7 @@ namespace Terraria;
 /// </summary>
 internal static class DisplayMenu
 {
-	private const int Rows = 5;
+	private const int Rows = 7;
 
 	private static int _selected;
 
@@ -99,6 +99,16 @@ internal static class DisplayMenu
 			DisplaySettings.ShowFPS = !DisplaySettings.ShowFPS;
 			Main.ShowFPS = DisplaySettings.ShowFPS;
 			_status = DisplaySettings.ShowFPS ? "FPS counter: On" : "FPS counter: Off";
+			break;
+		case 5:
+			DisplaySettings.VSync = !DisplaySettings.VSync;
+			ApplyWindow();
+			_status = DisplaySettings.VSync ? "VSync: On" : "VSync: Off" + (DisplaySettings.FpsLimit > 0 ? " - overridden by the frame cap" : string.Empty);
+			break;
+		case 6:
+			DisplaySettings.NextFpsLimit(direction);
+			ApplyWindow();
+			_status = (DisplaySettings.FpsLimit > 0) ? ("Frame cap: " + DisplaySettings.FpsLimit + " fps") : "Frame cap: off (vsync only)";
 			break;
 		}
 		_statusTime = 240;
@@ -208,7 +218,9 @@ internal static class DisplayMenu
 			"Window size: " + DisplaySettings.Width + "x" + DisplaySettings.Height,
 			"Fullscreen: " + (DisplaySettings.Fullscreen ? "On" : "Off"),
 			"Render scale: " + ((DisplaySettings.RenderScale == ScreenHeights.BASE) ? "540p" : ((DisplaySettings.RenderScale == ScreenHeights.HD) ? "720p" : "1080p")),
-			"FPS counter: " + (DisplaySettings.ShowFPS ? "On" : "Off")
+			"FPS counter: " + (DisplaySettings.ShowFPS ? "On" : "Off"),
+			"VSync: " + (DisplaySettings.VSync ? "On" : "Off") + ((DisplaySettings.FpsLimit > 0) ? " (off via cap)" : string.Empty),
+			"Frame cap: " + ((DisplaySettings.FpsLimit > 0) ? (DisplaySettings.FpsLimit + " fps") : "off")
 		};
 		for (int i = 0; i < Rows; i++)
 		{

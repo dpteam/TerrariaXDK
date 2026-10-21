@@ -1578,6 +1578,8 @@ internal static class SelfTest
 		bool savedFullscreen = Terraria.DisplaySettings.Fullscreen;
 		ScreenHeights savedScale = Terraria.DisplaySettings.RenderScale;
 		bool savedFps = Terraria.DisplaySettings.ShowFPS;
+		bool savedVSync = Terraria.DisplaySettings.VSync;
+		int savedLimit = Terraria.DisplaySettings.FpsLimit;
 		try
 		{
 			if (System.IO.File.Exists(text))
@@ -1656,6 +1658,51 @@ internal static class SelfTest
 			{
 				return Fail("fullscreen, render scale or the FPS flag was not saved");
 			}
+			// VSync and the frame cap: saved, and only the offered caps are accepted.
+			Terraria.DisplaySettings.VSync = false;
+			Terraria.DisplaySettings.FpsLimit = 120;
+			Settings settingsFrame = new Settings(text);
+			Terraria.DisplaySettings.Save(settingsFrame);
+			settingsFrame.Close();
+			Terraria.DisplaySettings.VSync = true;
+			Terraria.DisplaySettings.FpsLimit = 0;
+			Settings settingsFrame2 = new Settings(text);
+			Terraria.DisplaySettings.Load(settingsFrame2);
+			settingsFrame2.Close();
+			if (Terraria.DisplaySettings.VSync || Terraria.DisplaySettings.FpsLimit != 120)
+			{
+				return Fail("vsync or the frame cap was not saved");
+			}
+			// Cycling wraps through the offered caps and never lands on a value the loader
+			// would reject.
+			for (int cycle = 0; cycle < 12; cycle++)
+			{
+				Terraria.DisplaySettings.NextFpsLimit(1);
+				if (!Terraria.DisplaySettings.IsSupportedFpsLimit(Terraria.DisplaySettings.FpsLimit))
+				{
+					return Fail("frame cap cycling produced the unsupported value " + Terraria.DisplaySettings.FpsLimit);
+				}
+			}
+			Terraria.DisplaySettings.FpsLimit = 0;
+			Terraria.DisplaySettings.NextFpsLimit(-1);
+			if (Terraria.DisplaySettings.FpsLimit != 240)
+			{
+				return Fail("frame cap cycling backward from off did not wrap to 240");
+			}
+			// A hand-edited file with a bogus cap must fall back to "off", not to something
+			// the game cannot express.
+			System.IO.File.WriteAllText(text, "[Display]\r\nFpsLimit=37\r\nVSync=maybe\r\n");
+			Settings settingsBogus = new Settings(text);
+			Terraria.DisplaySettings.Load(settingsBogus);
+			settingsBogus.Close();
+			if (Terraria.DisplaySettings.FpsLimit != 0)
+			{
+				return Fail("an unsupported frame cap was accepted: " + Terraria.DisplaySettings.FpsLimit);
+			}
+			if (!Terraria.DisplaySettings.VSync)
+			{
+				return Fail("a non-boolean VSync value turned vsync off");
+			}
 			// Nonsense values in the file fall back to defaults instead of crashing.
 			System.IO.File.WriteAllText(text, "[Display]\r\nWidth=abc\r\nHeight=-5\r\nScreenHeight=99\r\n");
 			Settings settings3 = new Settings(text);
@@ -1684,6 +1731,8 @@ internal static class SelfTest
 			Terraria.DisplaySettings.Fullscreen = savedFullscreen;
 			Terraria.DisplaySettings.RenderScale = savedScale;
 			Terraria.DisplaySettings.ShowFPS = savedFps;
+			Terraria.DisplaySettings.VSync = savedVSync;
+			Terraria.DisplaySettings.FpsLimit = savedLimit;
 			try
 			{
 				if (System.IO.File.Exists(text))

@@ -1006,6 +1006,17 @@ public sealed class Main : Game
 		{
 			Program.Log("[MAIN.LoadContent()] \ud83d\udca5 Resolution/ApplyChanges error: " + ex2.Message);
 		}
+		try
+		{
+			// Vsync / frame cap: a handheld at 30 fps runs much cooler than one at 120.
+			Terraria.DisplaySettings.ApplyFrameLimit(this, GraphicsGame);
+			GraphicsGame.ApplyChanges();
+			Program.Log($"[MAIN.LoadContent()] Frame limit: vsync={Terraria.DisplaySettings.VSync}, cap={(Terraria.DisplaySettings.FpsLimit > 0 ? Terraria.DisplaySettings.FpsLimit + " fps" : "off")}");
+		}
+		catch (Exception ex2b)
+		{
+			Program.LogWarn("Display", "could not apply the frame limit: " + ex2b.Message);
+		}
 		Program.Log($"[MAIN.LoadContent()] Creating RenderTarget {ResolutionWidth}x{ResolutionHeight}...");
 		try
 		{
@@ -3614,8 +3625,9 @@ public sealed class Main : Game
 			GraphicsGame.PreferredBackBufferWidth = Terraria.DisplaySettings.Width;
 			GraphicsGame.PreferredBackBufferHeight = Terraria.DisplaySettings.Height;
 			GraphicsGame.IsFullScreen = Terraria.DisplaySettings.Fullscreen;
+			Terraria.DisplaySettings.ApplyFrameLimit(this, GraphicsGame);
 			GraphicsGame.ApplyChanges();
-			Program.LogInfo("Display", $"window changed to {Terraria.DisplaySettings.Width}x{Terraria.DisplaySettings.Height} (fullscreen={Terraria.DisplaySettings.Fullscreen})");
+			Program.LogInfo("Display", $"window changed to {Terraria.DisplaySettings.Width}x{Terraria.DisplaySettings.Height} (fullscreen={Terraria.DisplaySettings.Fullscreen}, vsync={Terraria.DisplaySettings.VSync}, cap={Terraria.DisplaySettings.FpsLimit})");
 		}
 		catch (Exception ex)
 		{

@@ -1,4 +1,5 @@
 using System;
+using Microsoft.Xna.Framework;
 
 namespace Terraria;
 
@@ -39,6 +40,22 @@ internal static class DisplaySettings
 	/// <summary>FPS / memory readout in the corner.</summary>
 	public static bool ShowFPS;
 
+	/// <summary>Present with vsync. Ignored when <see cref="FpsLimit"/> is set.</summary>
+	public static bool VSync = true;
+
+	/// <summary>
+	/// Frame rate cap. 0 means "no cap" (vsync or the driver decides). Any other value drives
+	/// the game with a fixed time step, which is what actually holds the rate steady - a
+	/// counter that skips drawing would still burn a whole core.
+	/// </summary>
+	public static int FpsLimit;
+
+	/// <summary>Limits offered by the settings screen.</summary>
+	public static readonly int[] FpsLimits = new int[6]
+	{
+		0, 30, 60, 120, 144, 240
+	};
+
 	public static string Label
 	{
 		get
@@ -54,6 +71,9 @@ internal static class DisplaySettings
 		Height = ParseInt(settings.Get("Display", "Height"), 720);
 		Fullscreen = settings.Get("Display", "StartFullscreen").ToLower().Equals("true");
 		ShowFPS = settings.Get("Display", "ShowFPS").ToLower().Equals("true");
+		VSync = !settings.Get("Display", "VSync").ToLower().Equals("false");
+		int num2 = ParseInt(settings.Get("Display", "FpsLimit"), 0);
+		FpsLimit = IsSupportedFpsLimit(num2) ? num2 : 0;
 		int num = ParseInt(settings.Get("Display", "ScreenHeight"), 0);
 		if (num < 0 || num > 2)
 		{
@@ -75,6 +95,8 @@ internal static class DisplaySettings
 		settings.Update("Display", "ScreenHeight", ((int)RenderScale).ToString(), "Internal render resolution: 0 = 540p, 1 = 720p, 2 = 1080p.\n; Higher values look sharper and cost more.");
 		settings.Update("Display", "StartFullscreen", Fullscreen ? "True" : "False", "Start in fullscreen mode.");
 		settings.Update("Display", "ShowFPS", ShowFPS ? "True" : "False", "Shows the frame rate in the corner.");
+		settings.Update("Display", "VSync", VSync ? "True" : "False", "Vertical sync. Prevents tearing; ignored when FpsLimit is set.");
+		settings.Update("Display", "FpsLimit", FpsLimit.ToString(), "Frame rate cap: 0 = unlimited, or 30/60/120/144/240.\n; A cap lowers GPU load and heat, which matters on handhelds.");
 	}
 
 	/// <summary>Cycles the window presets.</summary>
@@ -107,6 +129,59 @@ internal static class DisplaySettings
 			num = 0;
 		}
 		RenderScale = (ScreenHeights)num;
+	}
+
+	public static bool IsSupportedFpsLimit(int limit)
+	{
+		for (int i = 0; i < FpsLimits.Length; i++)
+		{
+			if (FpsLimits[i] == limit)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/// <summary>Cycles the frame cap through the offered values.</summary>
+	public static void NextFpsLimit(int direction)
+	{
+		int num = 0;
+		for (int i = 0; i < FpsLimits.Length; i++)
+		{
+			if (FpsLimits[i] == FpsLimit)
+			{
+				num = i;
+				break;
+			}
+		}
+		num = (num + direction + FpsLimits.Length) % FpsLimits.Length;
+		FpsLimit = FpsLimits[num];
+	}
+
+	/// <summary>
+	/// Applies vsync and the frame cap. Called at startup and whenever either changes.
+	///
+	/// An explicit cap wins over vsync: mixing a fixed time step with a vsync'd present adds
+	/// judder, because the two limits are never exactly the same period.
+	/// </summary>
+	public static void ApplyFrameLimit(Game game, GraphicsDeviceManager graphics)
+	{
+		if (game == null || graphics == null)
+		{
+			return;
+		}
+		if (FpsLimit > 1)
+		{
+			game.IsFixedTimeStep = true;
+			game.TargetElapsedTime = TimeSpan.FromTicks(TimeSpan.TicksPerSecond / FpsLimit);
+			graphics.SynchronizeWithVerticalRetrace = false;
+			return;
+		}
+		// Unlimited: let vsync (or the driver) pace the frame.
+		game.IsFixedTimeStep = true;
+		game.TargetElapsedTime = TimeSpan.FromTicks(TimeSpan.TicksPerSecond / 60);
+		graphics.SynchronizeWithVerticalRetrace = VSync;
 	}
 
 	/// <summary>
