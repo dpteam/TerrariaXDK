@@ -1088,6 +1088,53 @@ internal static class SelfTest
 		{
 			return Fail("WASD does not move the player");
 		}
+		// The swallow: a button that was already down when the game became interested in it must
+		// wait for a release. Two cases produce it - the click that refocuses the window, and the
+		// click that closed a menu - and in both the player pressed the button for a reason that
+		// has nothing to do with the world. Without this, alt-tabbing back into the game swings
+		// the sword, and picking "Resume" keeps mining until the button is let go.
+		bool swallowLeft;
+		bool swallowRight;
+		bool swallowMiddle;
+		Terraria.Input.KeyboardMouseInput.EffectiveMouseButtons(leftDown, true, out swallowLeft, out swallowRight, out swallowMiddle);
+		if (swallowLeft || swallowRight || swallowMiddle)
+		{
+			return Fail("a swallowed click still reaches the game");
+		}
+		// Gameplay must not see the held button...
+		GamePadState swallowed = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(leftDown, leftDown, empty, false, false, true, false, false, true);
+		if (swallowed.IsButtonDown(Buttons.RightTrigger))
+		{
+			return Fail("a swallowed click still uses the item");
+		}
+		// ...and the grapple on the middle button is swallowed too: it used to read the raw
+		// button, so the one button that bypassed the swallow was the one that throws a hook.
+		Terraria.Input.KeyboardMouseInput.EffectiveMouseButtons(middleDown, true, out swallowLeft, out swallowRight, out swallowMiddle);
+		if (swallowMiddle)
+		{
+			return Fail("a swallowed middle click still grapples");
+		}
+		GamePadState swallowedMiddle = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(middleDown, middleDown, empty, false, false, true, false, false, true);
+		if (swallowedMiddle.IsButtonDown(Buttons.LeftTrigger))
+		{
+			return Fail("a swallowed middle click still grapples");
+		}
+		// The swallow ends with the release, not with a frame count: a slow click is still one
+		// click, and the frame after the release must be live again.
+		bool released = !Terraria.Input.KeyboardMouseInput.AnyMouseButtonDown(array[0]);
+		if (!released)
+		{
+			return Fail("an all-up mouse state reads as held");
+		}
+		if (!Terraria.Input.KeyboardMouseInput.AnyMouseButtonDown(leftDown))
+		{
+			return Fail("a held left button reads as up");
+		}
+		GamePadState afterRelease = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(leftDown, array[0], empty, false, false, true, false, false, false);
+		if (!afterRelease.IsButtonDown(Buttons.RightTrigger))
+		{
+			return Fail("the click after the swallow does not use the item");
+		}
 		return true;
 	}
 

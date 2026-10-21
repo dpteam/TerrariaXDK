@@ -127,6 +127,48 @@ internal static class KeyboardMouseInput
 
 	private static bool _holdUntilRelease;
 
+	/// <summary>
+	/// True while the window has lost focus and has not regained it since. Used to detect the
+	/// refocus click, which must not become "use item".
+	/// </summary>
+	private static bool _lostFocus;
+
+	/// <summary>
+	/// True while every mouse button is ignored, until the player releases them all. Set on
+	/// regaining focus and on closing a menu with a button held; both are cases where a click had
+	/// a purpose that has nothing to do with the game world.
+	/// </summary>
+	private static bool _swallowMouseUntilRelease;
+
+	/// <summary>Menu context as of the previous frame, to notice a menu closing.</summary>
+	private static bool _prevMenuContext;
+
+	/// <summary>
+	/// True when any mouse button is down. Pure, so the swallow logic is testable without a
+	/// window: the rule is "ignore until nothing is held", and getting it wrong either swallows a
+	/// real click or lets the refocus click fire a weapon.
+	/// </summary>
+	internal static bool AnyMouseButtonDown(MouseState mouse)
+	{
+		return mouse.LeftButton == ButtonState.Pressed
+			|| mouse.RightButton == ButtonState.Pressed
+			|| mouse.MiddleButton == ButtonState.Pressed
+			|| mouse.XButton1 == ButtonState.Pressed
+			|| mouse.XButton2 == ButtonState.Pressed;
+	}
+
+	/// <summary>
+	/// The buttons that reach the game this frame. Zeroed while a swallow is in effect, which is
+	/// why this is one function rather than three call sites each remembering to check.
+	/// </summary>
+	internal static void EffectiveMouseButtons(MouseState mouse, bool swallow, out bool left, out bool right, out bool middle)
+	{
+		bool flag = !swallow;
+		left = flag && mouse.LeftButton == ButtonState.Pressed;
+		right = flag && mouse.RightButton == ButtonState.Pressed;
+		middle = flag && mouse.MiddleButton == ButtonState.Pressed;
+	}
+
 	/// <summary>Absolute mouse position in internal-resolution pixels (see <see cref="SetViewport"/>).</summary>
 	public static int MouseX { get; private set; }
 
@@ -187,15 +229,20 @@ internal static class KeyboardMouseInput
 
 	public static int ScrollDelta { get; private set; }
 
-	public static bool LeftPressed => _mouse.LeftButton == ButtonState.Pressed;
+	// These four are what UI code reads directly, so they obey the swallow too. Reporting a click
+	// here while the game ignores it in BuildSyntheticState would make the two disagree: a click
+	// that reopened a menu would also press a button in it.
+	public static bool LeftPressed => !_swallowMouseUntilRelease && _mouse.LeftButton == ButtonState.Pressed;
 
-	public static bool RightPressed => _mouse.RightButton == ButtonState.Pressed;
+	public static bool RightPressed => !_swallowMouseUntilRelease && _mouse.RightButton == ButtonState.Pressed;
 
 	public static bool LeftClicked =>
-		_mouse.LeftButton == ButtonState.Pressed && _prevMouse.LeftButton == ButtonState.Released;
+		!_swallowMouseUntilRelease
+		&& _mouse.LeftButton == ButtonState.Pressed && _prevMouse.LeftButton == ButtonState.Released;
 
 	public static bool RightClicked =>
-		_mouse.RightButton == ButtonState.Pressed && _prevMouse.RightButton == ButtonState.Released;
+		!_swallowMouseUntilRelease
+		&& _mouse.RightButton == ButtonState.Pressed && _prevMouse.RightButton == ButtonState.Released;
 
 	/// <summary>Polls devices once per frame. Must run before any UI is updated.</summary>
 	public static void Update()
@@ -227,6 +274,25 @@ internal static class KeyboardMouseInput
 		MouseX = MapAxis(_mouse.X, _bufferWidth, _viewWidth);
 		MouseY = MapAxis(_mouse.Y, _bufferHeight, _viewHeight);
 		ScrollDelta = _mouse.ScrollWheelValue - _prevMouse.ScrollWheelValue;
+		// Two ways a held button must not act the moment it becomes relevant again:
+		//
+		//  * the window lost focus and got it back - clicking to refocus would otherwise fire the
+		//    item, which is the case the PC build handles with `delayUseItem`;
+		//  * a menu closed while the button was down - the click that chose "Resume" would keep
+		//    attacking until the player let go.
+		//
+		// In both cases the honest answer is "wait for the release": the player pressed the button
+		// for a reason that has nothing to do with swinging a sword. The menu half is decided
+		// after RefreshContext below, because that is where the context is current.
+		if (!Main.HasFocus)
+		{
+			_lostFocus = true;
+		}
+		else if (_lostFocus)
+		{
+			_lostFocus = false;
+			_swallowMouseUntilRelease = true;
+		}
 		// Wheel movement is exposed as discrete steps, not as a shoulder-button press: the
 		// wheel means "scroll the thing under my focus" (hotbar in game, recipes in the
 		// crafting menu), while the shoulder buttons mean "switch section". Mapping the wheel
@@ -250,12 +316,27 @@ internal static class KeyboardMouseInput
 		// UI.UpdateGamePad: that runs later in the frame, so the mapping would otherwise use
 		// last frame's answer (one frame of wrong context on every menu transition).
 		RefreshContext();
+		// A menu that just closed with a button still down must not hand that button to the
+		// world. Opening a menu needs no such care: it consumes the click itself.
+		if (MenuContext != _prevMenuContext)
+		{
+			if (_prevMenuContext && AnyMouseButtonDown(_mouse))
+			{
+				_swallowMouseUntilRelease = true;
+			}
+			_prevMenuContext = MenuContext;
+		}
+		// The swallow ends on the release, not after a frame: "one frame of grace" would still
+		// fire on the second frame of a slow click.
+		if (_swallowMouseUntilRelease && !AnyMouseButtonDown(_mouse))
+		{
+			_swallowMouseUntilRelease = false;
+		}
 
 		bool moved = _mouse.X != _prevMouse.X || _mouse.Y != _prevMouse.Y;
-		bool clicked = LeftPressed || RightPressed ||
-			_mouse.MiddleButton == ButtonState.Pressed ||
-			_mouse.XButton1 == ButtonState.Pressed ||
-			_mouse.XButton2 == ButtonState.Pressed;
+		// Cursor visibility, not game input: a swallowed click still means the player reached for
+		// the mouse, so the pointer should appear even though the click itself is ignored.
+		bool clicked = AnyMouseButtonDown(_mouse);
 		if (moved || clicked || ScrollDelta != 0)
 		{
 			_idleFrames = 0;
@@ -441,14 +522,14 @@ internal static class KeyboardMouseInput
 		{
 			_escapeLatched = true;
 		}
-		return BuildSyntheticState(_mouse, _prevMouse, _keys, MenuContext && !TextInputActive, TextInputActive || SuppressGameInput, flag2, _enterConfirms, _inventoryContext);
+		return BuildSyntheticState(_mouse, _prevMouse, _keys, MenuContext && !TextInputActive, TextInputActive || SuppressGameInput, flag2, _enterConfirms, _inventoryContext, _swallowMouseUntilRelease);
 	}
 
 	/// <summary>
 	/// Pure mapping function: given a device snapshot, produce the equivalent pad state.
 	/// Kept free of instance state so it can be exercised by the headless self-test.
 	/// </summary>
-	internal static GamePadState BuildSyntheticState(MouseState mouse, MouseState prevMouse, KeyboardState keys, bool menuContext, bool textInputActive, bool escapeAllowed = true, bool enterConfirms = false, bool inventoryContext = false)
+	internal static GamePadState BuildSyntheticState(MouseState mouse, MouseState prevMouse, KeyboardState keys, bool menuContext, bool textInputActive, bool escapeAllowed = true, bool enterConfirms = false, bool inventoryContext = false, bool swallowMouse = false)
 	{
 		Vector2 leftStick = Vector2.Zero;
 		float leftTrigger = 0f;
@@ -459,8 +540,10 @@ internal static class KeyboardMouseInput
 			// Typing: the keyboard belongs to the text field, not to the player.
 			return new GamePadState(leftStick, Vector2.Zero, 0f, 0f, buttons);
 		}
-		bool left = mouse.LeftButton == ButtonState.Pressed;
-		bool right = mouse.RightButton == ButtonState.Pressed;
+		bool left;
+		bool right;
+		bool middle;
+		EffectiveMouseButtons(mouse, swallowMouse, out left, out right, out middle);
 
 		// Movement: bound keys drive the left stick.
 		if (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.MoveLeft)))
@@ -595,7 +678,7 @@ internal static class KeyboardMouseInput
 			}
 		}
 		// Grapple: middle mouse button or the bound key.
-		if (mouse.MiddleButton == ButtonState.Pressed || keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.Grapple)))
+		if (middle || keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.Grapple)))
 		{
 			leftTrigger = 1f;
 			buttons |= Buttons.LeftTrigger;
