@@ -98,6 +98,7 @@ internal static class SelfTest
 		RunCheck("text entry", CheckTextEntry);
 		RunCheck("pointer scaling", CheckPointerScaling);
 		RunCheck("screen geometry", CheckScreenGeometry);
+		RunCheck("master server live", CheckMasterServerLive);
 		RunCheck("every text key used", CheckTextKeysUsed);
 #if DEBUG
 		RunCheck("debug kit", CheckDebugKit);
@@ -8685,6 +8686,11 @@ internal static class SelfTest
 			{
 				return Fail("the kit did not raise life: max " + player.StatLifeMax + ", current " + player.statLife);
 			}
+			// The equipment comes from Give, which is also what the console command calls.
+			if (Terraria.Cheats.DebugKit.Give(player, Terraria.Cheats.DebugKit.Kit.Default) <= 0)
+			{
+				return Fail("the default kit gave nothing");
+			}
 			int num5 = 0;
 			for (int k = 0; k < player.Inventory.Length; k++)
 			{
@@ -8696,6 +8702,18 @@ internal static class SelfTest
 			if (num5 < 5)
 			{
 				return Fail("the kit placed only " + num5 + " item(s)");
+			}
+			// Every kit must differ from the others, or the switch is decorative.
+			Terraria.Cheats.DebugKit.Kit parsed;
+			if (!Terraria.Cheats.DebugKit.Parse("pvp", out parsed) || parsed != Terraria.Cheats.DebugKit.Kit.Pvp
+				|| !Terraria.Cheats.DebugKit.Parse("3", out parsed) || parsed != Terraria.Cheats.DebugKit.Kit.Full
+				|| !Terraria.Cheats.DebugKit.Parse("", out parsed) || parsed != Terraria.Cheats.DebugKit.Kit.Default)
+			{
+				return Fail("a kit name did not parse");
+			}
+			if (Terraria.Cheats.DebugKit.Parse("nonsense", out parsed))
+			{
+				return Fail("an unknown kit name was accepted - it should be reported instead");
 			}
 			// Paging must not overwrite what is already there.
 			int num6 = Terraria.Cheats.DebugKit.GivePage(player, 0);
@@ -8763,6 +8781,88 @@ internal static class SelfTest
 		}
 	}
 #endif
+
+	/// <summary>
+	/// The live master server, if it can be reached. Skips rather than fails: the game must be
+	/// testable on a machine without internet, and a checked-in URL is not our availability
+	/// guarantee - but when the master *is* running this is the only check that proves the real
+	/// deployment speaks the same protocol the client does.
+	///
+	/// The default ports are asserted here too, because they are easy to confuse: the game hosts
+	/// on 7777 and the master server listens on 17777, and swapping them makes the list silently
+	/// empty.
+	/// </summary>
+	private static bool CheckMasterServerLive()
+	{
+		int savedPort = NetworkConfig.Port;
+		int savedMasterPort = NetworkConfig.MasterServerPort;
+		string savedEndpoints = string.Join(",", Terraria.Net.MasterServerClient.Endpoints);
+		try
+		{
+			if (NetworkConfig.Port != 7777)
+			{
+				return Fail("the game server port default is " + NetworkConfig.Port + ", expected 7777");
+			}
+			if (NetworkConfig.MasterServerPort != 17777)
+			{
+				return Fail("the master server port default is " + NetworkConfig.MasterServerPort + ", expected 17777");
+			}
+			string endpoint = Terraria.Net.MasterServerClient.PrimaryEndpoint;
+			if (string.IsNullOrEmpty(endpoint))
+			{
+				// In the game this is filled by MasterServerClient.Configure during startup. The
+				// headless suite never constructs Main, so it configures it the same way - with a
+				// settings object it does not write back.
+				Settings settings = new Settings(Terraria.Storage.AppPaths.SettingsFile);
+				try
+				{
+					Terraria.Net.MasterServerClient.Configure(settings);
+				}
+				finally
+				{
+					settings.Discard();
+				}
+				endpoint = Terraria.Net.MasterServerClient.PrimaryEndpoint;
+			}
+			if (string.IsNullOrEmpty(endpoint))
+			{
+				return Fail("no master server endpoint is configured");
+			}
+			// Pick up the configured endpoint, but keep the test short and side-effect free: no
+			// cache write, no backoff accounting, no publishing.
+			Terraria.Net.MasterServerClient.ResetBackoff();
+			List<Terraria.Net.MasterServerEntry> list = Terraria.Net.MasterServerClient.Fetch();
+			if (list == null)
+			{
+				return Fail("Fetch returned null instead of a list");
+			}
+			// An empty list is a valid answer ("nobody is hosting"), so only the transport can be
+			// judged here: the cache is written only on a successful response.
+			if (!System.IO.File.Exists(Terraria.Net.MasterServerClient.CachePath))
+			{
+				Skip(endpoint + " did not answer - start the master server to run this check");
+			}
+			Console.WriteLine("    master server " + endpoint + ": " + list.Count + " server(s) listed");
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("master server live check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			NetworkConfig.Port = savedPort;
+			NetworkConfig.MasterServerPort = savedMasterPort;
+			if (savedEndpoints.Length != 0)
+			{
+				Terraria.Net.MasterServerClient.SetEndpoints(savedEndpoints);
+			}
+		}
+	}
 
 	private static bool Fail(string message)
 	{

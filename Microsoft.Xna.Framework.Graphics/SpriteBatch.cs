@@ -149,6 +149,18 @@ public class SpriteBatch : GraphicsResource
 
 	private bool beginCalled;
 
+	/// <summary>
+	/// How many times a Begin/End pair did not balance this session. Non-zero means some screen
+	/// forgot to close its batch; the log names the count, and this makes it visible to the
+	/// self-test instead of hiding in a crash log.
+	/// </summary>
+	public static int BeginEndMismatches { get; private set; }
+
+	private static int _lastMismatchTick;
+
+	/// <summary>True while a batch is open. Used by tests and by the frame guard.</summary>
+	public bool IsBegun => beginCalled;
+
 	private SpriteSortMode sortMode;
 
 	private BlendState blendState;
@@ -236,7 +248,25 @@ public class SpriteBatch : GraphicsResource
 	{
 		if (beginCalled)
 		{
-			throw new InvalidOperationException("Begin has been called before calling End after the last call to Begin. Begin cannot be called again until End has been successfully called.");
+			// XNA throws here, and the original code relied on every Begin/End pair balancing.
+			// This port has many pairs spread over screens that can change mid-frame, and one
+			// missing End then killed the session with a message that says nothing about which
+			// screen forgot it. Flushing the previous batch keeps the frame alive and the warning
+			// names the problem; a dropped sprite is recoverable, an exception in Draw is not.
+			BeginEndMismatches++;
+			if (BeginEndMismatches == 1 || Environment.TickCount - _lastMismatchTick > 5000)
+			{
+				_lastMismatchTick = Environment.TickCount;
+				Terraria.Program.LogWarn("SpriteBatch", "Begin() while a batch was still open - closing the previous one ("
+					+ BeginEndMismatches + " time(s) this session)");
+			}
+			try
+			{
+				End();
+			}
+			catch
+			{
+			}
 		}
 		beginCalled = true;
 		this.sortMode = sortMode;
@@ -252,11 +282,39 @@ public class SpriteBatch : GraphicsResource
 		}
 	}
 
+	/// <summary>
+	/// Closes a batch whatever state it is in, and reports whether it had to. Called at the top of
+	/// a frame: if some screen forgot its End, the next frame would otherwise die on Begin.
+	/// </summary>
+	public void ForceEnd()
+	{
+		if (beginCalled)
+		{
+			try
+			{
+				End();
+			}
+			catch
+			{
+			}
+		}
+	}
+
 	public void End()
 	{
 		if (!beginCalled)
 		{
-			throw new InvalidOperationException("End was called, but Begin has not yet been called. You must call Begin  successfully before you can call End.");
+			// The mirror of the case above: the caller ended a batch that was not open. Same
+			// reasoning - a stray End must not be fatal. Counted separately so the log shows
+			// which way the mismatch goes.
+			BeginEndMismatches++;
+			if (BeginEndMismatches == 1 || Environment.TickCount - _lastMismatchTick > 5000)
+			{
+				_lastMismatchTick = Environment.TickCount;
+				Terraria.Program.LogWarn("SpriteBatch", "End() without an open batch - ignored ("
+					+ BeginEndMismatches + " time(s) this session)");
+			}
+			return;
 		}
 		beginCalled = false;
 		if (sortMode != SpriteSortMode.Immediate)

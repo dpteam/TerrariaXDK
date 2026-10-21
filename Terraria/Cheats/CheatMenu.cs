@@ -240,6 +240,21 @@ internal static class CheatMenu
 	/// <summary>Backdrop drawn before the generic menu rows.</summary>
 	public static void DrawBackdrop(SpriteBatch spriteBatch, int viewWidth)
 	{
-		Main.DrawRect(new Rectangle(0, 0, viewWidth, Main.ResolutionHeight), new Color(0, 0, 0, 170), ToCenter: false);
+		// Same shape as the other screens added in this port (Display, HUD, Network): a dark panel
+		// with a thin accent line and a title, rather than raw text over the frozen world. The
+		// cheat list is long, and without a panel it read as part of the scene behind it.
+		float num = Main.ScreenMultiplier;
+		int num2 = System.Math.Max(1, Coords.Length);
+		int num3 = (int)(520f * num);
+		int num4 = (viewWidth - num3) / 2;
+		int num5 = (int)((float)(MenuTop - 46) * num);
+		int num6 = (int)((float)(num2 * MenuSpace + 76) * num);
+		Main.DrawSolidRect(new Rectangle(0, 0, viewWidth, Main.ResolutionHeight), new Color(0, 0, 0, 170));
+		Main.DrawSolidRect(new Rectangle(num4 - (int)(10f * num), num5, num3 + (int)(20f * num), num6), new Color(14, 18, 26, 240));
+		Main.DrawSolidRect(new Rectangle(num4 - (int)(10f * num), num5, num3 + (int)(20f * num), 2), new Color(70, 110, 170));
+		UI.DrawStringCC(UI.BigFont, Terraria.Texts.Get("ui.cheats.title"), viewWidth / 2, num5 + (int)(8f * num), Color.White);
+		// Say out loud that this screen is single-player only: it is unreachable in multiplayer,
+		// and the note stops the "why is the cheat menu missing" question.
+		UI.DrawStringCC(UI.SmallFont, Terraria.Texts.Get("ui.cheats.single.only"), viewWidth / 2, num5 + num6 - (int)(24f * num), new Color(150, 160, 180));
 	}
 }

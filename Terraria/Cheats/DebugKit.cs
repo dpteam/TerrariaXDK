@@ -110,6 +110,154 @@ internal static class DebugKit
 		return num3;
 	}
 
+	/// <summary>The kit variants. Chosen by name from the console; see <see cref="Parse"/>.</summary>
+	internal enum Kit
+	{
+		Default,
+		Pvp,
+		Pve,
+		Full
+	}
+
+	/// <summary>
+	/// Parses a kit name. Unknown text returns false so the caller can list what is available
+	/// instead of silently handing out the default set.
+	/// </summary>
+	internal static bool Parse(string text, out Kit kit)
+	{
+		kit = Kit.Default;
+		switch ((text ?? string.Empty).Trim().ToLowerInvariant())
+		{
+		case "":
+		case "0":
+		case "default":
+		case "tools":
+			kit = Kit.Default;
+			return true;
+		case "1":
+		case "pvp":
+			kit = Kit.Pvp;
+			return true;
+		case "2":
+		case "pve":
+			kit = Kit.Pve;
+			return true;
+		case "3":
+		case "full":
+			kit = Kit.Full;
+			return true;
+		default:
+			return false;
+		}
+	}
+
+	/// <summary>Names for the help line, in the same order as the numbers.</summary>
+	internal static string List => "default (0), pvp (1), pve (2), full (3)";
+
+	/// <summary>
+	/// Fills the inventory with one kit.
+	///
+	/// The point of separate kits is that "everything" is not always what you want: a PvP check
+	/// needs a weapon and nothing else in the way, while a full play-through kit needs a pickaxe
+	/// before it can start. Every id comes from the enum, never from a name - `SetDefaults(string)`
+	/// is a switch over the port's own additions and returns type 0 for the game's items.
+	/// </summary>
+	public static int Give(Player player, Kit kit)
+	{
+		if (player == null || player.Inventory == null)
+		{
+			return 0;
+		}
+		EntityID.ItemID[][] sets = new EntityID.ItemID[4][]
+		{
+			// Default: reach any place and look at it.
+			new EntityID.ItemID[12]
+			{
+				EntityID.ItemID.COPPER_PICKAXE,
+				EntityID.ItemID.COPPER_AXE,
+				EntityID.ItemID.COPPER_HAMMER,
+				EntityID.ItemID.TORCH,
+				EntityID.ItemID.DIRT_BLOCK,
+				EntityID.ItemID.MAGIC_MIRROR,
+				EntityID.ItemID.GRAPPLING_HOOK,
+				EntityID.ItemID.HEALING_POTION,
+				EntityID.ItemID.MANA_POTION,
+				EntityID.ItemID.WOOD,
+				EntityID.ItemID.GLOWSTICK,
+				EntityID.ItemID.STONE_BLOCK
+			},
+			// PvP: mobility, a ranged option and healing, nothing else to fumble past.
+			new EntityID.ItemID[8]
+			{
+				EntityID.ItemID.GRAPPLING_HOOK,
+				EntityID.ItemID.MAGIC_MIRROR,
+				EntityID.ItemID.HEALING_POTION,
+				EntityID.ItemID.MANA_POTION,
+				EntityID.ItemID.TORCH,
+				EntityID.ItemID.GLOWSTICK,
+				EntityID.ItemID.DIRT_BLOCK,
+				EntityID.ItemID.WOOD
+			},
+			// PvE: survivability and digging.
+			new EntityID.ItemID[10]
+			{
+				EntityID.ItemID.COPPER_PICKAXE,
+				EntityID.ItemID.COPPER_AXE,
+				EntityID.ItemID.COPPER_HAMMER,
+				EntityID.ItemID.TORCH,
+				EntityID.ItemID.HEALING_POTION,
+				EntityID.ItemID.MANA_POTION,
+				EntityID.ItemID.GRAPPLING_HOOK,
+				EntityID.ItemID.MAGIC_MIRROR,
+				EntityID.ItemID.DIRT_BLOCK,
+				EntityID.ItemID.WOOD
+			},
+			// Full: one of everything the game needs you to own, page by page, so a play-through
+			// can start from the first page instead of hunting for an id.
+			new EntityID.ItemID[0]
+		};
+		int num = 0;
+		if (kit == Kit.Full)
+		{
+			// "Full" is every page at once, in id order, so it is also the way to check that
+			// paging and direct granting agree.
+			for (int i = 0; i < PageCount; i++)
+			{
+				num += GivePage(player, i);
+			}
+			return num;
+		}
+		EntityID.ItemID[] array = sets[(int)kit];
+		for (int j = 0; j < array.Length && num < player.Inventory.Length; j++)
+		{
+			int num2 = (int)array[j];
+			if (num2 <= 0)
+			{
+				continue;
+			}
+			Item item = default(Item);
+			item.SetDefaults(num2);
+			if (item.Type <= 0)
+			{
+				continue;
+			}
+			// Skip slots already in use: replacing a working setup is the most annoying thing a
+			// debug command can do.
+			while (num < player.Inventory.Length && player.Inventory[num].Type > 0)
+			{
+				num++;
+			}
+			if (num >= player.Inventory.Length)
+			{
+				break;
+			}
+			item.Stack = item.MaxStack;
+			player.Inventory[num] = item;
+			num++;
+		}
+		return array.Length;
+	}
+
 	/// <summary>
 	/// A test character: full life and mana, and the tools needed to look at anything (pickaxe,
 	/// axe, hammer, a light source, blocks, a mirror to get out of a cave). Deliberately not a
@@ -131,38 +279,6 @@ internal static class DebugKit
 		player.statManaMax = 200;
 		player.statManaMax2 = 200;
 		player.statMana = 200;
-		EntityID.ItemID[] array = new EntityID.ItemID[10]
-		{
-			EntityID.ItemID.COPPER_PICKAXE,
-			EntityID.ItemID.COPPER_AXE,
-			EntityID.ItemID.COPPER_HAMMER,
-			EntityID.ItemID.TORCH,
-			EntityID.ItemID.DIRT_BLOCK,
-			EntityID.ItemID.MAGIC_MIRROR,
-			EntityID.ItemID.GRAPPLING_HOOK,
-			EntityID.ItemID.HEALING_POTION,
-			EntityID.ItemID.MANA_POTION,
-			EntityID.ItemID.WOOD
-		};
-		int num = 0;
-		for (int i = 0; i < array.Length && num < player.Inventory.Length; i++)
-		{
-			int num2 = (int)array[i];
-			if (num2 <= 0)
-			{
-				// Negative ids are the enum's special entries, not reachable items.
-				continue;
-			}
-			Item item = default(Item);
-			item.SetDefaults(num2);
-			if (item.Type <= 0)
-			{
-				continue;
-			}
-			item.Stack = item.MaxStack;
-			player.Inventory[num] = item;
-			num++;
-		}
 	}
 
 	/// <summary>One line describing what the commands do, for <c>!debugkit help</c>.</summary>

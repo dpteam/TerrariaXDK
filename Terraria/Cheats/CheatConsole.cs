@@ -85,10 +85,24 @@ internal static class CheatConsole
 			// contain a way to hand yourself every item, and the preprocessor guarantees that
 			// rather than a setting someone can flip.
 			,
-			new Command("debugkit", "", "chat.debugkit.help", delegate(string[] a)
+			new Command("debugkit", "[default|pvp|pve|full]", "chat.debugkit.help", delegate(string[] a)
 			{
+				DebugKit.Kit kit = DebugKit.Kit.Default;
+				if (a.Length != 0 && !DebugKit.Parse(a[0], out kit))
+				{
+					Main.NewText(Texts.Format("chat.debugkit.kits", DebugKit.List), 255, 200, 120);
+					return;
+				}
 				DebugKit.ApplyEssentials(UI.MainUI.ActivePlayer);
-				Echo(Texts.Get("chat.debugkit.given"), value: true);
+				int num = DebugKit.Give(UI.MainUI.ActivePlayer, kit);
+				Echo(Texts.Format("chat.debugkit.given", kit.ToString().ToLowerInvariant(), num), value: true);
+			}),
+			new Command("debugsave", "", "chat.debugkit.save", delegate(string[] a)
+			{
+				// Uses the same save the game performs on quit, so a debug character survives a
+				// restart and can be loaded from the normal character list.
+				WorldGen.savePlayerWhilePlaying();
+				Echo(Texts.Get("chat.debugkit.saved"), value: true);
 			}),
 			new Command("allitems", "[page]", "chat.debugkit.allitems", delegate(string[] a)
 			{

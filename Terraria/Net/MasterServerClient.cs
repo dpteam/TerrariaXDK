@@ -107,7 +107,7 @@ internal static class MasterServerClient
 				}
 				string host;
 				int port;
-				if (NetworkConfig.TryParseAddress(text2, out host, out port))
+				if (NetworkConfig.TryParseAddress(text2, NetworkConfig.MasterServerPort, out host, out port))
 				{
 					endpoints.Add(host + ":" + port.ToString(CultureInfo.InvariantCulture));
 				}
@@ -115,6 +115,22 @@ internal static class MasterServerClient
 			if (endpoints.Count == 0)
 			{
 				endpoints.Add(NetworkConfig.MasterServer + ":" + NetworkConfig.MasterServerPort.ToString(CultureInfo.InvariantCulture));
+			}
+			// Repair a config written before the port bug: "host" without a port was resolved with
+			// the *game* port, so every existing install saved "play.dartpower.xyz:7777" and the
+			// master was never reached. Narrow on purpose - only the built-in host, only the game
+			// port, and only when the master port is something else - so a deliberately configured
+			// server is never rewritten.
+			for (int j = 0; j < endpoints.Count; j++)
+			{
+				string text3 = endpoints[j];
+				string text4 = NetworkConfig.MasterServer + ":" + NetworkConfig.Port.ToString(CultureInfo.InvariantCulture);
+				if (NetworkConfig.MasterServerPort != NetworkConfig.Port
+					&& text3.Equals(text4, StringComparison.OrdinalIgnoreCase))
+				{
+					endpoints[j] = NetworkConfig.MasterServer + ":" + NetworkConfig.MasterServerPort.ToString(CultureInfo.InvariantCulture);
+					Program.LogWarn("Master", "corrected the master server port in the settings: " + text3 + " -> " + endpoints[j]);
+				}
 			}
 		}
 	}
@@ -141,7 +157,7 @@ internal static class MasterServerClient
 			}
 			string host;
 			int port;
-			if (NetworkConfig.TryParseAddress(text2, out host, out port))
+			if (NetworkConfig.TryParseAddress(text2, NetworkConfig.MasterServerPort, out host, out port))
 			{
 				list.Add(host + ":" + port.ToString(CultureInfo.InvariantCulture));
 			}

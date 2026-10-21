@@ -1,3 +1,4 @@
+using System;
 using System.Text;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
@@ -14,6 +15,20 @@ public static class GameMode
 	private static int MouseRowTop;
 
 	private static int MouseRowHeight = 1;
+
+	/// <summary>
+	/// One rectangle per clickable row, recorded while drawing: 0 = online mode, 1 = invite only,
+	/// 2 = start game.
+	///
+	/// The rows were previously derived from a single grid that stopped above the "Start Game"
+	/// text, which is drawn much lower on the screen. So a click on Start Game did not move the
+	/// selection at all, and activated whatever row the pointer had last been over - typically the
+	/// checkbox the player had just unticked, which then ticked itself back on. That is the
+	/// "Start Game does not click" report.
+	/// </summary>
+	private static readonly Rectangle[] RowRects = new Rectangle[3];
+
+	private static readonly bool[] RowValid = new bool[3];
 
 	public static void Update()
 	{
@@ -71,27 +86,23 @@ public static class GameMode
 		{
 			return false;
 		}
-		Rectangle mouseRowsArea = MouseRowsArea;
-		if (mouseRowsArea.Width <= 0)
+		int num = Terraria.Input.KeyboardMouseInput.MouseX;
+		int num2 = Terraria.Input.KeyboardMouseInput.MouseY;
+		for (int i = 0; i < RowRects.Length; i++)
 		{
+			if (!RowValid[i] || !RowRects[i].Contains(num, num2))
+			{
+				continue;
+			}
+			// Row 1 only exists while online mode is on; following it would select an
+			// invisible checkbox.
+			if (i == 1 && !UI.MainUI.IsOnline)
+			{
+				return false;
+			}
+			CursorY = (byte)i;
 			return false;
 		}
-		int num = Terraria.Input.KeyboardMouseInput.MouseY;
-		if (!mouseRowsArea.Contains(Terraria.Input.KeyboardMouseInput.MouseX, num))
-		{
-			return false;
-		}
-		int num2 = (num - MouseRowTop) / MouseRowHeight;
-		if (num2 < 0 || num2 > 2)
-		{
-			return false;
-		}
-		// Row 1 only exists while online mode is on.
-		if (num2 == 1 && !UI.MainUI.IsOnline)
-		{
-			return false;
-		}
-		CursorY = (byte)num2;
 		return false;
 	}
 
@@ -142,6 +153,15 @@ public static class GameMode
 		MouseRowTop = num2;
 		MouseRowHeight = (int)(64f * Main.ScreenMultiplier);
 		MouseRowsArea = new Rectangle(num - (int)(8f * Main.ScreenMultiplier), num2 - (int)(8f * Main.ScreenMultiplier), (int)(320f * Main.ScreenMultiplier), MouseRowHeight * 3);
+		// Per-row hit rectangles. The checkbox rows are 64px tall; the Start Game text is measured
+		// below, because it sits well under the checkbox block and used to fall outside the only
+		// hit area, so clicking it activated whatever row was selected last.
+		int num0 = num - (int)(8f * Main.ScreenMultiplier);
+		int num1 = (int)(320f * Main.ScreenMultiplier);
+		RowRects[0] = new Rectangle(num0, num2 - (int)(8f * Main.ScreenMultiplier), num1, MouseRowHeight);
+		RowValid[0] = true;
+		RowRects[1] = new Rectangle(num0, num2 + MouseRowHeight - (int)(8f * Main.ScreenMultiplier), num1, MouseRowHeight);
+		RowValid[1] = UI.MainUI.IsOnline;
 		bool flag = UI.MainUI.CanPlayOnline();
 		// The selection marker is drawn even with the mouse active: it is the highlight, not a
 		// pointer (the pointer is drawn separately and the marker no longer moves it).
@@ -199,6 +219,12 @@ public static class GameMode
 			break;
 		}
 		UI.DrawStringScaled(pos: new Vector2(view.ViewWidth >> 1, y), font: UI.BigFont, s: text, c: c, pivot: pivot, scale: num3);
+		// The Start Game row, from the same measurements the text is drawn with, with a little
+		// vertical slack because the text is thin and a pixel-perfect target is unpleasant.
+		float num4 = pivot.Y * 2f * num3;
+		int num5 = (int)Math.Max(num4, 24f * Main.ScreenMultiplier);
+		RowRects[2] = new Rectangle((int)((float)(view.ViewWidth >> 1) - pivot.X * num3), (int)(y - (float)(num5 / 2)), (int)(pivot.X * 2f * num3), num5);
+		RowValid[2] = true;
 	}
 
 	public static void ControlDescription(StringBuilder StringBuilder)

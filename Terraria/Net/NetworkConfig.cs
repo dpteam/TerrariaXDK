@@ -53,8 +53,22 @@ internal static class NetworkConfig
 	/// <summary>Parses "host", "host:port" or "[ipv6]:port".</summary>
 	public static bool TryParseAddress(string text, out string host, out int port)
 	{
+		return TryParseAddress(text, Port, out host, out port);
+	}
+
+	/// <summary>
+	/// Parses "host" or "host:port", with <paramref name="defaultPort"/> used when no port is
+	/// written.
+	///
+	/// The default matters: this method is used for both game servers and the master server, and
+	/// they listen on different ports (7777 and 17777). Defaulting everything to the game port
+	/// made "play.example.com" resolve to :7777, so a master server configured without an explicit
+	/// port was silently never reached - the list looked empty rather than broken.
+	/// </summary>
+	public static bool TryParseAddress(string text, int defaultPort, out string host, out int port)
+	{
 		host = null;
-		port = Port;
+		port = defaultPort;
 		if (string.IsNullOrWhiteSpace(text))
 		{
 			return false;

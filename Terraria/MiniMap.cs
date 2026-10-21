@@ -348,6 +348,9 @@ public sealed class MiniMap
 		int num2 = ActiveView.ViewWidth - ActiveView.SafeAreaOffsetRight - num;
 		if (!IsThreadDone)
 		{
+			// The batch is left open on purpose: this method always returns with a batch open and
+			// the caller (UI's map screen) closes it. Ending it here made the caller's own End
+			// the mismatch, so the spinner path must match the normal path, not "look balanced".
 			Main.SpriteBatch.Begin(SpriteSortMode.Deferred, null, null, null, null, ActiveView.ScreenProjection);
 			SpriteSheet<_sheetSprites>.Draw(1012, num + (num2 >> 1), safeAreaOffsetTop + (MapDestH >> 1), Color.White, (float)((double)Main.FrameCounter * (Math.PI / 30.0)), 1f);
 			return;

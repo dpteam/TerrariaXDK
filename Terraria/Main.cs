@@ -2242,6 +2242,11 @@ public sealed class Main : Game
 	protected override void Draw(GameTime GTime)
 	{
 		_drawCount++;
+		// If the previous frame left a batch open - one screen's Begin without a matching End -
+		// the very next Begin would throw and kill the session, with a message that does not say
+		// which screen did it. Closing it here makes the worst case "one sprite skipped" and the
+		// warning in the log names the count, so the culprit is still findable.
+		SpriteBatch.ForceEnd();
 		if (_drawCount <= 5)
 		{
 			Program.Log($"[Draw] #{_drawCount} time={GTime.TotalGameTime.TotalSeconds:F3}s splash={ShowSplash}");

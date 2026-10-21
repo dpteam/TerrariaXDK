@@ -76,8 +76,11 @@ internal static class Texts
 		Add(dictionary, "chat.cheats.help.help", "list commands");
 #if DEBUG
 		// Only referenced by the Debug-only commands, so only compiled there.
-		Add(dictionary, "chat.debugkit.help", "give a test character with the tools to get anywhere");
-		Add(dictionary, "chat.debugkit.given", "test kit");
+		Add(dictionary, "chat.debugkit.help", "give a test character equipment: default, pvp, pve or full");
+		Add(dictionary, "chat.debugkit.given", "kit '{0}': {1} item(s)");
+		Add(dictionary, "chat.debugkit.kits", "Kits: {0}");
+		Add(dictionary, "chat.debugkit.save", "save this character");
+		Add(dictionary, "chat.debugkit.saved", "character saved");
 		Add(dictionary, "chat.debugkit.allitems", "fill the inventory with one page of every item id");
 		Add(dictionary, "chat.debugkit.usage", "Usage: !allitems [page 0-{0}]");
 		Add(dictionary, "chat.debugkit.items", "gave {0} item(s) from page {1} of 0-{2}");
