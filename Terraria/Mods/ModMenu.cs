@@ -331,8 +331,14 @@ internal static class ModMenu
 			return;
 		}
 		Main.PlaySound(12);
-		_status = Texts.Format("ui.mods.convert.done", entry.Folder, result.OutputDirectory);
-		_statusTime = 600;
+		// One line has room for one sentence, so it says the two things that matter: it worked,
+		// and whether anything was lost. The detail is in the log and in the generated README.
+		_status = result.HasProblems
+			? Texts.Format("ui.mods.convert.partial", entry.Folder,
+				(result.Errors.Count + result.Warnings.Count).ToString(),
+				string.IsNullOrEmpty(result.LogFile) ? result.OutputDirectory : result.LogFile)
+			: Texts.Format("ui.mods.convert.done", entry.Folder, result.OutputDirectory);
+		_statusTime = 900;
 		_pending = new PendingDelete
 		{
 			Folder = entry.Folder,

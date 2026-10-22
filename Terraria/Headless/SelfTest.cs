@@ -79,6 +79,7 @@ internal static class SelfTest
 		RunCheck("settings persistence", CheckSettingsPersistence);
 		RunCheck("tconfig import", CheckTConfigImport);
 		RunCheck("tconfig convert", CheckTConfigConvert);
+		RunCheck("tconfig resilience", CheckTConfigResilience);
 		RunCheck("mod load order", CheckModLoadOrder);
 		RunCheck("mod menu kinds", CheckModMenuKinds);
 		RunCheck("virtual keyboard", CheckVirtualKeyboard);
@@ -1560,6 +1561,7 @@ internal static class SelfTest
 		string text = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-tconfig-convert");
 		string text2 = System.IO.Path.Combine(text, "TestPack", "Item");
 		string text3 = System.IO.Path.Combine(text, "out");
+		string savedLog = Terraria.Mods.TConfigConverter.LogPathOverride;
 		try
 		{
 			if (System.IO.Directory.Exists(text))
@@ -1567,6 +1569,8 @@ internal static class SelfTest
 				System.IO.Directory.Delete(text, recursive: true);
 			}
 			System.IO.Directory.CreateDirectory(text2);
+			// The conversion writes a log; a self-test must not append to the player's own.
+			Terraria.Mods.TConfigConverter.LogPathOverride = System.IO.Path.Combine(text, "convert.log");
 			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Shortsword.ini"), "damage=12\r\nuseTime=17\r\nautoReuse=True\r\nbogusField=1\r\n");
 			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Pickaxe.ini"), "pick=45\r\n");
 			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Not A Real Item.ini"), "damage=5\r\n");
@@ -1683,11 +1687,181 @@ internal static class SelfTest
 		finally
 		{
 			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.TConfigConverter.LogPathOverride = savedLog;
 			try
 			{
 				if (System.IO.Directory.Exists(text))
 				{
 					System.IO.Directory.Delete(text, recursive: true);
+				}
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	// --- tConfig converter resilience ---------------------------------------
+
+	/// <summary>
+	/// The converter survives bad input.
+	///
+	/// A tConfig pack is somebody else's data: a truncated INI, a file an editor has locked, a
+	/// value that is not a number, an item name this build does not have. Every one of those is
+	/// something to report, not a reason to refuse the pack - and the report has to reach the
+	/// player, because "conversion failed" with no detail leaves them with nothing to fix.
+	///
+	/// So the checks are: a locked file does not stop the rest, a bad value is dropped instead of
+	/// producing a project that will not compile, and both end up in a log file and in the
+	/// generated README.
+	/// </summary>
+	private static bool CheckTConfigResilience()
+	{
+		string root = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-tconfig-bad");
+		string items = System.IO.Path.Combine(root, "BadPack", "Item");
+		string output = System.IO.Path.Combine(root, "out");
+		string logPath = System.IO.Path.Combine(root, "convert.log");
+		string savedLog = Terraria.Mods.TConfigConverter.LogPathOverride;
+		System.IO.FileStream locked = null;
+		try
+		{
+			if (System.IO.Directory.Exists(root))
+			{
+				System.IO.Directory.Delete(root, recursive: true);
+			}
+			System.IO.Directory.CreateDirectory(items);
+			// One good item, one with a value that is not a number, one that cannot be read at all.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "Copper Shortsword.ini"), "damage=12\r\n");
+			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "Copper Pickaxe.ini"), "pick=abc\r\nuseTime=17\r\n");
+			string lockedPath = System.IO.Path.Combine(items, "Copper Axe.ini");
+			System.IO.File.WriteAllText(lockedPath, "axe=45\r\n");
+			Terraria.Mods.TConfigConverter.LogPathOverride = logPath;
+
+			// Hold the file open with no sharing: reading it must fail the way a locked file does
+			// in the wild, rather than being simulated by a fake stream.
+			locked = new System.IO.FileStream(lockedPath, System.IO.FileMode.Open, System.IO.FileAccess.Read,
+				System.IO.FileShare.None);
+
+			string error;
+			Terraria.Mods.TConfigConverter.Result result = Terraria.Mods.TConfigConverter.Convert(
+				System.IO.Path.Combine(root, "BadPack"), output, null, out error);
+			if (result == null)
+			{
+				return Fail("one unreadable file refused the whole pack: " + error);
+			}
+			// The two readable items still made it.
+			if (result.Items != 2)
+			{
+				return Fail("expected 2 converted item(s), got " + result.Items);
+			}
+			if (result.FailedFiles != 1)
+			{
+				return Fail("expected 1 failed file, got " + result.FailedFiles);
+			}
+			if (result.Errors.Count != 1)
+			{
+				return Fail("expected 1 reported error, got " + result.Errors.Count);
+			}
+			if (result.Errors[0].IndexOf("Copper Axe", StringComparison.OrdinalIgnoreCase) < 0)
+			{
+				return Fail("the error does not name the file that failed: " + result.Errors[0]);
+			}
+			// The bad value was dropped with a reason, not turned into a project that cannot build.
+			if (result.UnsupportedFields != 1)
+			{
+				return Fail("expected 1 dropped field, got " + result.UnsupportedFields);
+			}
+			bool explained = false;
+			for (int i = 0; i < result.Warnings.Count; i++)
+			{
+				if (result.Warnings[i].IndexOf("pick", StringComparison.Ordinal) >= 0)
+				{
+					explained = true;
+				}
+			}
+			if (!explained)
+			{
+				return Fail("the dropped value was not explained");
+			}
+			string source = System.IO.File.ReadAllText(result.SourceFile);
+			if (source.IndexOf(".Pick", StringComparison.Ordinal) >= 0)
+			{
+				return Fail("a non-numeric value still reached the generated source");
+			}
+			if (source.IndexOf(".UseTime = 17;", StringComparison.Ordinal) < 0)
+			{
+				return Fail("a good field next to a bad one was lost");
+			}
+			// The report reaches the player three ways: the log, the README, and the Result.
+			if (result.LogFile.Length == 0 || !System.IO.File.Exists(logPath))
+			{
+				return Fail("no conversion log was written");
+			}
+			string log = System.IO.File.ReadAllText(logPath);
+			if (log.IndexOf("Copper Axe", StringComparison.OrdinalIgnoreCase) < 0
+				|| log.IndexOf("pick", StringComparison.Ordinal) < 0)
+			{
+				return Fail("the log does not mention both problems");
+			}
+			string readme = System.IO.File.ReadAllText(System.IO.Path.Combine(output, "README.md"));
+			if (readme.IndexOf("What failed", StringComparison.Ordinal) < 0)
+			{
+				return Fail("the README does not say what failed");
+			}
+			if (readme.IndexOf("Copper Axe", StringComparison.OrdinalIgnoreCase) < 0)
+			{
+				return Fail("the README does not name the file that failed");
+			}
+			if (!result.HasProblems)
+			{
+				return Fail("a conversion with failures reported itself as clean");
+			}
+			// Releasing the lock and converting again must produce a clean result: the failure is
+			// a property of the file, not of the pack.
+			locked.Dispose();
+			locked = null;
+			Terraria.Mods.TConfigConverter.Result second = Terraria.Mods.TConfigConverter.Convert(
+				System.IO.Path.Combine(root, "BadPack"), output, null, out error);
+			if (second == null || second.Items != 3)
+			{
+				return Fail("the same pack failed after the lock was released: "
+					+ (second == null ? error : second.Items + " item(s)"));
+			}
+			if (second.Errors.Count != 0 || second.FailedFiles != 0)
+			{
+				return Fail("a clean run still reported failures");
+			}
+			// A pack that does not exist must say so rather than throw, and must log it.
+			Terraria.Mods.TConfigConverter.Result missing = Terraria.Mods.TConfigConverter.Convert(
+				System.IO.Path.Combine(root, "NoSuchPack"), output, null, out error);
+			if (missing != null || string.IsNullOrEmpty(error))
+			{
+				return Fail("a missing pack produced no reason");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("tConfig resilience check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			if (locked != null)
+			{
+				try
+				{
+					locked.Dispose();
+				}
+				catch
+				{
+				}
+			}
+			Terraria.Mods.TConfigConverter.LogPathOverride = savedLog;
+			try
+			{
+				if (System.IO.Directory.Exists(root))
+				{
+					System.IO.Directory.Delete(root, recursive: true);
 				}
 			}
 			catch
@@ -1718,12 +1892,14 @@ internal static class SelfTest
 		string savedPacks = Terraria.Mods.ModMenu.PacksRootOverride;
 		string savedSources = Terraria.Mods.ModMenu.ModSourcesRootOverride;
 		string savedBackups = Terraria.Mods.ModMenu.BackupsRootOverride;
+		string savedLog = Terraria.Mods.TConfigConverter.LogPathOverride;
 		try
 		{
 			if (System.IO.Directory.Exists(root))
 			{
 				System.IO.Directory.Delete(root, recursive: true);
 			}
+			Terraria.Mods.TConfigConverter.LogPathOverride = System.IO.Path.Combine(root, "convert.log");
 			// One real mod (a folder with a dll) and one folder that is not a mod (no dll).
 			System.IO.Directory.CreateDirectory(System.IO.Path.Combine(mods, "RealMod"));
 			System.IO.File.WriteAllBytes(System.IO.Path.Combine(mods, "RealMod", "RealMod.dll"), new byte[1] { 0 });
@@ -1843,6 +2019,7 @@ internal static class SelfTest
 			Terraria.Mods.ModMenu.PacksRootOverride = savedPacks;
 			Terraria.Mods.ModMenu.ModSourcesRootOverride = savedSources;
 			Terraria.Mods.ModMenu.BackupsRootOverride = savedBackups;
+			Terraria.Mods.TConfigConverter.LogPathOverride = savedLog;
 			try
 			{
 				if (System.IO.Directory.Exists(root))

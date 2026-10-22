@@ -122,12 +122,17 @@ internal static class TConfigImporter
 	}
 
 	/// <summary>
-	/// Minimal INI reader: `key = value` lines, `;` and `#` comments, `[section]` headers
-	/// flattened into `section.key`. tConfig writes flat files, but tolerating sections costs
-	/// nothing and avoids mis-parsing hand-edited packs.
+	/// Reads a pack INI strictly: returns null and a reason when the file cannot be read, instead
+	/// of silently behaving like an empty file.
+	///
+	/// <see cref="ParseIni"/> is the lenient iterator the game uses at startup, where a pack with
+	/// one unreadable file must not stop the game from loading. A converter is the opposite case:
+	/// the player asked for this file, and a file that could not be read is exactly what they
+	/// need to be told.
 	/// </summary>
-	internal static IEnumerable<KeyValuePair<string, string>> ParseIni(string path)
+	internal static List<KeyValuePair<string, string>> ReadIni(string path, out string error)
 	{
+		error = null;
 		string[] lines;
 		try
 		{
@@ -135,9 +140,19 @@ internal static class TConfigImporter
 		}
 		catch (Exception ex)
 		{
-			ModLoader.Log("tConfig: cannot read " + path + ": " + ex.Message);
-			yield break;
+			error = "cannot read the file (" + ex.GetType().Name + ": " + ex.Message + ")";
+			return null;
 		}
+		return ParseLines(lines);
+	}
+
+	/// <summary>
+	/// The line parser itself, without the file access, so both readers share one definition of
+	/// what an INI line means.
+	/// </summary>
+	private static List<KeyValuePair<string, string>> ParseLines(string[] lines)
+	{
+		List<KeyValuePair<string, string>> list = new List<KeyValuePair<string, string>>();
 		string text = "";
 		string[] array = lines;
 		foreach (string text2 in array)
@@ -165,7 +180,32 @@ internal static class TConfigImporter
 			{
 				key = key.Substring(num2 + 1);
 			}
-			yield return new KeyValuePair<string, string>(key, value);
+			list.Add(new KeyValuePair<string, string>(key, value));
+		}
+		return list;
+	}
+
+	/// <summary>
+	/// Minimal INI reader: `key = value` lines, `;` and `#` comments, `[section]` headers
+	/// flattened into `section.key`. tConfig writes flat files, but tolerating sections costs
+	/// nothing and avoids mis-parsing hand-edited packs.
+	/// </summary>
+	internal static IEnumerable<KeyValuePair<string, string>> ParseIni(string path)
+	{
+		string[] lines;
+		try
+		{
+			lines = File.ReadAllLines(path);
+		}
+		catch (Exception ex)
+		{
+			ModLoader.Log("tConfig: cannot read " + path + ": " + ex.Message);
+			yield break;
+		}
+		List<KeyValuePair<string, string>> list = ParseLines(lines);
+		for (int i = 0; i < list.Count; i++)
+		{
+			yield return list[i];
 		}
 	}
 }

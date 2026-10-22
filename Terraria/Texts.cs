@@ -287,6 +287,7 @@ internal static class Texts
 		Add(dictionary, "ui.mods.pack.note", "not loaded - convert it to a mod");
 		Add(dictionary, "ui.mods.pack.hint", "C / Enter - convert to a mod project");
 		Add(dictionary, "ui.mods.convert.done", "{0}: project written to {1}");
+		Add(dictionary, "ui.mods.convert.partial", "{0}: converted with {1} problem(s) - see {2}");
 		Add(dictionary, "ui.mods.convert.failed", "{0}: conversion failed - {1}");
 		Add(dictionary, "ui.mods.convert.confirm", "Delete the original pack '{0}'?");
 		Add(dictionary, "ui.mods.convert.confirm.note", "It is already copied into the project; a backup is kept in Storage/Backups.");

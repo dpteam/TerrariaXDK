@@ -230,13 +230,33 @@ internal static class Program
 		{
 			Console.WriteLine("  " + result.UnsupportedFields + " field(s) dropped: no equivalent here");
 		}
-		for (int j = 0; j < result.Warnings.Count && j < 20; j++)
+		// Failures go to stderr, not stdout: a script that pipes the output should be able to tell
+		// "converted with some losses" from "converted cleanly" without parsing prose.
+		if (result.Errors.Count > 0)
 		{
-			Console.WriteLine("  - " + result.Warnings[j]);
+			Console.Error.WriteLine("  " + result.Errors.Count + " file(s) or item(s) failed and are NOT in the mod:");
+			for (int j = 0; j < result.Errors.Count; j++)
+			{
+				Console.Error.WriteLine("  ! " + result.Errors[j]);
+			}
+		}
+		for (int k = 0; k < result.Warnings.Count && k < 20; k++)
+		{
+			Console.WriteLine("  - " + result.Warnings[k]);
+		}
+		if (result.Warnings.Count > 20)
+		{
+			Console.WriteLine("  ... and " + (result.Warnings.Count - 20) + " more in the log");
+		}
+		if (result.LogFile.Length != 0)
+		{
+			Console.WriteLine("Log: " + result.LogFile);
 		}
 		Console.WriteLine("Build it with: dotnet build \"" + result.ProjectFile + "\"");
 		Console.WriteLine("Then copy the DLL into Storage/Mods/" + Path.GetFileNameWithoutExtension(result.ProjectFile) + "/");
-		return 0;
+		// A conversion with failures still succeeded, but not cleanly - say so in the exit code so
+		// a build script notices instead of shipping a mod that is missing half its items.
+		return (result.Errors.Count > 0) ? 3 : 0;
 	}
 
 	/// <summary>
