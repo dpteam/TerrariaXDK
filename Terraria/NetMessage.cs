@@ -2313,7 +2313,10 @@ public sealed class NetMessage
 			int num99 = PacketIn.ReadUInt16();
 			Player player13 = Main.PlayerSet[num99 & 7];
 			num99 >>= 4;
-			player13.hair = (byte)(num99 & 0x3F);
+			// The field is six bits (0..63) and this build has MaxNumHairs (36) styles, so 36..63
+			// draw somebody else's picture. Clamped rather than refused: hair is cosmetic, and the
+			// player is already in the game by the time this arrives.
+			player13.hair = (byte)((num99 & 0x3F) % Player.MaxNumHairs);
 			num99 >>= 6;
 			player13.male = (num99 & 1) != 0;
 			num99 >>= 1;

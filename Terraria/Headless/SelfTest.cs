@@ -6450,6 +6450,47 @@ internal static class SelfTest
 							{
 								Main.NetMode = savedMode2;
 							}
+							// --- and a hair style this build does not have is clamped -----------
+							// `hair` is six bits on the wire and a byte in the save, and the draw path
+							// indexes the sheet as `1269 + hair` / `1305 + hair`. MaxNumHairs was
+							// declared and never read, so the limit was a comment.
+							int savedMode3 = Main.NetMode;
+							Player savedForHair = Main.PlayerSet[1];
+							try
+							{
+								Main.NetMode = 1;
+								// PlayerSet entries are created by the game's constructor, which never
+								// runs headless.
+								Main.PlayerSet[1] = new Player();
+								// Message 4: player slot in the low bits, then hair in six bits.
+								// 0x0F << 4 puts 15 into the hair field, and 63 is the largest six-bit
+								// value - both are above MaxNumHairs.
+								Player target2 = Main.PlayerSet[1];
+								target2.hair = 0;
+								SendPlayerInfo(itemClient, 1, 15);
+								if (target2.hair >= Player.MaxNumHairs)
+								{
+									return Fail("a hair style past the table was accepted: " + target2.hair);
+								}
+								target2.hair = 0;
+								SendPlayerInfo(itemClient, 1, 63);
+								if (target2.hair >= Player.MaxNumHairs)
+								{
+									return Fail("hair style 63 was accepted: " + target2.hair);
+								}
+								// A real style still arrives, so the clamp is not setting everything to 0.
+								target2.hair = 0;
+								SendPlayerInfo(itemClient, 1, 5);
+								if (target2.hair != 5)
+								{
+									return Fail("a valid hair style did not arrive: " + target2.hair);
+								}
+							}
+							finally
+							{
+								Main.NetMode = savedMode3;
+								Main.PlayerSet[1] = savedForHair;
+							}
 							// "No exception" is also true when the guard is never reached, which is the
 							// mistake this project has made once already (IsValidWallType, written and
 							// never called). The counter is the proof that each packet hit its guard.
@@ -6729,6 +6770,32 @@ internal static class SelfTest
 					binaryWriter.Write(style);
 				}
 			}
+			binaryWriter.Flush();
+		}
+		byte[] buffer = stream.ToArray();
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.PacketIn.BaseStream.Write(buffer, 0, buffer.Length);
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.GetData(client);
+	}
+
+	/// <summary>
+	/// Feeds one player-info packet (message 4) into the host: the packed slot/hair/gender/
+	/// difficulty word, the 21 colour bytes (seven colours of three), then the name.
+	/// </summary>
+	private static void SendPlayerInfo(NetClient client, int slot, int hair)
+	{
+		System.IO.MemoryStream stream = new System.IO.MemoryStream();
+		using (System.IO.BinaryWriter binaryWriter = new System.IO.BinaryWriter(stream, Encoding.UTF8))
+		{
+			binaryWriter.Write((byte)4);
+			// slot (3 bits), hair (6 bits), male (1 bit), difficulty (the rest).
+			binaryWriter.Write((ushort)((slot & 7) | ((hair & 0x3F) << 4)));
+			for (int i = 0; i < 21; i++)
+			{
+				binaryWriter.Write((byte)128);
+			}
+			binaryWriter.Write("Tester");
 			binaryWriter.Flush();
 		}
 		byte[] buffer = stream.ToArray();
@@ -15928,8 +15995,24 @@ internal static class SelfTest
 			{
 				return Fail("a wall type outside the table was accepted");
 			}
+			// --- and the hair sprite block has to fit the sheet ---------------------
+			// `hair` is a byte in the save and six bits on the wire, and the draw path indexes the
+			// sprite sheet as `1269 + hair` and `1305 + hair`. MaxNumHairs was declared and never
+			// read, so the limit existed only as a comment.
+			int hairs = Player.MaxNumHairs;
+			if (hairs <= 0)
+			{
+				return Fail("MaxNumHairs is " + hairs);
+			}
+			int lastHairSprite = 1305 + hairs - 1;
+			if (lastHairSprite >= SpriteSheet<_sheetSprites>.Source.Length)
+			{
+				return Fail("hair style " + (hairs - 1) + " needs sprite " + lastHairSprite
+					+ ", but the sheet holds " + SpriteSheet<_sheetSprites>.Source.Length);
+			}
 			Console.WriteLine("       per-tile tables: " + checkedTables + " of " + tiles
-				+ " entries; wall table " + walls);
+				+ " entries; wall table " + walls + "; hair styles " + hairs
+				+ " (last sprite " + lastHairSprite + ")");
 			return true;
 		}
 		catch (Exception ex)

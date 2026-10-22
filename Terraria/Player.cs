@@ -9010,6 +9010,20 @@ public sealed class Player
 				CharacterName = binaryReader.ReadString();
 				difficulty = binaryReader.ReadByte();
 				hair = binaryReader.ReadByte();
+				// The field is a byte, so 0..255 are all representable, and the draw path indexes
+				// the sprite sheet as `1269 + hair` and `1305 + hair`. This build has MaxNumHairs
+				// (36) styles, which end at 1304 and 1340 - so hair 184 and above indexes past the
+				// end of the sheet, and 36..183 draws somebody else's picture. A save from a build
+				// with more styles, or a hand-edited one, reaches here with either.
+				//
+				// MaxNumHairs was declared and never read before this: the constant existed, the
+				// limit did not.
+				if (hair >= MaxNumHairs)
+				{
+					Program.LogWarn("Saves", "character has hair style " + hair + ", which this build"
+						+ " does not have (" + MaxNumHairs + " styles) - using 0");
+					hair = 0;
+				}
 				male = binaryReader.ReadBoolean();
 				statLife = binaryReader.ReadInt16();
 				StatLifeMax = binaryReader.ReadInt16();
