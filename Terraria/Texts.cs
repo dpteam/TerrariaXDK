@@ -397,6 +397,11 @@ internal static class Texts
 		Add(dictionary, "ui.connect.title", "Connect");
 		Add(dictionary, "ui.modmismatch.title", "Mod mismatch");
 		Add(dictionary, "ui.modmismatch.text", "Player '{0}' uses a different mod set and cannot join.");
+		Add(dictionary, "ui.modmismatch.downloading", "Downloading {0} mod(s) from the server...");
+		Add(dictionary, "ui.modmismatch.installed", "{0} mod(s) downloaded and verified");
+		Add(dictionary, "ui.modmismatch.restart", "Restart the game to load them, then join again");
+		Add(dictionary, "ui.modmismatch.download.failed", "Could not download the mods: {0}");
+		Add(dictionary, "ui.modmismatch.offer", "This server offers its mods: set [Mods] DownloadFromHost=True to accept them");
 		Add(dictionary, "ui.reject.title", "Connection refused: {0}");
 		Add(dictionary, "ui.reject.protocol", "server protocol {0}, yours {1}");
 		Add(dictionary, "ui.reject.mods", "this server runs a different mod set");

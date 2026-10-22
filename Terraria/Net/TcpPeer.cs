@@ -60,6 +60,17 @@ internal sealed class TcpPeer : IPeerTransport
 	internal const byte OpMod = 12;
 
 	/// <summary>
+	/// Mod files moving from a host to a client that does not have them
+	/// (<c>[Mods] AllowDownload</c>). The payload is a sub-protocol, see <see cref="ModTransfer"/>.
+	///
+	/// A separate opcode rather than a <c>OpMod</c> packet: mod payloads are relayed to every
+	/// other player and are limited to 64 KiB, while this is a private stream between one client
+	/// and the host, carries whole files, and must never be relayed - a download from one client
+	/// is not something the others asked for.
+	/// </summary>
+	internal const byte OpModFile = 13;
+
+	/// <summary>
 	/// Bumped whenever the wire format or handshake changes.
 	///
 	/// 3: the <c>OpReject</c> payload became a reason code plus fields instead of an English
@@ -366,6 +377,7 @@ internal sealed class TcpPeer : IPeerTransport
 			string signature;
 			string password;
 			string mods;
+			bool download;
 			int protocol;
 			using (MemoryStream memoryStream = new MemoryStream(frame, 1, frame.Length - 1))
 			{
@@ -374,9 +386,11 @@ internal sealed class TcpPeer : IPeerTransport
 				gamertag = binaryReader.ReadString();
 				signature = binaryReader.ReadString();
 				password = (memoryStream.Position < memoryStream.Length) ? binaryReader.ReadString() : "";
-				// Optional trailing field: the mod list. A client that predates it simply does not
-				// send one, and the refusal then names no mods - still correct, just less helpful.
+				// Optional trailing fields: the mod list, then the download request. A client that
+				// predates them simply does not send them, and the refusal then names no mods -
+				// still correct, just less helpful.
 				mods = (memoryStream.Position < memoryStream.Length) ? binaryReader.ReadString() : string.Empty;
+				download = (memoryStream.Position < memoryStream.Length) && binaryReader.ReadBoolean();
 			}
 			if (protocol != ProtocolVersion)
 			{
@@ -384,25 +398,12 @@ internal sealed class TcpPeer : IPeerTransport
 				Reject(connection, RejectReason.ProtocolMismatch, protocol.ToString(), ProtocolVersion.ToString());
 				return;
 			}
-			if (!Terraria.Mods.ModLoader.IsCompatible(HostSignatureForTests ?? Terraria.Mods.ModLoader.Signature, signature))
-			{
-				// Say *which* mods: "your mods differ" leaves the player comparing folders by
-				// hand, and the whole point of requiring a matching set is that the fix should be
-				// obvious. The lists travel as separate fields because a sentence cannot be
-				// assembled from translated fragments.
-				System.Collections.Generic.List<Terraria.Mods.ModEntry> hostMods =
-					(HostModListForTests != null) ? Terraria.Mods.ModSet.Parse(HostModListForTests) : Terraria.Mods.ModSet.Loaded();
-				Terraria.Mods.ModDifference difference = Terraria.Mods.ModSet.Compare(
-					hostMods, Terraria.Mods.ModSet.Parse(mods));
-				ModLoaderLog("Rejected peer " + gamertag + ": mod signature " + signature + " != "
-					+ (HostSignatureForTests ?? Terraria.Mods.ModLoader.Signature) + " (" + difference.Describe(20) + ")");
-				Reject(connection, RejectReason.ModMismatch,
-					JoinList(difference.Missing), JoinList(difference.Extra), JoinList(difference.VersionMismatch));
-				_inbox.Enqueue(() => RejectForMods(gamertag, difference));
-				return;
-			}
 			// Bans are checked before the peer joins, so a banned player never sees the roster
 			// or any world data. Checking after the join would leak both.
+			//
+			// Before the mod check as well: the mod check can now end in serving files, and a
+			// banned or unauthenticated connection must not receive any. It also means the
+			// refusal names the real reason - a banned player with the wrong mods is banned.
 			string remoteAddress = RemoteAddressOf(connection);
 			if (Terraria.Net.BanList.IsBanned(gamertag, remoteAddress))
 			{
@@ -431,6 +432,37 @@ internal sealed class TcpPeer : IPeerTransport
 			if (RemoteCount() >= NetworkConfig.MaxPlayers)
 			{
 				Reject(connection, RejectReason.ServerFull);
+				return;
+			}
+			System.Collections.Generic.List<Terraria.Mods.ModEntry> hostMods =
+				(HostModListForTests != null) ? Terraria.Mods.ModSet.Parse(HostModListForTests) : Terraria.Mods.ModSet.Loaded();
+			// A download connection is not a join attempt: it carries files and nothing else, so
+			// it is answered before the compatibility check. Otherwise a host with
+			// RequireMatchingMods turned off would accept it as a player and the client would wait
+			// for files that never come.
+			if (download && NetworkConfig.AllowDownload)
+			{
+				ServeModDownloads(connection, gamertag, hostMods);
+				return;
+			}
+			if (!Terraria.Mods.ModLoader.IsCompatible(HostSignatureForTests ?? Terraria.Mods.ModLoader.Signature, signature))
+			{
+				// Say *which* mods: "your mods differ" leaves the player comparing folders by
+				// hand, and the whole point of requiring a matching set is that the fix should be
+				// obvious. The lists travel as separate fields because a sentence cannot be
+				// assembled from translated fragments.
+				System.Collections.Generic.List<Terraria.Mods.ModEntry> clientMods = Terraria.Mods.ModSet.Parse(mods);
+				Terraria.Mods.ModDifference difference = Terraria.Mods.ModSet.Compare(hostMods, clientMods);
+				ModLoaderLog("Rejected peer " + gamertag + ": mod signature " + signature + " != "
+					+ (HostSignatureForTests ?? Terraria.Mods.ModLoader.Signature) + " (" + difference.Describe(20) + ")");
+				// A fourth field says whether this host will send the files, a fifth names them.
+				// Neither is part of the sentence, which takes three arguments - see
+				// RejectReasons.ArgumentsFor.
+				Reject(connection, RejectReason.ModMismatch,
+					JoinList(difference.Missing), JoinList(difference.Extra), JoinList(difference.VersionMismatch),
+					(NetworkConfig.AllowDownload ? "1" : ""),
+					(NetworkConfig.AllowDownload ? JoinList(difference.DownloadableNames()) : ""));
+				_inbox.Enqueue(() => RejectForMods(gamertag, difference));
 				return;
 			}
 			connection.Gamertag = string.IsNullOrEmpty(gamertag) ? "Anonymous" : gamertag;
@@ -491,6 +523,214 @@ internal sealed class TcpPeer : IPeerTransport
 		{
 			return null;
 		}
+	}
+
+	/// <summary>
+	/// Serves mod files to a client that was refused for a mod mismatch.
+	///
+	/// Runs on the connection's own thread, after the ban, password and whitelist checks and
+	/// before the peer is registered: the client never joins, never sees the roster, and the
+	/// socket carries nothing but files. Only names from <paramref name="hostMods"/> are
+	/// answered, and the folder comes from the host's own mod list - a client cannot ask for a
+	/// path.
+	/// </summary>
+	private static void ServeModDownloads(Connection connection, string gamertag,
+		System.Collections.Generic.List<Terraria.Mods.ModEntry> hostMods)
+	{
+		try
+		{
+			ModLoaderLog("Serving mods to " + gamertag + " (" + NetworkConfig.AllowDownload + ")");
+			Terraria.Mods.ModTransfer.ServeResult result = Terraria.Mods.ModTransfer.Serve(
+				connection.Stream, connection.Stream, delegate(string name)
+				{
+					// Resolved through the host's own list, so "which folder" is never the
+					// client's answer. A name it did not announce is not served at all.
+					for (int i = 0; i < hostMods.Count; i++)
+					{
+						if (string.Equals(hostMods[i].Name, name, StringComparison.OrdinalIgnoreCase))
+						{
+							return FindModFolder(hostMods[i].Name);
+						}
+					}
+					return null;
+				});
+			ModLoaderLog("Sent " + result.ModsSent + " mod(s), " + result.BytesSent + " byte(s) to "
+				+ gamertag
+				+ ((result.Refused.Count == 0) ? "" : (", refused " + result.Refused.Count + " request(s)"))
+				+ (string.IsNullOrEmpty(result.Error) ? "" : (" (" + result.Error + ")")));
+		}
+		catch (Exception ex)
+		{
+			ModLoaderLog("Mod download for " + gamertag + " failed: " + ex.Message);
+		}
+		finally
+		{
+			connection.Close();
+		}
+	}
+
+	/// <summary>
+	/// The folder of a loaded mod, by name. Null when no loaded mod has that name, which is what
+	/// makes "the host has it" and "the host can send it" the same question.
+	/// </summary>
+	internal static string FindModFolder(string name)
+	{
+		System.Collections.Generic.IList<Terraria.Mods.RawMod> rawMods = Terraria.Mods.ModLoader.RawMods;
+		for (int i = 0; i < rawMods.Count; i++)
+		{
+			if (string.Equals(rawMods[i].Name, name, StringComparison.OrdinalIgnoreCase))
+			{
+				return rawMods[i].Directory;
+			}
+		}
+		System.Collections.Generic.IList<Terraria.Mods.Mod> mods = Terraria.Mods.ModLoader.Mods;
+		for (int j = 0; j < mods.Count; j++)
+		{
+			string text = Terraria.Mods.ModLoader.DirectoryOf(mods[j]);
+			string text2 = (text == null) ? null : System.IO.Path.GetFileName(text);
+			if (string.Equals(mods[j].Name, name, StringComparison.OrdinalIgnoreCase)
+				|| (text2 != null && string.Equals(text2, name, StringComparison.OrdinalIgnoreCase)))
+			{
+				return text;
+			}
+		}
+		return null;
+	}
+
+	/// <summary>
+	/// The mod names a refusal offers to send, or an empty array.
+	///
+	/// Only for a mod mismatch with the "this host will send" flag set: a refusal that names mods
+	/// but cannot send them must not start a download that will be refused.
+	/// </summary>
+	internal static string[] DownloadNamesFrom(RejectReason reason, string[] fields)
+	{
+		if (reason != RejectReason.ModMismatch || fields == null || fields.Length < 5 || fields[3] != "1")
+		{
+			return new string[0];
+		}
+		if (string.IsNullOrEmpty(fields[4]))
+		{
+			return new string[0];
+		}
+		string[] array = fields[4].Split('\n');
+		System.Collections.Generic.List<string> list = new System.Collections.Generic.List<string>(array.Length);
+		for (int i = 0; i < array.Length; i++)
+		{
+			string text = array[i].Trim();
+			if (text.Length > 0 && Terraria.Mods.ModFiles.SafeFolderName(text).Length > 0)
+			{
+				list.Add(text);
+			}
+		}
+		return list.ToArray();
+	}
+
+	/// <summary>
+	/// Fetches the offered mods on a second connection, verifies them and puts them in place.
+	///
+	/// A second connection rather than the one that was refused: the host closes that socket on
+	/// purpose, and a refused connection must not be able to stay open and keep asking for files.
+	///
+	/// Runs on the network thread and touches no game state: everything it needs is a socket and
+	/// the filesystem, and the result is posted to the inbox like any other network event.
+	/// </summary>
+	private void DownloadMods(string[] wanted)
+	{
+		string error = null;
+		int num = 0;
+		System.Collections.Generic.List<string> list = new System.Collections.Generic.List<string>();
+		try
+		{
+			if (_remoteEndPoint == null)
+			{
+				error = "no host address";
+			}
+			else
+			{
+				using TcpClient tcpClient = new TcpClient();
+				tcpClient.NoDelay = true;
+				if (!ConnectWithTimeout(tcpClient, _remoteEndPoint, NetworkConfig.ConnectTimeoutMs))
+				{
+					error = "could not reach the host";
+				}
+				else
+				{
+					using NetworkStream stream = tcpClient.GetStream();
+					SendDownloadHandshake(stream);
+					Terraria.Mods.ModTransfer.ReceiveResult receiveResult =
+						Terraria.Mods.ModTransfer.Receive(stream, stream, wanted);
+					num = receiveResult.Received.Count;
+					for (int i = 0; i < receiveResult.Received.Count; i++)
+					{
+						string text = receiveResult.Received[i];
+						string text2;
+						if (Terraria.Mods.ModFiles.Install(text, out text2))
+						{
+							list.Add(text);
+						}
+						else
+						{
+							error = text + ": " + text2;
+						}
+					}
+					for (int j = 0; j < receiveResult.Failed.Count; j++)
+					{
+						if (!list.Contains(receiveResult.Failed[j]))
+						{
+							list.Add(receiveResult.Failed[j]);
+						}
+					}
+					if (receiveResult.Received.Count == 0)
+					{
+						error = receiveResult.Error ?? "nothing arrived";
+					}
+				}
+			}
+		}
+		catch (Exception ex)
+		{
+			error = ex.Message;
+		}
+		ModLoaderLog("Mod download: " + num + " installed of " + wanted.Length
+			+ (string.IsNullOrEmpty(error) ? "" : (" (" + error + ")")));
+		int installed = num;
+		string capturedError = error;
+		_inbox.Enqueue(delegate
+		{
+			if (installed > 0)
+			{
+				// A restart, not a reload: assemblies and item ids are fixed at load time, and
+				// pretending otherwise would be the "mod is enabled but does nothing" bug again.
+				Main.NewText(Texts.Format("ui.modmismatch.installed", installed), 120, 230, 140);
+				Main.NewText(Texts.Get("ui.modmismatch.restart"), 200, 200, 120);
+			}
+			else
+			{
+				Main.NewText(Texts.Format("ui.modmismatch.download.failed", capturedError ?? ""), 255, 120, 120);
+			}
+		});
+	}
+
+	/// <summary>
+	/// The hello for a download connection: same fields as a join, with the download flag set.
+	/// It never joins, so the host never registers it.
+	/// </summary>
+	private void SendDownloadHandshake(Stream stream)
+	{
+		using MemoryStream memoryStream = new MemoryStream();
+		BinaryWriter binaryWriter = new BinaryWriter(memoryStream, Encoding.UTF8);
+		binaryWriter.Write(OpHello);
+		binaryWriter.Write(ProtocolVersion);
+		binaryWriter.Write("Downloader");
+		binaryWriter.Write(Terraria.Mods.ModLoader.Signature);
+		binaryWriter.Write(NetworkConfig.Password ?? "");
+		// The mod list is deliberately empty: this connection is not asking to join, and claiming
+		// a set it does not have would only make the host compare the wrong thing.
+		binaryWriter.Write(string.Empty);
+		binaryWriter.Write(true);
+		binaryWriter.Flush();
+		WireFormat.WriteAll(stream, WireFormat.LengthPrefix(memoryStream.ToArray()));
 	}
 
 	/// <summary>Tells the client why it was refused, then closes. Best effort.</summary>
@@ -963,6 +1203,9 @@ internal sealed class TcpPeer : IPeerTransport
 		// The mod list, so a refusal can name the mods instead of saying "they differ". A host
 		// that predates this field stops reading after the password and ignores it.
 		binaryWriter.Write(ClientModListForTests ?? Terraria.Mods.ModSet.Describe());
+		// Optional trailing field: "I will accept files if your set does not match mine". The host
+		// only acts on it when the sets actually differ and it is willing to send.
+		binaryWriter.Write(NetworkConfig.DownloadFromHost);
 		binaryWriter.Flush();
 		SendToHost(WireFormat.LengthPrefix(memoryStream.ToArray()));
 	}
@@ -1068,10 +1311,31 @@ internal sealed class TcpPeer : IPeerTransport
 			RejectReasons.TryParse(payload, out reason, out fields);
 			string spoken = RejectReasons.Describe(reason, fields);
 			ModLoaderLog("Host refused the connection: " + RejectReasons.DescribeEnglish(reason, fields));
+			// A mod mismatch the host is willing to fix: the offer is in the fourth field, the
+			// names in the fifth. Taking it here means the player sees "downloading" instead of
+			// an error they cannot act on.
+			string[] wanted = DownloadNamesFrom(reason, fields);
+			if (wanted.Length > 0 && NetworkConfig.DownloadFromHost)
+			{
+				string captured2 = spoken;
+				_inbox.Enqueue(delegate
+				{
+					Main.NewText(Texts.Format("ui.modmismatch.downloading", wanted.Length), 200, 200, 255);
+					_session.ApplyRemoteSessionState(NetworkSessionState.Ended);
+				});
+				DownloadMods(wanted);
+				break;
+			}
 			string captured = spoken;
 			_inbox.Enqueue(delegate
 			{
 				Main.NewText(Texts.Format("ui.reject.title", captured), 255, 120, 120);
+				// Only mention the option when the host actually offers it, so the hint never
+				// sends the player looking for a setting that would change nothing.
+				if (reason == RejectReason.ModMismatch && fields != null && fields.Length > 3 && fields[3] == "1")
+				{
+					Main.NewText(Texts.Get("ui.modmismatch.offer"), 200, 200, 120);
+				}
 				_session.ApplyRemoteSessionState(NetworkSessionState.Ended);
 			});
 			break;

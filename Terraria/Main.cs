@@ -711,6 +711,8 @@ public sealed class Main : Game
 		settings.Set("Network", "AntiCheat", "Observe", "Movement validation for remote players while hosting: Off, Observe (log what would be refused) or Enforce (refuse it too).");
 		settings.Set("Mods", "Enabled", "True", "Loads mods from the Mods folder next to the executable.");
 		settings.Set("Mods", "RequireMatchingMods", "True", "Rejects multiplayer clients whose mod set differs from the host's.");
+		settings.Set("Mods", "AllowDownload", "False", "Lets clients whose mod set differs fetch this host's mods automatically.\n; A mod is executable code: turn this on only for mods you are willing to give away.");
+		settings.Set("Mods", "DownloadFromHost", "False", "Accepts mods from a host whose mod set differs, instead of being refused.\n; Joining a server is not agreement to run its code, so this is off by default.");
 		Gamertag = settings.Get("Game", "Gamertag");
 		IsTrial = settings.Get("Game", "TrialActive").ToLower().Equals("true");
 		PSMode = settings.Get("Game", "PSMode").ToLower().Equals("true");
@@ -783,6 +785,8 @@ public sealed class Main : Game
 		Terraria.Input.KeyBindings.Load(settings);
 		Terraria.Mods.ModLoader.Enabled = settings.Get("Mods", "Enabled").ToLower().Equals("true");
 		Terraria.Mods.ModLoader.RequireMatchingMods = settings.Get("Mods", "RequireMatchingMods").ToLower().Equals("true");
+		Terraria.Net.NetworkConfig.AllowDownload = settings.Get("Mods", "AllowDownload").ToLower().Equals("true");
+		Terraria.Net.NetworkConfig.DownloadFromHost = settings.Get("Mods", "DownloadFromHost").ToLower().Equals("true");
 		// Writes every rebindable action, so the file documents them even when untouched.
 		Terraria.Input.KeyBindings.Save(settings);
 		settings.Close();

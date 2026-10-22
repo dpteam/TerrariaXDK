@@ -5,15 +5,18 @@ using System.Text;
 namespace Terraria.Mods;
 
 /// <summary>
-/// One mod as it travels in the handshake: a name and a version, nothing else.
+/// One mod as it travels in the handshake: a name, a version, how big it is and what its
+/// contents hash to.
 ///
 /// The signature (<see cref="ModLoader.Signature"/>) answers "same set or not" with one number.
 /// That is enough to refuse a connection but useless for telling the player what to do about it -
 /// and "your mods differ" leaves them comparing folder names by hand. This list exists so the
 /// refusal can name the mods.
 ///
-/// Deliberately small: a name and a version. Sending the whole manifest would mean sending
-/// executable-adjacent data before anybody has agreed to trust it.
+/// Size and hash are what turn the refusal into an offer: they are sent *before* anybody agrees
+/// to download anything, so the client can say "3 mods, 240 KB" and, once the files arrive, check
+/// them against the hash the host promised. Neither is executable content - the files are, and
+/// those only move after an explicit yes.
 /// </summary>
 internal sealed class ModEntry
 {
@@ -21,8 +24,17 @@ internal sealed class ModEntry
 
 	public string Version = "";
 
+	/// <summary>Total bytes of the mod's files, or -1 when the host could not measure them.</summary>
+	public long Size = -1L;
+
+	/// <summary>Content hash of the mod folder; empty when the host could not compute one.</summary>
+	public string Hash = "";
+
 	/// <summary>"Name v1.2.3", for messages.</summary>
 	public string Label => Name + " v" + Version;
+
+	/// <summary>True when this entry carries enough to be downloaded and verified.</summary>
+	public bool IsDownloadable => Size >= 0L && !string.IsNullOrEmpty(Hash) && Hash != "unreadable";
 }
 
 /// <summary>What differs between the host's mod set and a client's.</summary>
@@ -36,6 +48,40 @@ internal sealed class ModDifference
 
 	/// <summary>Same name, different version: "Name (host 1.0, you 2.0)".</summary>
 	public readonly List<string> VersionMismatch = new List<string>();
+
+	/// <summary>
+	/// The host's entries the client does not have, and the ones whose version differs. Kept
+	/// next to the human labels because a download needs names and sizes, and re-deriving them
+	/// from "Name v1.2.0" would be parsing a sentence that was only ever meant to be read.
+	/// </summary>
+	public readonly List<ModEntry> MissingEntries = new List<ModEntry>();
+
+	public readonly List<ModEntry> VersionMismatchEntries = new List<ModEntry>();
+
+	/// <summary>
+	/// The names a client could fetch to fix the mismatch: missing mods and wrong versions, in
+	/// that order. Only entries whose size and hash are known - the rest cannot be verified
+	/// after transfer, so offering them would be offering a download that fails its own check.
+	/// </summary>
+	public List<string> DownloadableNames()
+	{
+		List<string> list = new List<string>();
+		for (int i = 0; i < MissingEntries.Count; i++)
+		{
+			if (MissingEntries[i].IsDownloadable)
+			{
+				list.Add(MissingEntries[i].Name);
+			}
+		}
+		for (int j = 0; j < VersionMismatchEntries.Count; j++)
+		{
+			if (VersionMismatchEntries[j].IsDownloadable)
+			{
+				list.Add(VersionMismatchEntries[j].Name);
+			}
+		}
+		return list;
+	}
 
 	public bool Any => Missing.Count > 0 || Extra.Count > 0 || VersionMismatch.Count > 0;
 
@@ -92,8 +138,13 @@ internal static class ModSet
 	/// <summary>Serialises the loaded mods for the handshake, sorted so it is deterministic.</summary>
 	internal static string Describe()
 	{
-		List<ModEntry> entries = Loaded();
-		if (entries.Count == 0)
+		return Describe(Loaded());
+	}
+
+	/// <summary>Serialises a mod list: one line per mod, <c>name|version|size|hash</c>.</summary>
+	internal static string Describe(List<ModEntry> entries)
+	{
+		if (entries == null || entries.Count == 0)
 		{
 			return string.Empty;
 		}
@@ -104,12 +155,25 @@ internal static class ModSet
 			{
 				stringBuilder.Append(ItemSeparator);
 			}
-			stringBuilder.Append(entries[i].Name).Append(FieldSeparator).Append(entries[i].Version);
+			ModEntry modEntry = entries[i];
+			stringBuilder.Append(modEntry.Name).Append(FieldSeparator).Append(modEntry.Version);
+			// Size and hash are optional on the wire: a peer that predates them sends two fields,
+			// and the refusal then cannot offer a download - still correct, just less helpful.
+			if (modEntry.Size >= 0L || !string.IsNullOrEmpty(modEntry.Hash))
+			{
+				stringBuilder.Append(FieldSeparator).Append(modEntry.Size.ToString(System.Globalization.CultureInfo.InvariantCulture))
+					.Append(FieldSeparator).Append(modEntry.Hash ?? "");
+			}
 		}
 		return stringBuilder.ToString();
 	}
 
-	/// <summary>The loaded mods as entries, sorted by name.</summary>
+	/// <summary>
+	/// The loaded mods as entries, sorted by name.
+	///
+	/// The folder of each mod is found from the loaded instance, so the size and hash describe
+	/// exactly the folder a download would copy.
+	/// </summary>
 	internal static List<ModEntry> Loaded()
 	{
 		List<ModEntry> list = new List<ModEntry>();
@@ -120,10 +184,39 @@ internal static class ModSet
 			ModEntry modEntry = new ModEntry();
 			modEntry.Name = mod.Name ?? mod.GetType().Name;
 			modEntry.Version = mod.Version ?? "0.0.0";
+			Measure(modEntry, ModLoader.DirectoryOf(mod));
 			list.Add(modEntry);
+		}
+		IList<RawMod> rawMods = ModLoader.RawMods;
+		for (int j = 0; j < rawMods.Count; j++)
+		{
+			RawMod rawMod = rawMods[j];
+			ModEntry modEntry2 = new ModEntry();
+			modEntry2.Name = rawMod.Name;
+			modEntry2.Version = rawMod.Version;
+			Measure(modEntry2, rawMod.Directory);
+			list.Add(modEntry2);
 		}
 		list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
 		return list;
+	}
+
+	/// <summary>Fills in size and hash, or leaves them "unknown" when the folder is gone.</summary>
+	private static void Measure(ModEntry entry, string directory)
+	{
+		if (string.IsNullOrEmpty(directory))
+		{
+			return;
+		}
+		long num = ModFiles.TotalSize(directory);
+		if (num < 0L || num > ModFiles.MaxBytes)
+		{
+			// Too big to send: report it as unknown rather than promising a download that will be
+			// refused halfway through.
+			return;
+		}
+		entry.Size = num;
+		entry.Hash = ModFiles.ContentHash(directory);
 	}
 
 	/// <summary>
@@ -145,17 +238,24 @@ internal static class ModSet
 			{
 				continue;
 			}
-			int num = text2.IndexOf(FieldSeparator);
+			// name|version|size|hash - the last two optional, so an older peer's two-field entry
+			// still parses and simply cannot be downloaded.
+			string[] array2 = text2.Split(FieldSeparator);
 			ModEntry modEntry = new ModEntry();
-			if (num < 0)
+			modEntry.Name = array2[0].Trim();
+			modEntry.Version = (array2.Length > 1) ? array2[1].Trim() : "?";
+			if (array2.Length > 2)
 			{
-				modEntry.Name = text2;
-				modEntry.Version = "?";
+				long result;
+				if (long.TryParse(array2[2].Trim(), System.Globalization.NumberStyles.Integer,
+					System.Globalization.CultureInfo.InvariantCulture, out result) && result >= 0L)
+				{
+					modEntry.Size = result;
+				}
 			}
-			else
+			if (array2.Length > 3)
 			{
-				modEntry.Name = text2.Substring(0, num).Trim();
-				modEntry.Version = text2.Substring(num + 1).Trim();
+				modEntry.Hash = array2[3].Trim();
 			}
 			if (modEntry.Name.Length > 0)
 			{
@@ -189,11 +289,13 @@ internal static class ModSet
 			if (!dictionary.TryGetValue(modEntry.Name, out value))
 			{
 				modDifference.Missing.Add(modEntry.Label);
+				modDifference.MissingEntries.Add(modEntry);
 				continue;
 			}
 			if (!string.Equals(value.Version, modEntry.Version, StringComparison.OrdinalIgnoreCase))
 			{
 				modDifference.VersionMismatch.Add(modEntry.Name + " (host " + modEntry.Version + ", you " + value.Version + ")");
+				modDifference.VersionMismatchEntries.Add(modEntry);
 			}
 		}
 		for (int k = 0; k < client.Count; k++)

@@ -131,6 +131,7 @@ internal static class SelfTest
 		RunCheck("every text key used", CheckTextKeysUsed);
 		RunCheck("cheat menu layout", CheckCheatMenuLayout);
 		RunCheck("raw mod", CheckRawMod);
+		RunCheck("mod download", CheckModDownload);
 #if DEBUG
 		RunCheck("debug kit", CheckDebugKit);
 		RunCheck("debug console", CheckDebugConsole);
@@ -2529,6 +2530,39 @@ internal static class SelfTest
 				if (TryHandshakeReject(port, "MatchingPeer", string.Empty, "hostsig", "CoolMod|1.2.0", out got, out gotFields))
 				{
 					return Fail("a matching peer was refused with '" + got + "'");
+				}
+				// A download connection is not a join attempt. With downloads off it gets the
+				// ordinary refusal and no offer; with them on it gets a file frame and never a
+				// Welcome - a refused peer must not be able to become a player by asking for files.
+				bool savedAllowDownload = NetworkConfig.AllowDownload;
+				try
+				{
+					NetworkConfig.AllowDownload = false;
+					if (TryHandshakeReject(port, "Downloader", string.Empty, "vanilla", string.Empty, out got, out gotFields)
+						&& gotFields.Length > 3 && gotFields[3] == "1")
+					{
+						return Fail("the refusal offered a download while downloads are off");
+					}
+					NetworkConfig.AllowDownload = true;
+					byte firstOp;
+					if (!TryDownloadHandshake(port, "CoolMod", out firstOp))
+					{
+						return Fail("the host did not answer a download handshake");
+					}
+					if (firstOp != Terraria.Net.TcpPeer.OpModFile)
+					{
+						return Fail("a download connection got opcode " + firstOp + " instead of a file frame"
+							+ " (allow=" + NetworkConfig.AllowDownload + ", opModFile=" + Terraria.Net.TcpPeer.OpModFile + ")");
+					}
+					if (TryHandshakeReject(port, "Downloader", string.Empty, "vanilla", string.Empty, out got, out gotFields)
+						&& !(got == Terraria.Net.RejectReason.ModMismatch && gotFields.Length > 3 && gotFields[3] == "1"))
+					{
+						return Fail("the refusal did not offer the download it can serve");
+					}
+				}
+				finally
+				{
+					NetworkConfig.AllowDownload = savedAllowDownload;
 				}
 			}
 			finally
@@ -9691,6 +9725,42 @@ internal static class SelfTest
 	}
 
 	/// <summary>
+	/// Opens a download connection and reports the opcode of the host's first answer.
+	///
+	/// The point is what the answer is <b>not</b>: a download connection must never be welcomed,
+	/// because "ask for files" would then be a way to join without a matching mod set.
+	/// </summary>
+	private static bool TryDownloadHandshake(int Port, string RequestMod, out byte FirstOp)
+	{
+		FirstOp = 0;
+		using System.Net.Sockets.TcpClient tcpClient = new System.Net.Sockets.TcpClient();
+		tcpClient.NoDelay = true;
+		tcpClient.Connect(System.Net.IPAddress.Loopback, Port);
+		using System.Net.Sockets.NetworkStream stream = tcpClient.GetStream();
+		using MemoryStream memoryStream = new MemoryStream();
+		BinaryWriter binaryWriter = new BinaryWriter(memoryStream, Encoding.UTF8);
+		binaryWriter.Write(Terraria.Net.TcpPeer.OpHello);
+		binaryWriter.Write(Terraria.Net.TcpPeer.ProtocolVersionPublic);
+		binaryWriter.Write("Downloader");
+		binaryWriter.Write("vanilla");
+		binaryWriter.Write(string.Empty);
+		binaryWriter.Write(string.Empty);
+		binaryWriter.Write(true);
+		binaryWriter.Flush();
+		WireFormat.WriteAll(stream, WireFormat.LengthPrefix(memoryStream.ToArray()));
+		// Ask for one mod, so a serving host has something to answer and a refusing one has
+		// already answered by now.
+		WireFormat.WriteAll(stream, WireFormat.LengthPrefix(Terraria.Mods.ModTransfer.Request(RequestMod)));
+		byte[] frame = WireFormat.ReadFrame(stream);
+		if (frame == null || frame.Length == 0)
+		{
+			return false;
+		}
+		FirstOp = frame[0];
+		return true;
+	}
+
+	/// <summary>
 	/// The same, with the mod signature and mod list the peer claims. Both are optional so the
 	/// existing callers keep their meaning: null means "whatever this build has".
 	/// </summary>
@@ -13249,6 +13319,17 @@ internal static class SelfTest
 			{
 				return Fail("a raw mod is not counted as a mod: " + Terraria.Mods.ModLoader.ModCount);
 			}
+			// And the host can find its files: "the host has this mod" and "the host can send this
+			// mod" have to be the same question, or a client is offered a download that fails.
+			string folder = Terraria.Net.TcpPeer.FindModFolder("Raw Pack");
+			if (folder == null || !System.IO.File.Exists(System.IO.Path.Combine(folder, "mod.ini")))
+			{
+				return Fail("the host could not find a loaded raw mod's folder");
+			}
+			if (Terraria.Net.TcpPeer.FindModFolder("Not A Mod") != null)
+			{
+				return Fail("the host found a folder for a mod it does not have");
+			}
 			return true;
 		}
 		catch (Exception ex)
@@ -13296,6 +13377,417 @@ internal static class SelfTest
 		for (int j = 0; j < directories.Length; j++)
 		{
 			CopyTree(directories[j], System.IO.Path.Combine(destination, System.IO.Path.GetFileName(directories[j])));
+		}
+	}
+
+	// --- Mod download -------------------------------------------------------
+
+	/// <summary>
+	/// Fetching a mod's files from a host, which is the part of "join a server with the same
+	/// mods" that has to be right for reasons other than convenience: the bytes are executable,
+	/// the paths come from another machine, and the result is written into the player's own
+	/// folders.
+	///
+	/// Checked here rather than through the game's UI: the transfer is written over two streams,
+	/// so a loopback socket pair exercises exactly the bytes a real download moves.
+	/// </summary>
+	private static bool CheckModDownload()
+	{
+		string root = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-download");
+		string savedRoot = Terraria.Mods.ModFiles.ModsRootOverride;
+		try
+		{
+			if (System.IO.Directory.Exists(root))
+			{
+				System.IO.Directory.Delete(root, recursive: true);
+			}
+			System.IO.Directory.CreateDirectory(root);
+			// --- framing -------------------------------------------------------
+			Terraria.Mods.ModFileFrame frame;
+			if (!Terraria.Mods.ModTransfer.TryParse(Terraria.Mods.ModTransfer.Request("Cool Mod"), out frame)
+				|| frame.Op != Terraria.Mods.ModFileOp.Request || frame.ModName != "Cool Mod")
+			{
+				return Fail("a request frame did not round-trip");
+			}
+			string[] manifest = new string[2] { "mod.ini", "Item/Blade.png" };
+			if (!Terraria.Mods.ModTransfer.TryParse(
+				Terraria.Mods.ModTransfer.Begin("Cool Mod", manifest, 1234L, "abc123"), out frame)
+				|| frame.Op != Terraria.Mods.ModFileOp.Begin || frame.FileCount != 2
+				|| frame.Files == null || frame.Files[1] != "Item/Blade.png"
+				|| frame.TotalBytes != 1234L || frame.Hash != "abc123")
+			{
+				return Fail("a begin frame did not round-trip");
+			}
+			byte[] array = new byte[6] { 1, 2, 3, 4, 5, 6 };
+			if (!Terraria.Mods.ModTransfer.TryParse(
+				Terraria.Mods.ModTransfer.Chunk("Item/Blade.png", 7L, array, 1, 4), out frame)
+				|| frame.Op != Terraria.Mods.ModFileOp.Chunk || frame.Path != "Item/Blade.png"
+				|| frame.Offset != 7L || frame.DataCount != 4)
+			{
+				return Fail("a chunk frame did not round-trip");
+			}
+			// The payload is the whole frame, so the slice has to point into it - an off-by-one
+			// here writes the length prefix into the file.
+			if (frame.Data[frame.DataOffset] != 2 || frame.Data[frame.DataOffset + 3] != 5)
+			{
+				return Fail("a chunk's data slice points at the wrong bytes");
+			}
+			if (!Terraria.Mods.ModTransfer.TryParse(Terraria.Mods.ModTransfer.End("Cool Mod", "abc123"), out frame)
+				|| frame.Op != Terraria.Mods.ModFileOp.End || frame.Hash != "abc123")
+			{
+				return Fail("an end frame did not round-trip");
+			}
+			if (!Terraria.Mods.ModTransfer.TryParse(Terraria.Mods.ModTransfer.Refused("Cool Mod", "too large"), out frame)
+				|| frame.Op != Terraria.Mods.ModFileOp.Refused || frame.Reason != "too large")
+			{
+				return Fail("a refusal frame did not round-trip");
+			}
+			// --- hostile frames -------------------------------------------------
+			byte[] goodBegin = Terraria.Mods.ModTransfer.Begin("X", new string[1] { "a.txt" }, 1L, "h");
+			byte[] trailing = new byte[goodBegin.Length + 1];
+			Buffer.BlockCopy(goodBegin, 0, trailing, 0, goodBegin.Length);
+			if (Terraria.Mods.ModTransfer.TryParse(trailing, out frame))
+			{
+				return Fail("a frame with trailing bytes was accepted");
+			}
+			// A manifest entry that escapes the folder: refused before any file is written.
+			if (Terraria.Mods.ModTransfer.TryParse(
+				Terraria.Mods.ModTransfer.Begin("X", new string[1] { "../../evil.txt" }, 1L, "h"), out frame))
+			{
+				return Fail("a begin frame with an escaping path was accepted");
+			}
+			// A count that claims more data than the frame holds.
+			byte[] wholeChunk = Terraria.Mods.ModTransfer.Chunk("a.txt", 0L, array, 0, 6);
+			byte[] cutChunk = new byte[wholeChunk.Length - 1];
+			Buffer.BlockCopy(wholeChunk, 0, cutChunk, 0, cutChunk.Length);
+			if (Terraria.Mods.ModTransfer.TryParse(cutChunk, out frame))
+			{
+				return Fail("a truncated chunk was accepted");
+			}
+			if (Terraria.Mods.ModTransfer.TryParse(new byte[1] { 200 }, out frame)
+				|| Terraria.Mods.ModTransfer.TryParse(null, out frame))
+			{
+				return Fail("a frame with an unknown opcode was accepted");
+			}
+			// --- path and name safety -------------------------------------------
+			string[] unsafePaths = new string[6] { "../x", "/etc/passwd", "C:/Windows/x", "a/../b", "a\\b", "a/./b" };
+			for (int i = 0; i < unsafePaths.Length; i++)
+			{
+				if (Terraria.Mods.ModFiles.IsSafeRelativePath(unsafePaths[i]))
+				{
+					return Fail("path '" + unsafePaths[i] + "' was accepted");
+				}
+			}
+			string[] safePaths = new string[2] { "mod.ini", "Item/Blade.png" };
+			for (int j = 0; j < safePaths.Length; j++)
+			{
+				if (!Terraria.Mods.ModFiles.IsSafeRelativePath(safePaths[j]))
+				{
+					return Fail("path '" + safePaths[j] + "' was refused");
+				}
+			}
+			if (Terraria.Mods.ModFiles.SafeFolderName("..").Length != 0
+				|| Terraria.Mods.ModFiles.SafeFolderName("a/b").Length != 0
+				|| Terraria.Mods.ModFiles.SafeFolderName("").Length != 0)
+			{
+				return Fail("an unsafe mod name was accepted");
+			}
+			if (Terraria.Mods.ModFiles.SafeFolderName("Omnirs Weapons") != "Omnirs Weapons")
+			{
+				return Fail("a normal mod name was refused");
+			}
+			// --- a real transfer over a socket pair -----------------------------
+			Terraria.Mods.ModFiles.ModsRootOverride = System.IO.Path.Combine(root, "Mods");
+			string source = System.IO.Path.Combine(root, "host", "Cool Mod");
+			System.IO.Directory.CreateDirectory(System.IO.Path.Combine(source, "Item"));
+			System.IO.File.WriteAllText(System.IO.Path.Combine(source, "mod.ini"), "[Mod]\r\nName=Cool Mod\r\nVersion=1.0\r\n");
+			WriteTinyPng(System.IO.Path.Combine(source, "Item", "Blade.png"));
+			// Files that must not travel: a switch, and build output.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(source, "disabled.txt"), "x");
+			System.IO.Directory.CreateDirectory(System.IO.Path.Combine(source, "obj"));
+			System.IO.File.WriteAllText(System.IO.Path.Combine(source, "obj", "junk.bin"), "junk");
+			string expectedHash = Terraria.Mods.ModFiles.ContentHash(source);
+			long expectedSize = Terraria.Mods.ModFiles.TotalSize(source);
+			if (expectedSize <= 0L || string.IsNullOrEmpty(expectedHash) || expectedHash == "unreadable")
+			{
+				return Fail("the source mod has no measurable content");
+			}
+			Terraria.Mods.ModTransfer.ReceiveResult received = LoopbackDownload(source, "Cool Mod", out string transferError);
+			if (transferError != null)
+			{
+				return Fail("the transfer failed: " + transferError);
+			}
+			if (received.Received.Count != 1)
+			{
+				return Fail("expected 1 mod to arrive, got " + received.Received.Count
+					+ " (" + (received.Error ?? "no reason") + ")");
+			}
+			// What landed must be the same content: same files, same hash, no disabled.txt and no
+			// build output.
+			string incoming = Terraria.Mods.ModFiles.IncomingDirectory("Cool Mod");
+			if (Terraria.Mods.ModFiles.ContentHash(incoming) != expectedHash)
+			{
+				return Fail("the received mod does not hash the same as the source");
+			}
+			if (System.IO.File.Exists(System.IO.Path.Combine(incoming, "disabled.txt")))
+			{
+				return Fail("disabled.txt travelled with the mod");
+			}
+			if (System.IO.Directory.Exists(System.IO.Path.Combine(incoming, "obj")))
+			{
+				return Fail("build output travelled with the mod");
+			}
+			// Installing replaces whatever was there, and leaves nothing half-moved.
+			string error;
+			if (!Terraria.Mods.ModFiles.Install("Cool Mod", out error))
+			{
+				return Fail("install failed: " + error);
+			}
+			string installed = System.IO.Path.Combine(Terraria.Mods.ModFiles.ModsRoot, "Cool Mod");
+			if (Terraria.Mods.ModFiles.ContentHash(installed) != expectedHash)
+			{
+				return Fail("the installed mod does not hash the same as the source");
+			}
+			if (System.IO.Directory.Exists(incoming))
+			{
+				return Fail("the incoming folder survived the install");
+			}
+			// --- the host does not have it --------------------------------------
+			Terraria.Mods.ModTransfer.ReceiveResult absent = LoopbackDownload(source, "Not A Mod", out string absentError);
+			if (absentError != null)
+			{
+				return Fail("the refusal transfer failed: " + absentError);
+			}
+			if (absent.Received.Count != 0 || absent.Failed.Count != 1)
+			{
+				return Fail("a mod the host does not have was not refused");
+			}
+			if (System.IO.Directory.Exists(Terraria.Mods.ModFiles.IncomingDirectory("Not A Mod")))
+			{
+				return Fail("a refused mod left a folder behind");
+			}
+			// --- a tampered transfer --------------------------------------------
+			// The host promises one hash and sends other bytes: the client must notice and leave
+			// nothing installed. This is the whole reason the hash travels before the files.
+			Terraria.Mods.ModTransfer.ReceiveResult tampered = LoopbackTampered(source, "Cool Mod", out string tamperedError);
+			if (tamperedError != null)
+			{
+				return Fail("the tampered transfer threw: " + tamperedError);
+			}
+			if (tampered.Received.Count != 0)
+			{
+				return Fail("a mod whose contents did not match its hash was accepted");
+			}
+			if (System.IO.Directory.Exists(Terraria.Mods.ModFiles.IncomingDirectory("Cool Mod")))
+			{
+				return Fail("a rejected download was left on disk");
+			}
+			// --- the list that carries size and hash ----------------------------
+			Terraria.Mods.ModEntry entry = new Terraria.Mods.ModEntry();
+			entry.Name = "Cool Mod";
+			entry.Version = "1.0";
+			entry.Size = 4321L;
+			entry.Hash = "deadbeef";
+			System.Collections.Generic.List<Terraria.Mods.ModEntry> list =
+				new System.Collections.Generic.List<Terraria.Mods.ModEntry> { entry };
+			string described = Terraria.Mods.ModSet.Describe(list);
+			System.Collections.Generic.List<Terraria.Mods.ModEntry> parsed = Terraria.Mods.ModSet.Parse(described);
+			if (parsed.Count != 1 || parsed[0].Name != "Cool Mod" || parsed[0].Size != 4321L || parsed[0].Hash != "deadbeef")
+			{
+				return Fail("the mod list lost its size or hash: '" + described + "'");
+			}
+			if (!parsed[0].IsDownloadable)
+			{
+				return Fail("an entry with a size and a hash was not downloadable");
+			}
+			// An older peer sends two fields: it must still parse, and must not be offered.
+			System.Collections.Generic.List<Terraria.Mods.ModEntry> oldStyle = Terraria.Mods.ModSet.Parse("Cool Mod|1.0");
+			if (oldStyle.Count != 1 || oldStyle[0].Size != -1L || oldStyle[0].IsDownloadable)
+			{
+				return Fail("a two-field mod entry did not parse as 'not downloadable'");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("mod download check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Mods.ModFiles.ModsRootOverride = savedRoot;
+			try
+			{
+				if (System.IO.Directory.Exists(root))
+				{
+					System.IO.Directory.Delete(root, recursive: true);
+				}
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	/// <summary>
+	/// Runs the real host and client halves against each other over a loopback socket, and
+	/// returns what the client got. <paramref name="servedName"/> is what the host offers.
+	/// </summary>
+	private static Terraria.Mods.ModTransfer.ReceiveResult LoopbackDownload(string sourceFolder, string requestedName, out string error)
+	{
+		return Loopback(sourceFolder, requestedName, null, out error);
+	}
+
+	/// <summary>The same, with every chunk's bytes flipped: the client must reject the result.</summary>
+	private static Terraria.Mods.ModTransfer.ReceiveResult LoopbackTampered(string sourceFolder, string requestedName, out string error)
+	{
+		return Loopback(sourceFolder, requestedName, delegate(byte[] payload)
+		{
+			// Flip the last byte of the chunk payload. The frame stays well formed, so only the
+			// content hash can notice - which is the check being tested.
+			if (payload.Length > 0)
+			{
+				payload[payload.Length - 1] ^= 0xFF;
+			}
+			return payload;
+		}, out error);
+	}
+
+	private static Terraria.Mods.ModTransfer.ReceiveResult Loopback(string sourceFolder, string requestedName,
+		Func<byte[], byte[]> tamper, out string error)
+	{
+		error = null;
+		System.Net.Sockets.TcpListener listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+		listener.Start();
+		int port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+		Exception hostError = null;
+		Terraria.Mods.ModTransfer.ServeResult serveResult = null;
+		System.Threading.Thread thread = new System.Threading.Thread(delegate()
+		{
+			try
+			{
+				using System.Net.Sockets.TcpClient tcpClient = listener.AcceptTcpClient();
+				using System.Net.Sockets.NetworkStream stream = tcpClient.GetStream();
+				serveResult = Terraria.Mods.ModTransfer.Serve(stream, stream, delegate(string name)
+				{
+					return string.Equals(name, System.IO.Path.GetFileName(sourceFolder), StringComparison.OrdinalIgnoreCase)
+						? sourceFolder : null;
+				});
+			}
+			catch (Exception ex)
+			{
+				hostError = ex;
+			}
+		});
+		thread.IsBackground = true;
+		thread.Start();
+		Terraria.Mods.ModTransfer.ReceiveResult receiveResult = null;
+		try
+		{
+			using System.Net.Sockets.TcpClient client = new System.Net.Sockets.TcpClient();
+			client.Connect(System.Net.IPAddress.Loopback, port);
+			using System.Net.Sockets.NetworkStream stream = client.GetStream();
+			receiveResult = tamper == null
+				? Terraria.Mods.ModTransfer.Receive(stream, stream, new string[1] { requestedName })
+				: ReceiveTampered(stream, requestedName, tamper);
+		}
+		catch (Exception ex)
+		{
+			error = ex.Message;
+		}
+		finally
+		{
+			try
+			{
+				listener.Stop();
+			}
+			catch
+			{
+			}
+		}
+		thread.Join(10000);
+		if (error == null && hostError != null)
+		{
+			error = "host: " + hostError.Message;
+		}
+		return receiveResult ?? new Terraria.Mods.ModTransfer.ReceiveResult();
+	}
+
+	/// <summary>
+	/// The client half with a tampering step between the socket and the parser.
+	///
+	/// Duplicates the read loop on purpose: <see cref="ModTransfer.Receive"/> is the real code
+	/// and must not grow a test hook that a real caller could reach.
+	/// </summary>
+	private static Terraria.Mods.ModTransfer.ReceiveResult ReceiveTampered(System.IO.Stream stream, string modName, Func<byte[], byte[]> tamper)
+	{
+		Terraria.Mods.ModTransfer.ReceiveResult result = new Terraria.Mods.ModTransfer.ReceiveResult();
+		// Ask for the mod through the real helper, then read frames ourselves.
+		byte[] request = Terraria.Net.WireFormat.LengthPrefix(Terraria.Mods.ModTransfer.Request(modName));
+		stream.Write(request, 0, request.Length);
+		stream.Flush();
+		string beginHash = null;
+		long total = 0L;
+		while (true)
+		{
+			byte[] payload = Terraria.Net.WireFormat.ReadFrame(stream);
+			if (payload == null)
+			{
+				result.Error = "connection closed";
+				result.Failed.Add(modName);
+				return result;
+			}
+			Terraria.Mods.ModFileFrame frame;
+			if (!Terraria.Mods.ModTransfer.TryParse(payload, out frame))
+			{
+				result.Error = "malformed";
+				result.Failed.Add(modName);
+				return result;
+			}
+			if (frame.Op == Terraria.Mods.ModFileOp.Refused)
+			{
+				result.Error = frame.Reason;
+				result.Failed.Add(modName);
+				return result;
+			}
+			if (frame.Op == Terraria.Mods.ModFileOp.Begin)
+			{
+				beginHash = frame.Hash;
+				string error;
+				for (int i = 0; i < frame.Files.Count; i++)
+				{
+					Terraria.Mods.ModFiles.TouchReceived(modName, frame.Files[i], out error);
+				}
+				continue;
+			}
+			if (frame.Op == Terraria.Mods.ModFileOp.Chunk)
+			{
+				byte[] array = new byte[frame.DataCount];
+				Buffer.BlockCopy(frame.Data, frame.DataOffset, array, 0, frame.DataCount);
+				// Only content is tampered with, never the framing: the point is to prove the
+				// hash check catches it, not that the parser does.
+				byte[] array2 = tamper(array);
+				string error;
+				Terraria.Mods.ModFiles.WriteReceived(modName, frame.Path, array2, 0, array2.Length, out error);
+				total += array2.Length;
+				continue;
+			}
+			if (frame.Op == Terraria.Mods.ModFileOp.End)
+			{
+				string text = Terraria.Mods.ModFiles.ContentHash(Terraria.Mods.ModFiles.IncomingDirectory(modName));
+				if (string.Equals(text, beginHash, StringComparison.OrdinalIgnoreCase))
+				{
+					result.Error = "the tampered content still matched the hash";
+					result.Received.Add(modName);
+					return result;
+				}
+				result.Error = "hash mismatch";
+				result.Failed.Add(modName);
+				Terraria.Mods.ModFiles.DiscardIncoming(modName);
+				return result;
+			}
+			result.Error = "unexpected frame";
+			result.Failed.Add(modName);
+			return result;
 		}
 	}
 
@@ -13431,6 +13923,9 @@ internal static class SelfTest
 				"ui.settings.cheats", "ui.settings.keys", "ui.settings.mods", "ui.settings.display",
 				"ui.settings.network", "ui.settings.hud", "ui.menu.cheats",
 				"ui.mods.kind.raw", "ui.mods.raw.detail",
+				"ui.modmismatch.title", "ui.modmismatch.text", "ui.modmismatch.downloading",
+				"ui.modmismatch.installed", "ui.modmismatch.restart", "ui.modmismatch.download.failed",
+				"ui.modmismatch.offer",
 				"ui.mods.convert.raw.done", "ui.mods.convert.raw.partial",
 				"ui.cheats.title", "ui.cheats.hint", "ui.cheats.more",
 				"ui.cheats.god", "ui.cheats.noclip", "ui.cheats.mana", "ui.cheats.buffs",

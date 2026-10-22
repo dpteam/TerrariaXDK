@@ -587,66 +587,13 @@ internal sealed class RawMod
 	///
 	/// Content, not the folder name: two players with "Omnirs Weapons" where one edited a damage
 	/// number must be told they differ, and the version string in the manifest is optional.
+	///
+	/// Delegates to <see cref="ModFiles.ContentHash"/>, which is the one definition of "the
+	/// content of a mod folder": the same hash decides whether a download is what the host
+	/// promised, so the two must not be able to drift apart.
 	/// </summary>
 	internal static string ContentHash(string directory)
 	{
-		ulong num = 14695981039346656037uL;
-		string[] files;
-		try
-		{
-			files = System.IO.Directory.GetFiles(directory, "*", SearchOption.AllDirectories);
-		}
-		catch
-		{
-			return "unreadable";
-		}
-		Array.Sort(files, StringComparer.OrdinalIgnoreCase);
-		string text = Path.GetFullPath(directory);
-		byte[] array = new byte[8192];
-		for (int i = 0; i < files.Length; i++)
-		{
-			string text2 = files[i].Substring(text.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-				.Replace(Path.DirectorySeparatorChar, '/');
-			// disabled.txt is not content: enabling or disabling a mod must not change its
-			// signature, or the host and the client would disagree after a toggle.
-			if (text2.Equals("disabled.txt", StringComparison.OrdinalIgnoreCase))
-			{
-				continue;
-			}
-			num = Hash(num, Encoding.UTF8.GetBytes(text2));
-			try
-			{
-				using FileStream stream = File.OpenRead(files[i]);
-				int num2;
-				while ((num2 = stream.Read(array, 0, array.Length)) > 0)
-				{
-					for (int j = 0; j < num2; j++)
-					{
-						num ^= array[j];
-						num *= 1099511628211;
-					}
-				}
-			}
-			catch
-			{
-				// A file that cannot be read still has to change the hash: "could not read" and
-				// "empty" are different contents.
-				num = Hash(num, Encoding.UTF8.GetBytes("<unreadable>"));
-			}
-			// Separate files, so that moving a byte from the end of one into the start of the
-			// next is not invisible.
-			num = Hash(num, Encoding.UTF8.GetBytes("\n"));
-		}
-		return num.ToString("x16");
-	}
-
-	private static ulong Hash(ulong hash, byte[] bytes)
-	{
-		for (int i = 0; i < bytes.Length; i++)
-		{
-			hash ^= bytes[i];
-			hash *= 1099511628211;
-		}
-		return hash;
+		return ModFiles.ContentHash(directory);
 	}
 }

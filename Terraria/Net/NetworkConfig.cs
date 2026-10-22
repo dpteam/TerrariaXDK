@@ -89,6 +89,26 @@ internal static class NetworkConfig
 	/// </summary>
 	public static bool UseUPnP = true;
 
+	/// <summary>
+	/// Serves this host's mod files to clients whose set does not match
+	/// (<c>[Mods] AllowDownload</c>).
+	///
+	/// Off by default. A mod is executable code, and handing it to whoever connects is a decision
+	/// the host has to make on purpose - a private mod, or a pack the author asked not to
+	/// redistribute, is a normal thing to have.
+	/// </summary>
+	public static bool AllowDownload;
+
+	/// <summary>
+	/// Accepts mod files from a host whose set does not match (<c>[Mods] DownloadFromHost</c>).
+	///
+	/// Off by default, and it is the consent the feature needs: joining a server is not agreement
+	/// to run its code. It cannot be a per-mod question asked during the join, because joining is
+	/// a blocking call - the game is not drawing, so nothing could answer a dialog. So the answer
+	/// is given once, here, and the refusal text says the option exists.
+	/// </summary>
+	public static bool DownloadFromHost;
+
 	/// <summary>Parses "host", "host:port" or "[ipv6]:port".</summary>
 	public static bool TryParseAddress(string text, out string host, out int port)
 	{

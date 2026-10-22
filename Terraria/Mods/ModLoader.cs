@@ -63,6 +63,18 @@ internal static class ModLoader
 	/// <summary>Raw mods (INI + PNG, no assembly), in load order.</summary>
 	public static IList<RawMod> RawMods => LoadedRawMods;
 
+	/// <summary>
+	/// The folder a loaded mod came from, or null when it is unknown.
+	///
+	/// Read from the mod's own context, which is set at load time: a mod can be in any folder
+	/// name, so guessing from <see cref="Mod.Name"/> would point at the wrong place for anyone
+	/// who renamed it.
+	/// </summary>
+	internal static string DirectoryOf(Mod mod)
+	{
+		return (mod == null || mod.Context == null) ? null : mod.Context.Directory;
+	}
+
 	public static IList<string> LoadErrors => Errors;
 
 	/// <summary>
