@@ -365,6 +365,7 @@ internal sealed class TcpPeer : IPeerTransport
 			string gamertag;
 			string signature;
 			string password;
+			string mods;
 			int protocol;
 			using (MemoryStream memoryStream = new MemoryStream(frame, 1, frame.Length - 1))
 			{
@@ -373,6 +374,9 @@ internal sealed class TcpPeer : IPeerTransport
 				gamertag = binaryReader.ReadString();
 				signature = binaryReader.ReadString();
 				password = (memoryStream.Position < memoryStream.Length) ? binaryReader.ReadString() : "";
+				// Optional trailing field: the mod list. A client that predates it simply does not
+				// send one, and the refusal then names no mods - still correct, just less helpful.
+				mods = (memoryStream.Position < memoryStream.Length) ? binaryReader.ReadString() : string.Empty;
 			}
 			if (protocol != ProtocolVersion)
 			{
@@ -380,11 +384,21 @@ internal sealed class TcpPeer : IPeerTransport
 				Reject(connection, RejectReason.ProtocolMismatch, protocol.ToString(), ProtocolVersion.ToString());
 				return;
 			}
-			if (!Terraria.Mods.ModLoader.IsCompatible(signature))
+			if (!Terraria.Mods.ModLoader.IsCompatible(HostSignatureForTests ?? Terraria.Mods.ModLoader.Signature, signature))
 			{
-				ModLoaderLog("Rejected peer " + gamertag + ": mod signature " + signature + " != " + Terraria.Mods.ModLoader.Signature);
-				Reject(connection, RejectReason.ModMismatch);
-				_inbox.Enqueue(() => RejectForMods(gamertag));
+				// Say *which* mods: "your mods differ" leaves the player comparing folders by
+				// hand, and the whole point of requiring a matching set is that the fix should be
+				// obvious. The lists travel as separate fields because a sentence cannot be
+				// assembled from translated fragments.
+				System.Collections.Generic.List<Terraria.Mods.ModEntry> hostMods =
+					(HostModListForTests != null) ? Terraria.Mods.ModSet.Parse(HostModListForTests) : Terraria.Mods.ModSet.Loaded();
+				Terraria.Mods.ModDifference difference = Terraria.Mods.ModSet.Compare(
+					hostMods, Terraria.Mods.ModSet.Parse(mods));
+				ModLoaderLog("Rejected peer " + gamertag + ": mod signature " + signature + " != "
+					+ (HostSignatureForTests ?? Terraria.Mods.ModLoader.Signature) + " (" + difference.Describe(20) + ")");
+				Reject(connection, RejectReason.ModMismatch,
+					JoinList(difference.Missing), JoinList(difference.Extra), JoinList(difference.VersionMismatch));
+				_inbox.Enqueue(() => RejectForMods(gamertag, difference));
 				return;
 			}
 			// Bans are checked before the peer joins, so a banned player never sees the roster
@@ -921,6 +935,22 @@ internal sealed class TcpPeer : IPeerTransport
 		}
 	}
 
+	/// <summary>
+	/// Test hooks: what the host believes its own set is, and what the client claims.
+	///
+	/// The requirement being tested is "the two sets must agree", which has nothing to do with
+	/// which mods happen to be on disk - and a test that installed mods to check it would be
+	/// writing into the player's folders. Overriding both sides lets the real handshake, the real
+	/// comparison and the real refusal run unchanged.
+	/// </summary>
+	internal static string HostSignatureForTests;
+
+	internal static string HostModListForTests;
+
+	internal static string ClientSignatureForTests;
+
+	internal static string ClientModListForTests;
+
 	private void SendHandshake(string gamertag)
 	{
 		using MemoryStream memoryStream = new MemoryStream();
@@ -928,8 +958,11 @@ internal sealed class TcpPeer : IPeerTransport
 		binaryWriter.Write(OpHello);
 		binaryWriter.Write(ProtocolVersion);
 		binaryWriter.Write(gamertag ?? "Terrarian");
-		binaryWriter.Write(Terraria.Mods.ModLoader.Signature);
+		binaryWriter.Write(ClientSignatureForTests ?? Terraria.Mods.ModLoader.Signature);
 		binaryWriter.Write(NetworkConfig.Password ?? "");
+		// The mod list, so a refusal can name the mods instead of saying "they differ". A host
+		// that predates this field stops reading after the password and ignores it.
+		binaryWriter.Write(ClientModListForTests ?? Terraria.Mods.ModSet.Describe());
 		binaryWriter.Flush();
 		SendToHost(WireFormat.LengthPrefix(memoryStream.ToArray()));
 	}
@@ -1352,15 +1385,32 @@ internal sealed class TcpPeer : IPeerTransport
 		}
 	}
 
-	private void RejectForMods(string gamertag)
+	private void RejectForMods(string gamertag, Terraria.Mods.ModDifference difference)
 	{
 		try
 		{
 			UI.Error(Texts.Get("ui.modmismatch.title"), Texts.Format("ui.modmismatch.text", gamertag));
+			if (difference != null && difference.Any)
+			{
+				Program.LogInfo("Mods", "refused " + gamertag + ": " + difference.Describe(20));
+			}
 		}
 		catch
 		{
 		}
+	}
+
+	/// <summary>
+	/// Joins a list of mod labels for a reject field. Newline-separated, because a mod name can
+	/// contain a comma and the client has to be able to split it back.
+	/// </summary>
+	private static string JoinList(System.Collections.Generic.List<string> items)
+	{
+		if (items == null || items.Count == 0)
+		{
+			return string.Empty;
+		}
+		return string.Join("\n", items.ToArray());
 	}
 
 	// --- LAN discovery ------------------------------------------------------

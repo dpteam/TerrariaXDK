@@ -392,6 +392,13 @@ internal static class Texts
 		Add(dictionary, "ui.reject.title", "Connection refused: {0}");
 		Add(dictionary, "ui.reject.protocol", "server protocol {0}, yours {1}");
 		Add(dictionary, "ui.reject.mods", "this server runs a different mod set");
+		// The detailed forms. The refusal names the mods, because "different mod set" leaves the
+		// player comparing folders by hand - and the reason to require a matching set at all is
+		// that the fix should be obvious.
+		Add(dictionary, "ui.reject.mods.missing", "this server needs mods you do not have: {0}");
+		Add(dictionary, "ui.reject.mods.extra", "you have mods this server does not run: {0}");
+		Add(dictionary, "ui.reject.mods.version", "mod versions differ: {0}");
+		Add(dictionary, "ui.reject.mods.mixed", "mod sets differ - missing: {0}; extra: {1}; versions: {2}");
 		Add(dictionary, "ui.reject.banned", "you are banned from this server");
 		Add(dictionary, "ui.reject.password", "wrong password");
 		Add(dictionary, "ui.reject.full", "the server is full");

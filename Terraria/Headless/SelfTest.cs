@@ -81,6 +81,7 @@ internal static class SelfTest
 		RunCheck("tconfig convert", CheckTConfigConvert);
 		RunCheck("tconfig resilience", CheckTConfigResilience);
 		RunCheck("mod load order", CheckModLoadOrder);
+		RunCheck("mod set requirement", CheckModSetRequirement);
 		RunCheck("mod menu kinds", CheckModMenuKinds);
 		RunCheck("virtual keyboard", CheckVirtualKeyboard);
 		RunCheck("name prompt", CheckNamePrompt);
@@ -1868,6 +1869,196 @@ internal static class SelfTest
 			catch
 			{
 			}
+		}
+	}
+
+	// --- Mod set requirement ------------------------------------------------
+
+	/// <summary>
+	/// A matching mod set is required, in both directions, and the refusal says which mods.
+	///
+	/// The rule used to be asymmetric: a client with no mods was accepted by any host, because
+	/// "I have none" was read as "I do not care". That is the case that breaks first - a clean
+	/// install joining a modded server sees different item stats from everybody else, silently.
+	///
+	/// The last part runs against a live host, because "the rule is right" and "the rule is
+	/// wired into the handshake" are different claims, and only the second one keeps strangers
+	/// out.
+	/// </summary>
+	private static bool CheckModSetRequirement()
+	{
+		bool savedRequire = Terraria.Mods.ModLoader.RequireMatchingMods;
+		try
+		{
+			// --- the rule ----------------------------------------------------
+			Terraria.Mods.ModLoader.RequireMatchingMods = true;
+			if (!Terraria.Mods.ModLoader.IsCompatible("vanilla", "vanilla"))
+			{
+				return Fail("two vanilla installs were called incompatible");
+			}
+			// The regression: no mods locally must NOT mean "accept anything".
+			if (Terraria.Mods.ModLoader.IsCompatible("vanilla", "abc123"))
+			{
+				return Fail("an empty local mod set accepted a modded peer");
+			}
+			if (Terraria.Mods.ModLoader.IsCompatible("abc123", "vanilla"))
+			{
+				return Fail("a vanilla peer was accepted by a modded host");
+			}
+			if (!Terraria.Mods.ModLoader.IsCompatible("ABC123", "abc123"))
+			{
+				return Fail("the signature comparison became case-sensitive");
+			}
+			// Turning the requirement off is a deliberate choice and must still work.
+			Terraria.Mods.ModLoader.RequireMatchingMods = false;
+			if (!Terraria.Mods.ModLoader.IsCompatible("vanilla", "abc123"))
+			{
+				return Fail("RequireMatchingMods=False still refused a peer");
+			}
+			Terraria.Mods.ModLoader.RequireMatchingMods = true;
+
+			// --- the comparison ----------------------------------------------
+			System.Collections.Generic.List<Terraria.Mods.ModEntry> host =
+				Terraria.Mods.ModSet.Parse("CoolMod|1.2.0\nOther|2.0.0");
+			if (host.Count != 2 || host[0].Name != "CoolMod" || host[0].Version != "1.2.0")
+			{
+				return Fail("the mod list did not round-trip through Parse");
+			}
+			// A client with nothing: everything the host has is missing.
+			Terraria.Mods.ModDifference nothing = Terraria.Mods.ModSet.Compare(host, Terraria.Mods.ModSet.Parse(""));
+			if (nothing.Missing.Count != 2 || nothing.Extra.Count != 0 || nothing.VersionMismatch.Count != 0)
+			{
+				return Fail("an empty client was not reported as missing both mods");
+			}
+			// Same mods, one version behind: a different problem, reported differently.
+			Terraria.Mods.ModDifference older = Terraria.Mods.ModSet.Compare(host,
+				Terraria.Mods.ModSet.Parse("CoolMod|1.0.0\nOther|2.0.0"));
+			if (older.Missing.Count != 0 || older.VersionMismatch.Count != 1
+				|| older.VersionMismatch[0].IndexOf("1.0.0", StringComparison.Ordinal) < 0)
+			{
+				return Fail("a version difference was not reported: " + older.Describe());
+			}
+			// One extra mod on the client.
+			Terraria.Mods.ModDifference extra = Terraria.Mods.ModSet.Compare(host,
+				Terraria.Mods.ModSet.Parse("CoolMod|1.2.0\nOther|2.0.0\nSneaky|0.1"));
+			if (extra.Extra.Count != 1 || extra.Extra[0].IndexOf("Sneaky", StringComparison.Ordinal) < 0)
+			{
+				return Fail("an extra client mod was not reported");
+			}
+			if (Terraria.Mods.ModSet.Compare(host, host).Any)
+			{
+				return Fail("identical sets were reported as different");
+			}
+			// Names are compared case-insensitively: a folder renamed by case is the same mod.
+			if (Terraria.Mods.ModSet.Compare(host, Terraria.Mods.ModSet.Parse("coolmod|1.2.0\nother|2.0.0")).Any)
+			{
+				return Fail("case differences in mod names were reported as a mismatch");
+			}
+
+			// --- the wording --------------------------------------------------
+			byte[] payload = Terraria.Net.RejectReasons.Build(Terraria.Net.RejectReason.ModMismatch,
+				"CoolMod v1.2.0\nOther v2.0.0", "", "");
+			Terraria.Net.RejectReason reason;
+			string[] fields;
+			if (!Terraria.Net.RejectReasons.TryParse(payload, out reason, out fields))
+			{
+				return Fail("a mod-mismatch refusal did not parse");
+			}
+			if (reason != Terraria.Net.RejectReason.ModMismatch)
+			{
+				return Fail("the refusal came back as " + reason);
+			}
+			string spoken = Terraria.Net.RejectReasons.Describe(reason, fields);
+			if (spoken.IndexOf("CoolMod", StringComparison.Ordinal) < 0 || spoken.IndexOf("Other", StringComparison.Ordinal) < 0)
+			{
+				return Fail("the refusal does not name the mods: " + spoken);
+			}
+			// A refusal with no lists (an older host) still reads as a sentence.
+			string plain = Terraria.Net.RejectReasons.Describe(Terraria.Net.RejectReason.ModMismatch, new string[0]);
+			if (string.IsNullOrEmpty(plain) || plain.IndexOf("mod", StringComparison.OrdinalIgnoreCase) < 0)
+			{
+				return Fail("a refusal without a list produced: '" + plain + "'");
+			}
+			// Only one kind of difference: the combined sentence would read as "missing: ; extra: X".
+			string onlyExtra = Terraria.Net.RejectReasons.Describe(Terraria.Net.RejectReason.ModMismatch,
+				new string[3] { "", "Sneaky v0.1", "" });
+			if (onlyExtra.IndexOf("Sneaky", StringComparison.Ordinal) < 0
+				|| onlyExtra.IndexOf("missing", StringComparison.OrdinalIgnoreCase) >= 0)
+			{
+				return Fail("an extra-only mismatch used the wrong sentence: " + onlyExtra);
+			}
+
+			// --- and it is actually wired into the handshake -------------------
+			int savedPort = NetworkConfig.Port;
+			int savedDiscovery = NetworkConfig.DiscoveryPort;
+			string savedPassword = NetworkConfig.Password;
+			bool savedTcp = NetworkConfig.UseTcpTransport;
+			Microsoft.Xna.Framework.Net.NetworkSession hostSession = null;
+			try
+			{
+				Microsoft.Xna.Framework.GamerServices.GamerServicesDispatcher.Initialize(null);
+				NetworkConfig.UseTcpTransport = true;
+				NetworkConfig.Password = string.Empty;
+				NetworkConfig.Port = 0;
+				NetworkConfig.DiscoveryPort = 0;
+				// The host believes it runs CoolMod; the peer will claim a vanilla install.
+				Terraria.Net.TcpPeer.HostSignatureForTests = "hostsig";
+				Terraria.Net.TcpPeer.HostModListForTests = "CoolMod|1.2.0";
+				Microsoft.Xna.Framework.Net.NetworkSessionProperties properties = new Microsoft.Xna.Framework.Net.NetworkSessionProperties();
+				hostSession = new Microsoft.Xna.Framework.Net.NetworkSession(properties,
+					Microsoft.Xna.Framework.Net.NetworkSessionType.PlayerMatch, 8, 0, 1,
+					new List<Microsoft.Xna.Framework.GamerServices.SignedInGamer>(1) { Microsoft.Xna.Framework.GamerServices.Gamer.SignedInGamers[0] });
+				hostSession.StartHostPeer();
+				int port = NetworkConfig.ActivePort;
+				Terraria.Net.RejectReason got;
+				string[] gotFields;
+				if (!TryHandshakeReject(port, "VanillaPeer", string.Empty, "vanilla", string.Empty, out got, out gotFields))
+				{
+					return Fail("the host did not answer a mismatched handshake");
+				}
+				if (got != Terraria.Net.RejectReason.ModMismatch)
+				{
+					return Fail("a vanilla peer against a modded host got '" + got + "'");
+				}
+				string said = Terraria.Net.RejectReasons.Describe(got, gotFields);
+				if (said.IndexOf("CoolMod", StringComparison.Ordinal) < 0)
+				{
+					return Fail("the live refusal does not name the mod: " + said);
+				}
+				// A matching peer gets past the mod gate - the host answers with something that is
+				// not a refusal (a welcome/roster), which is what "accepted" looks like here.
+				if (TryHandshakeReject(port, "MatchingPeer", string.Empty, "hostsig", "CoolMod|1.2.0", out got, out gotFields))
+				{
+					return Fail("a matching peer was refused with '" + got + "'");
+				}
+			}
+			finally
+			{
+				Terraria.Net.TcpPeer.HostSignatureForTests = null;
+				Terraria.Net.TcpPeer.HostModListForTests = null;
+				Terraria.Net.TcpPeer.ClientSignatureForTests = null;
+				Terraria.Net.TcpPeer.ClientModListForTests = null;
+				try
+				{
+					hostSession?.Dispose();
+				}
+				catch
+				{
+				}
+				NetworkConfig.Port = savedPort;
+				NetworkConfig.DiscoveryPort = savedDiscovery;
+				NetworkConfig.Password = savedPassword;
+				NetworkConfig.UseTcpTransport = savedTcp;
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("mod set check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Mods.ModLoader.RequireMatchingMods = savedRequire;
 		}
 	}
 
@@ -8910,7 +9101,19 @@ internal static class SelfTest
 	/// </summary>
 	private static bool TryHandshakeReject(int Port, string Gamertag, string Password, out Terraria.Net.RejectReason Reason)
 	{
+		string[] ignored;
+		return TryHandshakeReject(Port, Gamertag, Password, null, null, out Reason, out ignored);
+	}
+
+	/// <summary>
+	/// The same, with the mod signature and mod list the peer claims. Both are optional so the
+	/// existing callers keep their meaning: null means "whatever this build has".
+	/// </summary>
+	private static bool TryHandshakeReject(int Port, string Gamertag, string Password, string Signature,
+		string ModList, out Terraria.Net.RejectReason Reason, out string[] Fields)
+	{
 		Reason = Terraria.Net.RejectReason.Unknown;
+		Fields = new string[0];
 		using System.Net.Sockets.TcpClient tcpClient = new System.Net.Sockets.TcpClient();
 		tcpClient.NoDelay = true;
 		tcpClient.Connect(System.Net.IPAddress.Loopback, Port);
@@ -8920,8 +9123,9 @@ internal static class SelfTest
 		binaryWriter.Write(Terraria.Net.TcpPeer.OpHello);
 		binaryWriter.Write(Terraria.Net.TcpPeer.ProtocolVersionPublic);
 		binaryWriter.Write(Gamertag);
-		binaryWriter.Write(Terraria.Mods.ModLoader.Signature);
+		binaryWriter.Write(Signature ?? Terraria.Mods.ModLoader.Signature);
 		binaryWriter.Write(Password ?? string.Empty);
+		binaryWriter.Write(ModList ?? string.Empty);
 		binaryWriter.Flush();
 		WireFormat.WriteAll(stream, WireFormat.LengthPrefix(memoryStream.ToArray()));
 		byte[] frame = WireFormat.ReadFrame(stream);
@@ -8931,8 +9135,7 @@ internal static class SelfTest
 		}
 		byte[] payload = new byte[frame.Length - 1];
 		Buffer.BlockCopy(frame, 1, payload, 0, payload.Length);
-		string[] fields;
-		return Terraria.Net.RejectReasons.TryParse(payload, out Reason, out fields);
+		return Terraria.Net.RejectReasons.TryParse(payload, out Reason, out Fields);
 	}
 
 	// --- Portability --------------------------------------------------------

@@ -38,6 +38,13 @@ internal static class TConfigConverter
 		public int FailedFiles;
 
 		/// <summary>
+		/// Items the pack defines from scratch (<c>type=-1</c>) rather than tweaking. Counted
+		/// separately because it is the one thing that cannot be converted at all in this build,
+		/// and "unknown item" is the wrong thing to tell the player about it.
+		/// </summary>
+		public int NewItems;
+
+		/// <summary>
 		/// Things the player should look at: dropped fields, unknown names, and files that threw.
 		/// Kept apart from <see cref="Errors"/> by severity, not by source.
 		/// </summary>
@@ -159,10 +166,20 @@ internal static class TConfigConverter
 		}
 		if (result.Items == 0)
 		{
-			error = "the pack names no item this build knows ("
-				+ result.UnknownItems.ToString(CultureInfo.InvariantCulture) + " unknown"
-				+ (result.FailedFiles == 0 ? "" : ", " + result.FailedFiles.ToString(CultureInfo.InvariantCulture) + " failed")
-				+ ")";
+			if (result.NewItems > 0)
+			{
+				// The most common case for packs from the PC scene, and the one that needs a
+				// sentence of its own: nothing here is a mistake, the feature is simply missing.
+				error = "this pack defines " + result.NewItems.ToString(CultureInfo.InvariantCulture)
+					+ " new item(s), and this build cannot add item ids yet - only changes to existing items can be converted";
+			}
+			else
+			{
+				error = "the pack names no item this build knows ("
+					+ result.UnknownItems.ToString(CultureInfo.InvariantCulture) + " unknown"
+					+ (result.FailedFiles == 0 ? "" : ", " + result.FailedFiles.ToString(CultureInfo.InvariantCulture) + " failed")
+					+ ")";
+			}
 			WriteLog(packDirectory, result, error);
 			return null;
 		}
@@ -289,6 +306,17 @@ internal static class TConfigConverter
 		}
 		if (item.Type <= 0)
 		{
+			// "Unknown item" and "this pack adds a new item" are different facts, and only one of
+			// them is actionable. tConfig marks a new item with a negative type, so the INI itself
+			// says which case this is - and the answer for the player is very different:
+			// "you typed the name wrong" versus "this needs a feature the port does not have".
+			if (DefinesNewItem(iniPath))
+			{
+				result.NewItems++;
+				result.Warnings.Add("'" + text + "': a new item defined by the pack (type=-1) - "
+					+ "this build cannot add item ids yet, so it cannot be converted");
+				return;
+			}
 			result.UnknownItems++;
 			result.Warnings.Add("'" + text + "': no such item in this build, skipped");
 			return;
@@ -356,6 +384,34 @@ internal static class TConfigConverter
 		}
 		body.Append("\t\t}\n\n");
 		result.Items++;
+	}
+
+	/// <summary>
+	/// True when the INI defines a new item rather than tweaking one: tConfig writes
+	/// <c>type=-1</c> (or any negative id) for that. Reading the file is the only way to know,
+	/// because the item's name does not exist in this build either way.
+	/// </summary>
+	private static bool DefinesNewItem(string iniPath)
+	{
+		string error;
+		List<KeyValuePair<string, string>> list = TConfigImporter.ReadIni(iniPath, out error);
+		if (list == null)
+		{
+			return false;
+		}
+		for (int i = 0; i < list.Count; i++)
+		{
+			if (!string.Equals(list[i].Key, "type", StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+			int result;
+			if (int.TryParse(list[i].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result))
+			{
+				return result < 0;
+			}
+		}
+		return false;
 	}
 
 	/// <summary>
@@ -641,8 +697,8 @@ internal static class TConfigConverter
 		stringBuilder.Append("| Fields | ").Append(result.Fields.ToString(CultureInfo.InvariantCulture)).Append(" |\n");
 		stringBuilder.Append("| Unknown items (skipped) | ").Append(result.UnknownItems.ToString(CultureInfo.InvariantCulture)).Append(" |\n");
 		stringBuilder.Append("| Fields with no equivalent (dropped) | ").Append(result.UnsupportedFields.ToString(CultureInfo.InvariantCulture)).Append(" |\n");
-		stringBuilder.Append("| Files that failed (skipped) | ").Append(result.FailedFiles.ToString(CultureInfo.InvariantCulture)).Append(" |\n\n");
-		stringBuilder.Append("## Build and install\n\n");
+		stringBuilder.Append("| Files that failed (skipped) | ").Append(result.FailedFiles.ToString(CultureInfo.InvariantCulture)).Append(" |\n");
+		stringBuilder.Append("| New items defined by the pack (not supported) | ").Append(result.NewItems.ToString(CultureInfo.InvariantCulture)).Append(" |\n\n");		stringBuilder.Append("## Build and install\n\n");
 		stringBuilder.Append("```\ndotnet build ").Append(modName).Append(".csproj\n");
 		stringBuilder.Append("```\n\n");
 		stringBuilder.Append("Copy `bin/Debug/net40/").Append(modName)
@@ -658,6 +714,22 @@ internal static class TConfigConverter
 			for (int i = 0; i < result.Errors.Count; i++)
 			{
 				stringBuilder.Append("- ").Append(result.Errors[i]).Append('\n');
+			}
+			stringBuilder.Append('\n');
+		}
+		if (result.NewItems > 0)
+		{
+			stringBuilder.Append("## New items the pack wanted to add\n\n");
+			stringBuilder.Append("This build cannot create item ids: they would break saves and the network\n");
+			stringBuilder.Append("protocol, where an item id is a number both sides already agree on. The\n");
+			stringBuilder.Append("items below were therefore not converted. Changing an existing item works;\n");
+			stringBuilder.Append("adding one needs a feature this port does not have yet.\n\n");
+			for (int num = 0; num < result.Warnings.Count; num++)
+			{
+				if (result.Warnings[num].IndexOf("new item defined by the pack", StringComparison.Ordinal) >= 0)
+				{
+					stringBuilder.Append("- ").Append(result.Warnings[num]).Append('\n');
+				}
 			}
 			stringBuilder.Append('\n');
 		}

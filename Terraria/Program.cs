@@ -185,6 +185,10 @@ internal static class Program
 		string pack = null;
 		string output = null;
 		string name = null;
+		// Pack names contain spaces - every tConfig pack from the PC scene does ("Omnirs Weapons",
+		// "The Arsenal"). So everything that is not a flag belongs to the pack path, joined back
+		// together. Taking only the first word silently converted "Omnirs" and dropped "Weapons".
+		System.Collections.Generic.List<string> packParts = new System.Collections.Generic.List<string>();
 		for (int i = start; i < args.Length; i++)
 		{
 			string text = args[i].ToLowerInvariant();
@@ -196,10 +200,14 @@ internal static class Program
 			{
 				name = (i + 1 < args.Length) ? args[++i] : null;
 			}
-			else if (pack == null)
+			else
 			{
-				pack = args[i];
+				packParts.Add(args[i]);
 			}
+		}
+		if (packParts.Count > 0)
+		{
+			pack = string.Join(" ", packParts.ToArray());
 		}
 		if (pack == null)
 		{

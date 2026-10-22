@@ -55,14 +55,37 @@ internal static class ModLoader
 
 	public static IList<string> LoadErrors => Errors;
 
-	/// <summary>True when the given session signature matches the local mod set.</summary>
+	/// <summary>
+	/// True when a peer with this signature may join.
+	///
+	/// The comparison is symmetric on purpose. It used to return true whenever the local set was
+	/// empty, which meant a clean install could join a modded server: the one case that breaks
+	/// first was the one case that was not checked. A player with no mods saw different item
+	/// stats from everyone else and nothing said why.
+	///
+	/// <see cref="RequireMatchingMods"/> is still the escape hatch, and it is a deliberate choice
+	/// by whoever turns it off - the host's setting is what governs, because the host is the one
+	/// whose world everyone else has to agree with.
+	/// </summary>
 	public static bool IsCompatible(string signature)
 	{
-		if (!RequireMatchingMods || LoadedMods.Count == 0)
+		return IsCompatible(Signature, signature);
+	}
+
+	/// <summary>
+	/// The rule itself, with the expected signature passed in.
+	///
+	/// Separate so a test can exercise the real comparison without having to install mods: the
+	/// thing being checked is "the host's set and the client's set must agree", and that has
+	/// nothing to do with which mods happen to be on disk.
+	/// </summary>
+	internal static bool IsCompatible(string expected, string actual)
+	{
+		if (!RequireMatchingMods)
 		{
 			return true;
 		}
-		return string.Equals(signature, Signature, StringComparison.OrdinalIgnoreCase);
+		return string.Equals(actual ?? string.Empty, expected ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 	}
 
 	/// <summary>Loads every mod once. Safe to call multiple times.</summary>

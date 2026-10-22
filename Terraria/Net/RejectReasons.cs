@@ -111,14 +111,45 @@ internal static class RejectReasons
 	/// </summary>
 	public static string Describe(RejectReason reason, string[] fields)
 	{
-		return Texts.Format(KeyFor(reason, fields), ObjectFields(fields));
+		string key = KeyFor(reason, fields);
+		return Texts.Format(key, ArgumentsFor(key, fields));
 	}
 
 	/// <summary>The same sentence in English, for the log. Logs stay English on purpose.</summary>
 	public static string DescribeEnglish(RejectReason reason, string[] fields)
 	{
 		string key = KeyFor(reason, fields);
-		return Texts.Fill(Texts.Default(key), ObjectFields(fields));
+		return Texts.Fill(Texts.Default(key), ArgumentsFor(key, fields));
+	}
+
+	/// <summary>
+	/// The placeholders for a sentence, chosen by the key rather than by the reason.
+	///
+	/// A mod mismatch has three possible sentences and each takes its own arguments: the single
+	/// forms take one list, the combined one takes three. Passing all three to all of them puts the
+	/// text in the wrong slot - the sentence then reads "you have mods this server does not run: "
+	/// with nothing after the colon, which is exactly the kind of empty message this whole
+	/// mechanism exists to avoid.
+	/// </summary>
+	private static object[] ArgumentsFor(string key, string[] fields)
+	{
+		if (key == "ui.reject.mods.missing")
+		{
+			return new object[1] { Clean(fields, 0) };
+		}
+		if (key == "ui.reject.mods.extra")
+		{
+			return new object[1] { Clean(fields, 1) };
+		}
+		if (key == "ui.reject.mods.version")
+		{
+			return new object[1] { Clean(fields, 2) };
+		}
+		if (key == "ui.reject.mods.mixed")
+		{
+			return new object[3] { Clean(fields, 0), Clean(fields, 1), Clean(fields, 2) };
+		}
+		return ObjectFields(fields);
 	}
 
 	/// <summary>The <c>Texts</c> key for a reason, so a test can check every code has one.</summary>
@@ -129,7 +160,9 @@ internal static class RejectReasons
 		case RejectReason.ProtocolMismatch:
 			return "ui.reject.protocol";
 		case RejectReason.ModMismatch:
-			return "ui.reject.mods";
+			// Fields are: missing, extra, version mismatches - each a newline-separated list.
+			// A host that does not send them (older build) gets the plain sentence.
+			return ModKey(fields);
 		case RejectReason.Banned:
 			return "ui.reject.banned";
 		case RejectReason.WrongPassword:
@@ -149,6 +182,72 @@ internal static class RejectReasons
 				? "ui.reject.unknown"
 				: "ui.reject.unknown.empty";
 		}
+	}
+
+	/// <summary>
+	/// Which mod-mismatch sentence to use: one reason is enough when only one kind of difference
+	/// exists, and the combined sentence only when several do. "Missing: X; extra: ; versions: "
+	/// with two empty slots is worse than plain speech.
+	/// </summary>
+	private static string ModKey(string[] fields)
+	{
+		if (fields == null || fields.Length == 0)
+		{
+			return "ui.reject.mods";
+		}
+		string missing = Clean(fields, 0);
+		string extra = Clean(fields, 1);
+		string version = Clean(fields, 2);
+		int num = ((missing.Length != 0) ? 1 : 0) + ((extra.Length != 0) ? 1 : 0) + ((version.Length != 0) ? 1 : 0);
+		if (num == 0)
+		{
+			return "ui.reject.mods";
+		}
+		if (num > 1)
+		{
+			return "ui.reject.mods.mixed";
+		}
+		if (missing.Length != 0)
+		{
+			return "ui.reject.mods.missing";
+		}
+		if (extra.Length != 0)
+		{
+			return "ui.reject.mods.extra";
+		}
+		return "ui.reject.mods.version";
+	}
+
+	/// <summary>
+	/// Turns a newline-separated mod list into one readable phrase. Newline-separated because a
+	/// mod name can contain a comma, and this is the only separator that cannot be typed into one.
+	/// </summary>
+	private static string Clean(string[] fields, int index)
+	{
+		if (fields == null || index >= fields.Length || string.IsNullOrEmpty(fields[index]))
+		{
+			return string.Empty;
+		}
+		string[] array = fields[index].Split('\n');
+		StringBuilder stringBuilder = new StringBuilder();
+		for (int i = 0; i < array.Length && i < 6; i++)
+		{
+			string text = array[i].Trim();
+			if (text.Length == 0)
+			{
+				continue;
+			}
+			if (stringBuilder.Length > 0)
+			{
+				stringBuilder.Append(", ");
+			}
+			stringBuilder.Append(text);
+		}
+		if (array.Length > 6)
+		{
+			stringBuilder.Append(", +").Append(array.Length - 6);
+		}
+		return stringBuilder.ToString();
 	}
 
 	private static object[] ObjectFields(string[] fields)
