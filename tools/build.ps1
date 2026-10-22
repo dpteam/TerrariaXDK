@@ -223,7 +223,19 @@ try
 	{
 		Fail "the build produced no executable at $exe"
 	}
-
+	# The font atlas generator is a tool, not part of the game (it needs GDI+), but it still has
+	# to compile: a broken tool is a defect, and nothing else would notice until someone tried to
+	# add a language.
+	$fontTool = Join-Path $root 'tools\FontAtlas\FontAtlas.csproj'
+	if (Test-Path $fontTool)
+	{
+		Write-Host "== build font atlas tool ($Configuration)" -ForegroundColor Cyan
+		& dotnet build $fontTool -c $Configuration -v q --nologo
+		if ($LASTEXITCODE -ne 0)
+		{
+			Fail 'font atlas tool build failed'
+		}
+	}
 	Copy-Native $output
 	Link-Content $output
 

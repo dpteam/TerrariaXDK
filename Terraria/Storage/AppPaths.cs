@@ -60,6 +60,16 @@ internal static class AppPaths
 	public static string Textures => Path.Combine(Root, "Textures");
 
 	/// <summary>
+	/// Generated font atlases, one set per language that the built-in atlases cannot draw.
+	///
+	/// The five shipped translations have their glyphs baked into <c>Content/Fonts/HD</c> with the
+	/// character list compiled into the code, so a language with different letters (Cyrillic,
+	/// Greek, ...) has nowhere to come from. A set here - <c>&lt;code&gt;.big.metrics</c> plus its
+	/// texture - replaces the baked atlas for that language only. Made by <c>tools/FontAtlas</c>.
+	/// </summary>
+	public static string Fonts => Path.Combine(Root, "Fonts");
+
+	/// <summary>
 	/// Generated or hand-written mod projects, one folder per mod. Kept apart from
 	/// <see cref="Mods"/> because that folder is loaded at startup: a half-built project there
 	/// would be scanned as a mod and reported as broken.
@@ -95,9 +105,9 @@ internal static class AppPaths
 	/// <summary>Creates the directory tree. Safe to call more than once.</summary>
 	public static void EnsureDirectories()
 	{
-		string[] array = new string[10]
+		string[] array = new string[11]
 		{
-			Root, Saves, Logs, Mods, Backups, Config, Cache, Lang, Textures, ModSources
+			Root, Saves, Logs, Mods, Backups, Config, Cache, Lang, Textures, ModSources, Fonts
 		};
 		foreach (string path in array)
 		{

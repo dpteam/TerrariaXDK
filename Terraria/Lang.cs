@@ -14360,6 +14360,22 @@ internal sealed class Lang
 
 	public static void SetLang(int LangSetting)
 	{
+		// A custom language (see <see cref="Language.Custom"/>) has no compiled tables: its whole
+		// text comes from Storage/Lang/<code>.txt, and the built-in English is the fallback for
+		// anything that file does not cover. Filling English is exactly what option 1 does, so the
+		// fill runs with 1 and the option is put back afterwards. Without this, every
+		// `LangOption == N` branch below would find no match and leave the tables empty - which is
+		// a blank UI, not a fallback.
+		if (LangSetting == Language.Custom)
+		{
+			if (LangOption == Language.Custom)
+			{
+				return;
+			}
+			SetLang(1);
+			LangOption = Language.Custom;
+			return;
+		}
 		if (LangOption != LangSetting)
 		{
 			LangOption = LangSetting;

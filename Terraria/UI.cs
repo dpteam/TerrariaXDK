@@ -1644,7 +1644,44 @@ public sealed class UI
 			BoldSmallFont = (SpriteFont)constructor.Invoke(parameters2);
 		}
 		FONT_STACK_X_OFFSET = -5;
+		// A generated atlas replaces the baked one for languages whose letters the baked atlases
+		// do not have. Deliberately last and all-or-nothing: if the set is missing or broken the
+		// game keeps exactly what it built above, which is why this cannot make things worse.
+		ApplyGeneratedFonts();
 		BoldSmallTextStyle = new CompiledText.Style(BoldSmallFont);
+	}
+
+	/// <summary>
+	/// Swaps in <c>Storage/Fonts/&lt;code&gt;.*</c> for the current language when it exists.
+	///
+	/// The combat, stack and split-screen fonts stay baked: they are digits and a slash, and no
+	/// language needs different ones. Only the three text fonts have letters.
+	/// </summary>
+	private static void ApplyGeneratedFonts()
+	{
+		if (theGame == null || theGame.GraphicsDevice == null)
+		{
+			return;
+		}
+		string code = Terraria.LangOverrides.Code(Lang.LangOption);
+		SpriteFont spriteFont;
+		SpriteFont spriteFont2;
+		SpriteFont spriteFont3;
+		if (!Terraria.Fonts.GeneratedFonts.TryBuildAll(theGame.GraphicsDevice, code, out spriteFont, out spriteFont2, out spriteFont3))
+		{
+			if (Terraria.Fonts.GeneratedFonts.LastProblem.Length != 0)
+			{
+				// A set that exists but is broken must be loud: the player installed it on purpose
+				// and would otherwise only see the text stay in the old letters.
+				Program.LogWarn("Fonts", "generated font set for '" + code + "' was ignored: "
+					+ Terraria.Fonts.GeneratedFonts.LastProblem);
+			}
+			return;
+		}
+		BigFont = spriteFont;
+		SmallFont = spriteFont2;
+		BoldSmallFont = spriteFont3;
+		Program.LogInfo("Fonts", "using generated fonts from Storage/Fonts for language '" + code + "'");
 	}
 
 	public static void LoadSplitscreenFonts(ContentManager Content)

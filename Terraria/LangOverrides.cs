@@ -76,7 +76,14 @@ internal static class LangOverrides
 		return Path.Combine(Terraria.Storage.AppPaths.Lang, Code(languageOption) + ".txt");
 	}
 
-	/// <summary>Two-letter code used in the file name and by <c>Lang.LanguageId</c>.</summary>
+	/// <summary>
+	/// Two-letter code used in the file name and by <c>Lang.LanguageId</c>.
+	///
+	/// For the custom language this is whatever the player put in <c>[Display] CustomLanguage</c>,
+	/// filtered to a safe file name. Empty means the feature was selected without being
+	/// configured; "custom" is then used so the game looks for a file of that name instead of
+	/// silently reusing English's overrides.
+	/// </summary>
 	public static string Code(int languageOption)
 	{
 		switch (languageOption)
@@ -89,6 +96,8 @@ internal static class LangOverrides
 			return "fr";
 		case 5:
 			return "es";
+		case Language.Custom:
+			return string.IsNullOrEmpty(Language.CustomCode) ? "custom" : Language.CustomCode;
 		default:
 			return "en";
 		}

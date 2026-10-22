@@ -59,6 +59,15 @@ internal static class Program
 					Environment.ExitCode = ConvertTConfig(args, i + 1);
 					return;
 				}
+				if (text == "--font-check")
+				{
+					// Answers "will the game accept this atlas" for anyone who generated one.
+					// Read-only, and it runs without a graphics device: the metrics file is the
+					// part that goes wrong, and the texture is checked for existence and size.
+					string fontFile = (i + 1 < args.Length) ? args[i + 1] : null;
+					Environment.ExitCode = CheckFontAtlasFile(fontFile);
+					return;
+				}
 				if (text == "--upnp")
 				{
 					// Answers "will my router open the port by itself", which is the question
@@ -228,6 +237,127 @@ internal static class Program
 		Console.WriteLine("Build it with: dotnet build \"" + result.ProjectFile + "\"");
 		Console.WriteLine("Then copy the DLL into Storage/Mods/" + Path.GetFileNameWithoutExtension(result.ProjectFile) + "/");
 		return 0;
+	}
+
+	/// <summary>
+	/// <c>--font-check &lt;metrics&gt;</c>: reports whether the game would accept a generated font
+	/// atlas, and returns an exit code.
+	///
+	/// The texture is checked by reading its PNG header rather than by decoding it: decoding needs
+	/// a graphics device, and the question here is "are the glyph rectangles inside the image",
+	/// which the header answers. A file that is not a PNG at all is caught by the signature.
+	/// </summary>
+	private static int CheckFontAtlasFile(string path)
+	{
+		Terraria.Storage.AppPaths.Headless = true;
+		if (string.IsNullOrEmpty(path))
+		{
+			Console.Error.WriteLine("Usage: TerrariaXDK.exe --font-check <file.metrics>");
+			return 2;
+		}
+		string text;
+		try
+		{
+			text = File.ReadAllText(path);
+		}
+		catch (Exception ex)
+		{
+			Console.Error.WriteLine("Cannot read " + path + ": " + ex.Message);
+			return 1;
+		}
+		string error;
+		Terraria.Fonts.FontAtlas fontAtlas = Terraria.Fonts.FontAtlas.Parse(text, out error);
+		if (fontAtlas == null)
+		{
+			Console.Error.WriteLine("Rejected: " + error);
+			return 1;
+		}
+		Console.WriteLine("Metrics  : ok, " + fontAtlas.Count + " glyph(s), line height " + fontAtlas.LineHeight);
+		if (fontAtlas.DefaultCharacter.HasValue)
+		{
+			Console.WriteLine("Fallback : '" + fontAtlas.DefaultCharacter.Value + "'");
+		}
+		else
+		{
+			Console.WriteLine("Fallback : none - a character outside the atlas will throw");
+		}
+		string directoryName = Path.GetDirectoryName(Path.GetFullPath(path));
+		string text2 = Path.Combine(directoryName ?? "", fontAtlas.TexturePath);
+		if (!File.Exists(text2))
+		{
+			Console.Error.WriteLine("Rejected: the texture " + text2 + " does not exist");
+			return 1;
+		}
+		int num;
+		int num2;
+		if (!ReadPngSize(text2, out num, out num2))
+		{
+			Console.Error.WriteLine("Rejected: " + text2 + " is not a PNG");
+			return 1;
+		}
+		Console.WriteLine("Texture  : " + Path.GetFileName(text2) + ", " + num + "x" + num2);
+		for (int i = 0; i < fontAtlas.Count; i++)
+		{
+			Microsoft.Xna.Framework.Rectangle rectangle = fontAtlas.GlyphBounds[i];
+			if (rectangle.X + rectangle.Width > num || rectangle.Y + rectangle.Height > num2)
+			{
+				Console.Error.WriteLine("Rejected: glyph " + ((int)fontAtlas.Characters[i]) + " at ("
+					+ rectangle.X + ", " + rectangle.Y + ") " + rectangle.Width + "x" + rectangle.Height
+					+ " lies outside the texture");
+				return 1;
+			}
+		}
+		// What the game will actually be able to show: the point of the tool is a language the
+		// baked atlases cannot draw, so the interesting line is whether those letters are there.
+		int num3 = 0;
+		for (int j = 0; j < fontAtlas.Count; j++)
+		{
+			if (fontAtlas.Characters[j] >= '\u0400' && fontAtlas.Characters[j] <= '\u04ff')
+			{
+				num3++;
+			}
+		}
+		Console.WriteLine("Cyrillic : " + num3 + " glyph(s)");
+		Console.WriteLine("This atlas is usable. Rename it to <language code>.<font>.metrics and put it in Storage/Fonts/.");
+		return 0;
+	}
+
+	/// <summary>Reads width and height from a PNG's IHDR. False for anything that is not a PNG.</summary>
+	private static bool ReadPngSize(string path, out int width, out int height)
+	{
+		width = 0;
+		height = 0;
+		try
+		{
+			byte[] array = new byte[24];
+			using (FileStream stream = File.OpenRead(path))
+			{
+				if (stream.Read(array, 0, array.Length) != array.Length)
+				{
+					return false;
+				}
+			}
+			byte[] array2 = new byte[8] { 137, 80, 78, 71, 13, 10, 26, 10 };
+			for (int i = 0; i < array2.Length; i++)
+			{
+				if (array[i] != array2[i])
+				{
+					return false;
+				}
+			}
+			// IHDR is the first chunk: length(4) type(4) width(4) height(4), big endian.
+			if (array[12] != 'I' || array[13] != 'H' || array[14] != 'D' || array[15] != 'R')
+			{
+				return false;
+			}
+			width = (array[16] << 24) | (array[17] << 16) | (array[18] << 8) | array[19];
+			height = (array[20] << 24) | (array[21] << 16) | (array[22] << 8) | array[23];
+			return width > 0 && height > 0;
+		}
+		catch
+		{
+			return false;
+		}
 	}
 
 	/// <summary>

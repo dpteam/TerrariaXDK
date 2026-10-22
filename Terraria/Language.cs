@@ -25,8 +25,26 @@ internal static class Language
 	/// <summary>Follow the operating system's culture.</summary>
 	public const int Auto = 0;
 
+	/// <summary>
+	/// A language the build has no compiled tables for, described entirely by
+	/// <c>Storage/Lang/&lt;code&gt;.txt</c> and drawn with <c>Storage/Fonts/&lt;code&gt;.*</c>.
+	///
+	/// This is what makes "add a language without recompiling" real. The five shipped
+	/// translations are compiled into <see cref="Lang"/> with their glyphs baked into the content
+	/// atlases, so a sixth could only be added by editing a 17 000-line file and shipping new
+	/// artwork. A custom language instead starts from English (the fallback for any string its
+	/// file does not cover) and replaces what the file does cover.
+	/// </summary>
+	public const int Custom = 6;
+
 	/// <summary>Highest value <see cref="Lang.SetLang"/> understands.</summary>
-	public const int Max = 5;
+	public const int Max = 6;
+
+	/// <summary>
+	/// Two-letter code of the custom language, from <c>[Display] CustomLanguage</c>. Empty means
+	/// the feature is not configured, and <see cref="Custom"/> then behaves like English.
+	/// </summary>
+	public static string CustomCode { get; private set; } = string.Empty;
 
 	private static int _choice;
 
@@ -53,6 +71,10 @@ internal static class Language
 			return "Français";
 		case 5:
 			return "Español";
+		case Custom:
+			// The code, not a translated name: the code is what the player typed into the
+			// settings file, so it is the one thing they can recognise as theirs.
+			return string.IsNullOrEmpty(CustomCode) ? "Custom" : ("Custom (" + CustomCode + ")");
 		default:
 			return "Auto";
 		}
@@ -83,6 +105,7 @@ internal static class Language
 	/// </summary>
 	internal static void Load(Settings settings)
 	{
+		CustomCode = SanitizeCode(settings.Get("Display", "CustomLanguage"));
 		int num = Parse(settings.Get("Display", "Language"));
 		_choice = num;
 		_saved = num;
@@ -93,6 +116,25 @@ internal static class Language
 			return;
 		}
 		Lang.SetLang(num);
+	}
+
+	/// <summary>
+	/// A language code is used as a file name, so it is filtered to letters, digits and dashes.
+	/// Accepting a path separator here would let the setting point at any file on the disk.
+	/// </summary>
+	internal static string SanitizeCode(string text)
+	{
+		string text2 = (text ?? string.Empty).Trim().ToLowerInvariant();
+		System.Text.StringBuilder stringBuilder = new System.Text.StringBuilder();
+		for (int i = 0; i < text2.Length && stringBuilder.Length < 12; i++)
+		{
+			char c = text2[i];
+			if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_')
+			{
+				stringBuilder.Append(c);
+			}
+		}
+		return stringBuilder.ToString();
 	}
 
 	/// <summary>
@@ -116,7 +158,8 @@ internal static class Language
 
 	public static void Save(Settings settings)
 	{
-		settings.Update("Display", "Language", _choice.ToString(), "0 = follow the system, 1 = English, 2 = Deutsch, 3 = Italiano, 4 = Français, 5 = Español.");
+		settings.Update("Display", "Language", _choice.ToString(), "0 = follow the system, 1 = English, 2 = Deutsch, 3 = Italiano, 4 = Français, 5 = Español, 6 = custom (see CustomLanguage).");
+		settings.Update("Display", "CustomLanguage", CustomCode, "Language code for option 6: Storage/Lang/<code>.txt supplies the text,\n; Storage/Fonts/<code>.* supplies the glyphs. Made by tools/FontAtlas.");
 	}
 
 	/// <summary>

@@ -107,6 +107,8 @@ internal static class SelfTest
 		RunCheck("packet batching", CheckPacketBatching);
 		RunCheck("edit budget", CheckEditBudget);
 		RunCheck("server cards", CheckServerCards);
+		RunCheck("font atlas", CheckFontAtlas);
+		RunCheck("custom language", CheckCustomLanguage);
 		RunCheck("whitelist", CheckWhitelist);
 		RunCheck("relay session", CheckRelaySession);
 		RunCheck("relay live", CheckRelayLive);
@@ -1688,6 +1690,240 @@ internal static class SelfTest
 			catch
 			{
 			}
+		}
+	}
+
+	// --- Font atlas ---------------------------------------------------------
+
+	/// <summary>
+	/// The metrics format that lets a language supply its own glyphs.
+	///
+	/// The five shipped translations have their letters baked into the content atlases, with the
+	/// character list compiled into <c>FontHD</c> - which is why Cyrillic cannot be shown at all.
+	/// <c>Storage/Fonts/&lt;code&gt;.metrics</c> plus a PNG is the way out, and the format is what
+	/// a generator and the game have to agree on. Every rule below is a way that agreement can
+	/// break silently: a glyph outside the texture draws garbage from the edge of the image, a
+	/// wrong line height makes every row of text overlap, and a missing fallback character throws
+	/// the moment a string contains something unexpected.
+	/// </summary>
+	private static bool CheckFontAtlas()
+	{
+		try
+		{
+			// A minimal valid atlas: three glyphs, the cell convention the baked atlases use.
+			string text = "# comment\n"
+				+ "texture=atlas.png\n"
+				+ "lineHeight=32\n"
+				+ "spacing=0\n"
+				+ "default=63\n"
+				+ "glyphs=3\n"
+				+ "32 11 0 0\n"
+				+ "63 9 11 0\n"
+				+ "65 21 20 0\n";
+			string error;
+			Terraria.Fonts.FontAtlas fontAtlas = Terraria.Fonts.FontAtlas.Parse(text, out error);
+			if (fontAtlas == null)
+			{
+				return Fail("a valid atlas was rejected: " + error);
+			}
+			if (fontAtlas.Count != 3 || fontAtlas.LineHeight != 32 || fontAtlas.TexturePath != "atlas.png")
+			{
+				return Fail("the atlas header was not read");
+			}
+			if (!fontAtlas.Has('A') || fontAtlas.Has('B'))
+			{
+				return Fail("the glyph set is wrong");
+			}
+			if (fontAtlas.DefaultCharacter != '?')
+			{
+				return Fail("the fallback character was not read");
+			}
+			// The convention, not just the numbers: cropping covers the whole cell and kerning
+			// advances by the same width. A tight-cropping atlas (the XNA content pipeline's
+			// convention) draws every glyph in the wrong place, which is why this is asserted
+			// rather than assumed.
+			int a = fontAtlas.Characters.IndexOf('A');
+			if (fontAtlas.Cropping[a] != new Microsoft.Xna.Framework.Rectangle(0, 0, 21, 32))
+			{
+				return Fail("cropping is not the full cell: " + fontAtlas.Cropping[a]);
+			}
+			if (fontAtlas.Kerning[a] != new Microsoft.Xna.Framework.Vector3(0f, 21f, 0f))
+			{
+				return Fail("kerning does not advance by the glyph width: " + fontAtlas.Kerning[a]);
+			}
+			if (fontAtlas.GlyphBounds[a] != new Microsoft.Xna.Framework.Rectangle(20, 0, 21, 32))
+			{
+				return Fail("the glyph rectangle is wrong: " + fontAtlas.GlyphBounds[a]);
+			}
+			// Round-trip: what the tool writes must be what the game reads back.
+			Terraria.Fonts.FontAtlas reparsed = Terraria.Fonts.FontAtlas.Parse(fontAtlas.Format(), out error);
+			if (reparsed == null)
+			{
+				return Fail("the atlas the game writes cannot be read back: " + error);
+			}
+			if (reparsed.Count != fontAtlas.Count || reparsed.LineHeight != fontAtlas.LineHeight
+				|| reparsed.Spacing != fontAtlas.Spacing || reparsed.DefaultCharacter != fontAtlas.DefaultCharacter
+				|| reparsed.TexturePath != fontAtlas.TexturePath)
+			{
+				return Fail("the round-tripped atlas differs in its header");
+			}
+			for (int i = 0; i < fontAtlas.Count; i++)
+			{
+				if (reparsed.Characters[i] != fontAtlas.Characters[i]
+					|| reparsed.GlyphBounds[i] != fontAtlas.GlyphBounds[i])
+				{
+					return Fail("glyph " + i + " changed in the round trip");
+				}
+			}
+			// --- what must be refused ----------------------------------------
+			// Each of these is a real way a hand-edited or half-generated file goes wrong, and
+			// each would otherwise produce text that looks almost right.
+			string[] broken = new string[8]
+			{
+				"texture=a.png\nlineHeight=32\nglyphs=2\n65 21 0 0\n",
+				"texture=a.png\nlineHeight=0\nglyphs=1\n65 21 0 0\n",
+				"texture=a.png\nlineHeight=32\nglyphs=1\n65 0 0 0\n",
+				"texture=a.png\nlineHeight=32\nglyphs=1\n65 21 -5 0\n",
+				"texture=a.png\nlineHeight=32\nglyphs=2\n65 21 0 0\n65 21 21 0\n",
+				"lineHeight=32\nglyphs=1\n65 21 0 0\n",
+				"texture=a.png\nlineHeight=32\nglyphs=1\n65 21 0 0\n66 21 21 0\n",
+				"texture=a.png\nlineHeight=32\ndefault=90\nglyphs=1\n65 21 0 0\n"
+			};
+			string[] why = new string[8]
+			{
+				"a glyph count that does not match",
+				"a zero line height",
+				"a zero advance",
+				"a negative texture position",
+				"a duplicated character",
+				"no texture name",
+				"a count that disagrees with the glyphs present",
+				"a fallback character that is not in the atlas"
+			};
+			for (int j = 0; j < broken.Length; j++)
+			{
+				if (Terraria.Fonts.FontAtlas.Parse(broken[j], out error) != null)
+				{
+					return Fail("the atlas parser accepted " + why[j]);
+				}
+				if (string.IsNullOrEmpty(error))
+				{
+					return Fail("refusing " + why[j] + " gave no reason");
+				}
+			}
+			// Unknown keys are ignored, not fatal: that is what lets a newer file be readable by
+			// an older build instead of failing outright.
+			Terraria.Fonts.FontAtlas tolerant = Terraria.Fonts.FontAtlas.Parse(
+				"texture=a.png\nlineHeight=32\nkerningScale=1.5\nglyphs=1\n65 21 0 0\n", out error);
+			if (tolerant == null)
+			{
+				return Fail("an unknown key made the atlas unreadable: " + error);
+			}
+			// Paths: a set is looked up by language code under Storage/Fonts, one file per font.
+			string big = Terraria.Fonts.GeneratedFonts.MetricsPath("ru", "big");
+			if (!big.EndsWith("ru.big.metrics", StringComparison.OrdinalIgnoreCase))
+			{
+				return Fail("the metrics path is '" + big + "'");
+			}
+			if (!big.StartsWith(Terraria.Storage.AppPaths.Fonts, StringComparison.OrdinalIgnoreCase))
+			{
+				return Fail("the metrics path is not under Storage/Fonts: " + big);
+			}
+			// An incomplete set is reported before anything is loaded, so a language with two of
+			// the three fonts falls back to the baked atlas instead of drawing half its text.
+			if (Terraria.Fonts.GeneratedFonts.IsComplete("xx"))
+			{
+				return Fail("a language with no files was reported as complete");
+			}
+			if (Terraria.Fonts.GeneratedFonts.IsComplete(""))
+			{
+				return Fail("an empty language code was reported as complete");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("font atlas check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	/// <summary>
+	/// The custom language: a language the build has no compiled tables for.
+	///
+	/// Two things have to hold or the feature is a trap. It must never leave the tables empty -
+	/// an unknown option falls through every <c>LangOption == N</c> branch, and a blank UI is
+	/// worse than English. And its code must be safe to use as a file name: it comes from a
+	/// settings file, and a path separator there would point the loader at any file on the disk.
+	/// </summary>
+	private static bool CheckCustomLanguage()
+	{
+		int savedChoice = Language.Choice;
+		int savedOption = Lang.LangOption;
+		LangOverrides.SuppressFiles = true;
+		try
+		{
+			string error;
+			if (!Language.Apply(Language.Custom, out error))
+			{
+				return Fail("the custom language was rejected: " + error);
+			}
+			if (Language.Effective != Language.Custom)
+			{
+				return Fail("the custom language did not become the effective one (got " + Language.Effective + ")");
+			}
+			// The tables are English, not empty: the custom language's file replaces what it
+			// covers and English fills the rest.
+			if (!Language.TablesFilled())
+			{
+				return Fail("the custom language left the string tables empty");
+			}
+			if (string.IsNullOrEmpty(Lang.MenuText[6]))
+			{
+				return Fail("the custom language has no fallback text");
+			}
+			if (Language.Choice != Language.Custom)
+			{
+				return Fail("the custom language was not remembered as the choice");
+			}
+			// The label names the configured code, because that is what the player typed.
+			if (Language.Label(Language.Custom).IndexOf("Custom", StringComparison.Ordinal) < 0)
+			{
+				return Fail("the custom language has no label: " + Language.Label(Language.Custom));
+			}
+			// File names are filtered: a code is not a path.
+			string[] hostile = new string[5] { "../../etc/passwd", "ru/../en", "RU", "ru ua", "ru.txt" };
+			string[] expected = new string[5] { "etcpasswd", "ruen", "ru", "ruua", "rutxt" };
+			for (int i = 0; i < hostile.Length; i++)
+			{
+				string text = Language.SanitizeCode(hostile[i]);
+				if (text != expected[i])
+				{
+					return Fail("code '" + hostile[i] + "' became '" + text + "', expected '" + expected[i] + "'");
+				}
+			}
+			if (Language.SanitizeCode("verylonglanguagecode").Length > 12)
+			{
+				return Fail("a code longer than 12 characters was not truncated");
+			}
+			// Cycling: the custom option is reachable and wraps back to Auto.
+			if (Language.Next(Language.Max, 1) != Language.Auto)
+			{
+				return Fail("cycling past the last language does not wrap to Auto");
+			}
+			if (Language.Next(Language.Custom, -1) != 5)
+			{
+				return Fail("cycling back from the custom language does not reach Español");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("custom language check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			LangOverrides.SuppressFiles = false;
+			Language.Restore(savedChoice, savedOption);
 		}
 	}
 
@@ -7165,8 +7401,10 @@ internal static class SelfTest
 		LangOverrides.SuppressFiles = true;
 		try
 		{
-			// Every option must fill the tables with non-empty text.
-			string[] samples = new string[6];
+			// Every option must fill the tables with non-empty text. The array is sized from Max,
+			// not from a literal: it used to say 6, and adding the custom option made this very
+			// check throw instead of testing it.
+			string[] samples = new string[Language.Max + 1];
 			for (int i = Language.Auto; i <= Language.Max; i++)
 			{
 				string error;
@@ -7259,7 +7497,7 @@ internal static class SelfTest
 			// Out-of-range options are refused, and the current choice survives the refusal.
 			int before = Language.Choice;
 			string error3;
-			if (Language.Apply(-1, out error3) || Language.Apply(6, out error3) || string.IsNullOrEmpty(error3))
+			if (Language.Apply(-1, out error3) || Language.Apply(Language.Max + 1, out error3) || string.IsNullOrEmpty(error3))
 			{
 				return Fail("an out-of-range language was accepted");
 			}

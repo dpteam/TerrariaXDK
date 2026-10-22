@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Generates Storage/Fonts/ atlases from a TrueType font, so a language whose letters are not
+    baked into Content/Fonts/HD (Cyrillic, Greek, ...) can be displayed.
+
+        dotnet build tools/FontAtlas/FontAtlas.csproj
+        FontAtlas.exe C:\Windows\Fonts\arial.ttf out Storage\Fonts
+
+    This is a tool, not part of the game: it needs GDI+ (Windows-only) and the game must not.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>FontAtlas</AssemblyName>
+    <TargetFramework>net40</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>Terraria.FontAtlasTool</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateAssemblyInfo>True</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+</Project>
