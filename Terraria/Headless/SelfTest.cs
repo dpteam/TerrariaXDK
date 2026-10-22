@@ -104,6 +104,7 @@ internal static class SelfTest
 		RunCheck("typed characters", CheckTypedCharacters);
 		RunCheck("relay client", CheckRelayClient);
 		RunCheck("upnp", CheckUPnP);
+		RunCheck("packet batching", CheckPacketBatching);
 		RunCheck("whitelist", CheckWhitelist);
 		RunCheck("relay session", CheckRelaySession);
 		RunCheck("relay live", CheckRelayLive);
@@ -1685,6 +1686,133 @@ internal static class SelfTest
 			catch
 			{
 			}
+		}
+	}
+
+	// --- Packet batching ----------------------------------------------------
+
+	/// <summary>
+	/// Batching of game data: many frames in, one write out, same bytes on the wire.
+	///
+	/// The risk of this optimisation is not speed, it is ordering and loss - a frame held in a
+	/// buffer that is never flushed, or an immediate frame overtaking buffered ones. Both are
+	/// invisible in play until they are not, so they are checked here: the frames must come back
+	/// out in the order they went in, byte for byte, and only game data may be held at all.
+	/// </summary>
+	private static bool CheckPacketBatching()
+	{
+		try
+		{
+			// Only game data is batchable. A handshake or a reject held until the next tick
+			// would be a frame something is waiting on.
+			byte[] data = WireFormat.Frame(TcpPeer.OpData, new byte[3] { 1, 2, 3 });
+			byte[] ping = WireFormat.Frame(10, new byte[4]);
+			byte[] roster = WireFormat.Frame(3, new byte[1]);
+			if (!PacketBufferer.IsBatchable(data, TcpPeer.OpData))
+			{
+				return Fail("game data is not considered batchable");
+			}
+			if (PacketBufferer.IsBatchable(ping, TcpPeer.OpData))
+			{
+				return Fail("a ping frame is batched");
+			}
+			if (PacketBufferer.IsBatchable(roster, TcpPeer.OpData))
+			{
+				return Fail("a roster frame is batched");
+			}
+			if (PacketBufferer.IsBatchable(null, TcpPeer.OpData))
+			{
+				return Fail("a null frame is batched");
+			}
+			// Twenty frames, one write, all of them readable back in order.
+			byte[] array3 = WireFormat.Frame(TcpPeer.OpData, new byte[2]);
+			PacketBufferer bufferer = new PacketBufferer();
+			for (int i = 0; i < 20; i++)
+			{
+				if (bufferer.Add(WireFormat.Frame(TcpPeer.OpData, new byte[2] { (byte)i, (byte)(i * 2) })))
+				{
+					return Fail("the buffer asked for a flush long before it was full");
+				}
+			}
+			if (bufferer.PendingFrames != 20)
+			{
+				return Fail("the buffer holds " + bufferer.PendingFrames + " frame(s), expected 20");
+			}
+			using (System.IO.MemoryStream memoryStream = new System.IO.MemoryStream())
+			{
+				int frames;
+				int num = bufferer.Flush(memoryStream, out frames);
+				if (frames != 20)
+				{
+					return Fail("the flush reported " + frames + " frame(s), expected 20");
+				}
+				if (num != 20 * array3.Length)
+				{
+					return Fail("the flush wrote " + num + " byte(s), expected " + 20 * array3.Length);
+				}
+				if (bufferer.PendingFrames != 0 || bufferer.PendingBytes != 0)
+				{
+					return Fail("the buffer is not empty after a flush");
+				}
+				memoryStream.Position = 0L;
+				for (int j = 0; j < 20; j++)
+				{
+					byte[] array = WireFormat.ReadFrame(memoryStream);
+					if (array == null || array.Length != 3 || array[0] != TcpPeer.OpData
+						|| array[1] != (byte)j || array[2] != (byte)(j * 2))
+					{
+						return Fail("frame " + j + " did not survive the batch");
+					}
+				}
+				if (WireFormat.ReadFrame(memoryStream) != null)
+				{
+					return Fail("the batch produced more frames than were put in");
+				}
+				// A second flush with nothing pending writes nothing at all - otherwise every
+				// tick would cost a syscall for zero bytes.
+				int num2 = bufferer.Flush(memoryStream, out frames);
+				if (num2 != 0 || frames != 0)
+				{
+					return Fail("an empty flush wrote " + num2 + " byte(s)");
+				}
+			}
+			// The cap: a burst larger than the limit asks for an immediate flush instead of
+			// growing without bound.
+			PacketBufferer packetBufferer = new PacketBufferer();
+			byte[] array2 = WireFormat.Frame(TcpPeer.OpData, new byte[8 * 1024]);
+			bool flag = false;
+			for (int k = 0; k < 8 && !flag; k++)
+			{
+				flag = packetBufferer.Add(array2);
+			}
+			if (!flag)
+			{
+				return Fail("the buffer never reached its cap");
+			}
+			if (packetBufferer.PendingBytes < PacketBufferer.MaxPendingBytes)
+			{
+				return Fail("the buffer reported a flush before reaching the cap");
+			}
+			// Clear drops what is held, for a connection that is going away.
+			packetBufferer.Clear();
+			if (packetBufferer.PendingBytes != 0 || packetBufferer.PendingFrames != 0)
+			{
+				return Fail("Clear left data behind");
+			}
+			// A null stream must not throw: the host path calls Flush on connections that may
+			// already be closed.
+			PacketBufferer packetBufferer2 = new PacketBufferer();
+			packetBufferer2.Add(data);
+			int frames2;
+			if (packetBufferer2.Flush(null, out frames2) != 0)
+			{
+				return Fail("flushing to a null stream reported bytes");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("packet batching check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 
@@ -3589,6 +3717,40 @@ internal static class SelfTest
 			if (clientSession1.LocalGamers[0].ReceiveData(received, out sender) != reply.Length)
 			{
 				return Fail("the reply packet has the wrong length");
+			}
+
+			// Batching: a burst produced in one tick must arrive complete and in order. The
+			// transport now concatenates game frames into one write per connection per tick, so
+			// "did they all survive" is a property of the wire, not of the buffer alone.
+			DrainPackets(clientSession2);
+			int burstCount = 12;
+			for (int i = 0; i < burstCount; i++)
+			{
+				clientSession1.LocalGamers[0].SendData(new byte[3] { 0xCC, (byte)i, (byte)(i * 3) },
+					Microsoft.Xna.Framework.Net.SendDataOptions.ReliableInOrder);
+			}
+			int got = 0;
+			DateTime burstDeadline = DateTime.UtcNow.AddSeconds(5);
+			byte[] burst = new byte[64];
+			while (got < burstCount && DateTime.UtcNow < burstDeadline)
+			{
+				PumpUntil(delegate
+				{
+					return false;
+				}, 20, hostSession, clientSession1, clientSession2);
+				while (clientSession2.LocalGamers[0].IsDataAvailable)
+				{
+					int num3 = clientSession2.LocalGamers[0].ReceiveData(burst, out sender);
+					if (num3 != 3 || burst[0] != 0xCC || burst[1] != (byte)got || burst[2] != (byte)(got * 3))
+					{
+						return Fail("batched packet " + got + " arrived wrong (length " + num3 + ")");
+					}
+					got++;
+				}
+			}
+			if (got != burstCount)
+			{
+				return Fail("only " + got + " of " + burstCount + " batched packets arrived");
 			}
 
 			// Moderation on a live connection: a muted player's chat must not reach the others,

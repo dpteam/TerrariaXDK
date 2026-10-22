@@ -21,6 +21,12 @@ internal static class NetworkStats
 
 	private static long _packetsReceived;
 
+	/// <summary>
+	/// Actual socket writes. Lower than <see cref="PacketsSent"/> by exactly the batching win:
+	/// the difference is the frames that travelled together.
+	/// </summary>
+	private static long _writes;
+
 	private static readonly Stopwatch Since = Stopwatch.StartNew();
 
 	/// <summary>Last round-trip time in milliseconds, or -1 when unknown (not connected).</summary>
@@ -79,6 +85,18 @@ internal static class NetworkStats
 		}
 	}
 
+	/// <summary>Actual socket writes, as opposed to frames. See <see cref="_writes"/>.</summary>
+	public static long Writes
+	{
+		get
+		{
+			lock (Sync)
+			{
+				return _writes;
+			}
+		}
+	}
+
 	/// <summary>Average outgoing kilobits per second since startup.</summary>
 	public static float SentKbps
 	{
@@ -121,6 +139,15 @@ internal static class NetworkStats
 		}
 	}
 
+	/// <summary>One socket write, however many frames it carried.</summary>
+	internal static void OnWrite()
+	{
+		lock (Sync)
+		{
+			_writes++;
+		}
+	}
+
 	internal static void SetRtt(int milliseconds)
 	{
 		lock (Sync)
@@ -140,6 +167,7 @@ internal static class NetworkStats
 			_bytesReceived = 0L;
 			_packetsSent = 0L;
 			_packetsReceived = 0L;
+			_writes = 0L;
 			Since.Restart();
 			StartedTick = Environment.TickCount;
 			HasStart = true;
@@ -162,7 +190,13 @@ internal static class NetworkStats
 		lock (Sync)
 		{
 			string text = (_rttMs < 0) ? "--" : _rttMs.ToString();
-			return "ping " + text + " ms   up " + Rate(_bytesSent).ToString("0.0") + " kbps   down " + Rate(_bytesReceived).ToString("0.0") + " kbps";
+			// Frames and writes are both shown once batching has actually merged something: the
+			// gap between them is the whole point of the buffer, and a single number would hide
+			// whether it is working.
+			string text2 = (_packetsSent > _writes)
+				? "   frames " + _packetsSent.ToString() + " in " + _writes.ToString() + " write(s)"
+				: "";
+			return "ping " + text + " ms   up " + Rate(_bytesSent).ToString("0.0") + " kbps   down " + Rate(_bytesReceived).ToString("0.0") + " kbps" + text2;
 		}
 	}
 

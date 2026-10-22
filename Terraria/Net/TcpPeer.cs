@@ -30,7 +30,12 @@ internal sealed class TcpPeer : IPeerTransport
 
 	private const byte OpRoster = 3;
 
-	private const byte OpData = 4;
+	/// <summary>
+	/// Game data. Internal rather than private so the batching check can name it instead of
+	/// hardcoding 4: a test that repeats a protocol number passes when the number changes and
+	/// batching silently stops working.
+	/// </summary>
+	internal const byte OpData = 4;
 
 	private const byte OpJoin = 5;
 
@@ -96,6 +101,9 @@ internal sealed class TcpPeer : IPeerTransport
 	private TcpClient _client;
 
 	private NetworkStream _stream;
+
+	/// <summary>Game data held until the end of the tick; see <see cref="PacketBufferer"/>.</summary>
+	private readonly PacketBufferer _clientOut = new PacketBufferer();
 
 	private long _localRemoteId;
 
@@ -920,7 +928,7 @@ internal sealed class TcpPeer : IPeerTransport
 		binaryWriter.Write(Terraria.Mods.ModLoader.Signature);
 		binaryWriter.Write(NetworkConfig.Password ?? "");
 		binaryWriter.Flush();
-		WireFormat.WriteAll(_stream, WireFormat.LengthPrefix(memoryStream.ToArray()));
+		SendToHost(WireFormat.LengthPrefix(memoryStream.ToArray()));
 	}
 
 	private void ClientLoop()
@@ -1089,17 +1097,62 @@ internal sealed class TcpPeer : IPeerTransport
 			NetworkStats.OnSent(array.Length);
 			return;
 		}
+		SendToHost(array);
+	}
+
+	/// <summary>
+	/// One frame towards the host, batched when it is game data. Kept in one place so the client
+	/// path cannot forget the buffer that the host path uses.
+	/// </summary>
+	private void SendToHost(byte[] frame)
+	{
 		if (_stream == null)
 		{
 			return;
 		}
+		if (PacketBufferer.IsBatchable(frame, OpData) && !_clientOut.Add(frame))
+		{
+			NetworkStats.OnSent(frame.Length);
+			return;
+		}
+		FlushClientOutgoing();
 		try
 		{
-			WireFormat.WriteAll(_stream, array);
-			NetworkStats.OnSent(array.Length);
+			WireFormat.WriteAll(_stream, frame);
+			NetworkStats.OnSent(frame.Length);
+			NetworkStats.OnWrite();
 		}
 		catch
 		{
+		}
+	}
+
+	private void FlushClientOutgoing()
+	{
+		if (_stream == null)
+		{
+			_clientOut.Clear();
+			return;
+		}
+		int frames;
+		if (_clientOut.Flush(_stream, out frames) > 0)
+		{
+			NetworkStats.OnWrite();
+		}
+	}
+
+	/// <summary>Writes everything held for every connection, and for the client's own stream.</summary>
+	private void FlushOutgoing()
+	{
+		FlushClientOutgoing();
+		Connection[] array;
+		lock (_connections)
+		{
+			array = _connections.ToArray();
+		}
+		for (int i = 0; i < array.Length; i++)
+		{
+			array[i].FlushOutgoing();
 		}
 	}
 
@@ -1112,19 +1165,9 @@ internal sealed class TcpPeer : IPeerTransport
 		if (_isHost)
 		{
 			Broadcast(WireFormat.Frame(OpData, data), null);
+			return;
 		}
-		else if (_stream != null)
-		{
-			try
-			{
-				byte[] array = WireFormat.Frame(OpData, data);
-				WireFormat.WriteAll(_stream, array);
-				NetworkStats.OnSent(array.Length);
-			}
-			catch
-			{
-			}
-		}
+		SendToHost(WireFormat.Frame(OpData, data));
 	}
 
 	public void SendData(byte[] data, SendDataOptions options, NetworkGamer gamer)
@@ -1158,13 +1201,7 @@ internal sealed class TcpPeer : IPeerTransport
 		}
 		else if (_stream != null)
 		{
-			try
-			{
-				WireFormat.WriteAll(_stream, WireFormat.Frame(OpData, data));
-			}
-			catch
-			{
-			}
+			SendToHost(WireFormat.Frame(OpData, data));
 		}
 	}
 
@@ -1182,6 +1219,10 @@ internal sealed class TcpPeer : IPeerTransport
 				ModLoaderLog("Transport drain error: " + ex.Message);
 			}
 		}
+		// Everything the game produced this tick leaves in one write per connection. Doing it
+		// here - the game thread, once per frame - is what makes the batching free: no timer, no
+		// second thread, and the latency is the same tick the data was created in.
+		FlushOutgoing();
 		// Client keeps a latency probe running once per second. Doing it here (game thread)
 		// keeps the transport thread free of timers and reuses the locked write path.
 		if (!_isHost && !_stopped && _stream != null)
@@ -1215,13 +1256,7 @@ internal sealed class TcpPeer : IPeerTransport
 		}
 		else if (_stream != null)
 		{
-			try
-			{
-				WireFormat.WriteAll(_stream, array);
-			}
-			catch
-			{
-			}
+			SendToHost(array);
 		}
 	}
 
@@ -1428,19 +1463,51 @@ internal sealed class TcpPeer : IPeerTransport
 			Id = Interlocked.Increment(ref _nextId);
 		}
 
+		/// <summary>Game data held until the end of the tick; see <see cref="PacketBufferer"/>.</summary>
+		private readonly PacketBufferer _out = new PacketBufferer();
+
 		public void Send(byte[] data)
 		{
+			if (data == null || data.Length == 0)
+			{
+				return;
+			}
+			if (PacketBufferer.IsBatchable(data, OpData) && !_out.Add(data))
+			{
+				// Held until the next flush: one write per connection per tick.
+				return;
+			}
+			// Anything that is not game data, and a buffer that just filled up, goes out now -
+			// after whatever was already held, so the order on the wire is the order of calls.
+			FlushOutgoing();
 			try
 			{
 				WireFormat.WriteAll(Stream, data);
+				NetworkStats.OnWrite();
 			}
 			catch
 			{
 			}
 		}
 
+		/// <summary>
+		/// Writes everything held for this connection. Called once per tick by
+		/// <see cref="TcpPeer.Drain"/>, and before anything that must not overtake it.
+		/// </summary>
+		internal void FlushOutgoing()
+		{
+			int frames;
+			if (_out.Flush(Stream, out frames) > 0)
+			{
+				NetworkStats.OnWrite();
+			}
+		}
+
 		public void Close()
 		{
+			// A reject or a kick reason can be buffered in the same tick as the close; without
+			// this the client is disconnected and never learns why.
+			FlushOutgoing();
 			try
 			{
 				Stream.Close();
