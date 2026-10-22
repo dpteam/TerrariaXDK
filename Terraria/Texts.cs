@@ -277,9 +277,24 @@ internal static class Texts
 		Add(dictionary, "ui.mods.order.moved", "{0} moved {1} - restart required");
 		Add(dictionary, "ui.mods.moved.up", "up");
 		Add(dictionary, "ui.mods.moved.down", "down");
-		Add(dictionary, "ui.mods.change.back", "LMB / Space - enable   Left-Right - load order   R - rescan   Esc - back");
+		Add(dictionary, "ui.mods.change.back", "LMB / Space - toggle   C - convert   Left-Right - load order   R - rescan   Esc - back");
 		Add(dictionary, "ui.mods.hint.restart", "Changes apply after restarting the game");
 		Add(dictionary, "ui.mods.errors", "{0} load error(s) - see terraria-debug.log");
+		// Where a mod came from. The tag answers three questions at once for a tConfig pack:
+		// why it has no version, why it is not in the signature, and why it cannot be toggled.
+		Add(dictionary, "ui.mods.kind.xdk", "[TerrariaXDK] ");
+		Add(dictionary, "ui.mods.kind.tconfig", "[tConfig] ");
+		Add(dictionary, "ui.mods.pack.note", "not loaded - convert it to a mod");
+		Add(dictionary, "ui.mods.pack.hint", "C / Enter - convert to a mod project");
+		Add(dictionary, "ui.mods.convert.done", "{0}: project written to {1}");
+		Add(dictionary, "ui.mods.convert.failed", "{0}: conversion failed - {1}");
+		Add(dictionary, "ui.mods.convert.confirm", "Delete the original pack '{0}'?");
+		Add(dictionary, "ui.mods.convert.confirm.note", "It is already copied into the project; a backup is kept in Storage/Backups.");
+		Add(dictionary, "ui.mods.convert.yes", "Delete");
+		Add(dictionary, "ui.mods.convert.no", "Keep");
+		Add(dictionary, "ui.mods.convert.deleted", "{0}: original folder deleted");
+		Add(dictionary, "ui.mods.convert.kept", "{0}: original folder kept");
+		Add(dictionary, "ui.mods.convert.delete.failed", "{0}: could not delete the folder - {1}");
 
 		// --- Network screen -------------------------------------------------
 		Add(dictionary, "ui.net.title", "Network");

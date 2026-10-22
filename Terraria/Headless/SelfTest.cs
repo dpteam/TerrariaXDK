@@ -80,6 +80,7 @@ internal static class SelfTest
 		RunCheck("tconfig import", CheckTConfigImport);
 		RunCheck("tconfig convert", CheckTConfigConvert);
 		RunCheck("mod load order", CheckModLoadOrder);
+		RunCheck("mod menu kinds", CheckModMenuKinds);
 		RunCheck("virtual keyboard", CheckVirtualKeyboard);
 		RunCheck("name prompt", CheckNamePrompt);
 		RunCheck("player identity", CheckPlayerIdentity);
@@ -1687,6 +1688,166 @@ internal static class SelfTest
 				if (System.IO.Directory.Exists(text))
 				{
 					System.IO.Directory.Delete(text, recursive: true);
+				}
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	// --- Mod menu kinds -----------------------------------------------------
+
+	/// <summary>
+	/// The mod list shows both kinds of thing and treats them differently.
+	///
+	/// The point of the check is that a tConfig pack is <b>visible but not a mod</b>: it has no
+	/// version, it takes no part in the signature, it cannot be toggled, and the only thing that
+	/// can be done with it is convert it. Getting that wrong in either direction is bad - hiding
+	/// it leaves the player with a folder that silently changes item numbers, and treating it as a
+	/// mod puts a folder without an assembly into the load order.
+	/// </summary>
+	private static bool CheckModMenuKinds()
+	{
+		string root = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-modmenu");
+		string mods = System.IO.Path.Combine(root, "Mods");
+		string packs = System.IO.Path.Combine(root, "tConfig");
+		string sources = System.IO.Path.Combine(root, "ModSources");
+		string backups = System.IO.Path.Combine(root, "Backups");
+		string savedMods = Terraria.Mods.ModMenu.ModsRootOverride;
+		string savedPacks = Terraria.Mods.ModMenu.PacksRootOverride;
+		string savedSources = Terraria.Mods.ModMenu.ModSourcesRootOverride;
+		string savedBackups = Terraria.Mods.ModMenu.BackupsRootOverride;
+		try
+		{
+			if (System.IO.Directory.Exists(root))
+			{
+				System.IO.Directory.Delete(root, recursive: true);
+			}
+			// One real mod (a folder with a dll) and one folder that is not a mod (no dll).
+			System.IO.Directory.CreateDirectory(System.IO.Path.Combine(mods, "RealMod"));
+			System.IO.File.WriteAllBytes(System.IO.Path.Combine(mods, "RealMod", "RealMod.dll"), new byte[1] { 0 });
+			System.IO.Directory.CreateDirectory(System.IO.Path.Combine(mods, "NotAMod"));
+			// One pack, and one folder in tConfig that is not a pack (no Item/*.ini).
+			string packItems = System.IO.Path.Combine(packs, "OldPack", "Item");
+			System.IO.Directory.CreateDirectory(packItems);
+			System.IO.File.WriteAllText(System.IO.Path.Combine(packItems, "Copper Shortsword.ini"), "damage=12\r\n");
+			System.IO.Directory.CreateDirectory(System.IO.Path.Combine(packs, "EmptyFolder"));
+
+			Terraria.Mods.ModMenu.ModsRootOverride = mods;
+			Terraria.Mods.ModMenu.PacksRootOverride = packs;
+			Terraria.Mods.ModMenu.ModSourcesRootOverride = sources;
+			Terraria.Mods.ModMenu.BackupsRootOverride = backups;
+			Terraria.Mods.ModMenu.Reset();
+
+			// Both kinds are listed; the folder without a dll and the folder without Item/*.ini
+			// are not.
+			if (Terraria.Mods.ModMenu.EntryCount != 2)
+			{
+				return Fail("the list holds " + Terraria.Mods.ModMenu.EntryCount + " row(s), expected 2");
+			}
+			int modIndex = -1;
+			int packIndex = -1;
+			for (int i = 0; i < Terraria.Mods.ModMenu.EntryCount; i++)
+			{
+				if (Terraria.Mods.ModMenu.IsPackAt(i))
+				{
+					packIndex = i;
+				}
+				else
+				{
+					modIndex = i;
+				}
+			}
+			if (modIndex < 0 || packIndex < 0)
+			{
+				return Fail("the list does not hold one row of each kind");
+			}
+			if (Terraria.Mods.ModMenu.FolderAt(modIndex) != "RealMod")
+			{
+				return Fail("the mod row is '" + Terraria.Mods.ModMenu.FolderAt(modIndex) + "'");
+			}
+			if (Terraria.Mods.ModMenu.FolderAt(packIndex) != "OldPack")
+			{
+				return Fail("the pack row is '" + Terraria.Mods.ModMenu.FolderAt(packIndex) + "'");
+			}
+			// Converting the pack writes a project and asks about the original.
+			Terraria.Mods.ModMenu.SelectForTests(packIndex);
+			Terraria.Mods.ModMenu.ConvertSelectedForTests();
+			string project = System.IO.Path.Combine(sources, "OldPack", "OldPack.csproj");
+			if (!System.IO.File.Exists(project))
+			{
+				return Fail("conversion from the menu wrote no project (" + Terraria.Mods.ModMenu.StatusForTests + ")");
+			}
+			if (!Terraria.Mods.ModMenu.IsConfirmingForTests)
+			{
+				return Fail("conversion did not ask what to do with the original pack");
+			}
+			// Answering "keep" leaves the pack where it was.
+			Terraria.Mods.ModMenu.AnswerConfirmForTests(false);
+			if (!System.IO.Directory.Exists(System.IO.Path.Combine(packs, "OldPack")))
+			{
+				return Fail("answering Keep deleted the pack");
+			}
+			if (Terraria.Mods.ModMenu.IsConfirmingForTests)
+			{
+				return Fail("the question stayed up after it was answered");
+			}
+			// Answering "delete" moves it into Backups - not away for good: the only copy of
+			// somebody's pack must not disappear because a menu button was pressed.
+			Terraria.Mods.ModMenu.SelectForTests(packIndex);
+			Terraria.Mods.ModMenu.ConvertSelectedForTests();
+			Terraria.Mods.ModMenu.AnswerConfirmForTests(true);
+			if (System.IO.Directory.Exists(System.IO.Path.Combine(packs, "OldPack")))
+			{
+				return Fail("answering Delete left the pack in place");
+			}
+			if (!System.IO.Directory.Exists(backups))
+			{
+				return Fail("answering Delete did not put the pack in Backups");
+			}
+			string[] moved = System.IO.Directory.GetDirectories(backups);
+			if (moved.Length != 1)
+			{
+				return Fail("Backups holds " + moved.Length + " folder(s), expected 1");
+			}
+			if (moved[0].IndexOf("OldPack", StringComparison.OrdinalIgnoreCase) < 0)
+			{
+				return Fail("the backup folder is '" + System.IO.Path.GetFileName(moved[0]) + "'");
+			}
+			// The list reflects the removal, and the cursor is still inside it.
+			if (Terraria.Mods.ModMenu.EntryCount != 1)
+			{
+				return Fail("the list still holds " + Terraria.Mods.ModMenu.EntryCount + " row(s) after the pack was removed");
+			}
+			if (Terraria.Mods.ModMenu.IsPackAt(0))
+			{
+				return Fail("the remaining row is still a pack");
+			}
+			// Converting a mod must do nothing at all: it is not a pack.
+			Terraria.Mods.ModMenu.SelectForTests(0);
+			Terraria.Mods.ModMenu.ConvertSelectedForTests();
+			if (Terraria.Mods.ModMenu.IsConfirmingForTests)
+			{
+				return Fail("converting a mod asked a question");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("mod menu check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Mods.ModMenu.ModsRootOverride = savedMods;
+			Terraria.Mods.ModMenu.PacksRootOverride = savedPacks;
+			Terraria.Mods.ModMenu.ModSourcesRootOverride = savedSources;
+			Terraria.Mods.ModMenu.BackupsRootOverride = savedBackups;
+			try
+			{
+				if (System.IO.Directory.Exists(root))
+				{
+					System.IO.Directory.Delete(root, recursive: true);
 				}
 			}
 			catch
