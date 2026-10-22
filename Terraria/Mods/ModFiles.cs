@@ -123,9 +123,45 @@ internal static class ModFiles
 	/// Content, not the folder name and not a timestamp: two players whose mods differ in one
 	/// byte must be told they differ, and two whose files are identical must be told they match.
 	/// </summary>
-	internal static string ContentHash(string modDirectory)
+	/// <summary>
+	/// The hash of one file, with the same FNV-1a and the same failure vocabulary as
+	/// <see cref="ContentHash"/>.
+	///
+	/// Used for a compiled mod's assembly: what such a mod *does* is its code, so its code is what
+	/// the signature covers. A folder hash would also count the author's <c>.csproj</c> and any
+	/// stray <c>.dll.bak</c>, and refusing a join over one of those is a refusal the player can
+	/// neither explain nor fix.
+	/// </summary>
+	internal static string FileHash(string path)
 	{
-		string error;
+		if (string.IsNullOrEmpty(path) || !File.Exists(path))
+		{
+			return "missing";
+		}
+		ulong num = 14695981039346656037uL;
+		byte[] array = new byte[8192];
+		try
+		{
+			using FileStream stream = File.OpenRead(path);
+			int num2;
+			while ((num2 = stream.Read(array, 0, array.Length)) > 0)
+			{
+				for (int i = 0; i < num2; i++)
+				{
+					num ^= array[i];
+					num *= 1099511628211;
+				}
+			}
+		}
+		catch
+		{
+			return "unreadable";
+		}
+		return num.ToString("x16");
+	}
+
+	internal static string ContentHash(string modDirectory)
+	{		string error;
 		string[] array = List(modDirectory, out error);
 		if (array.Length == 0)
 		{

@@ -349,6 +349,12 @@ internal static class ModLoader
 				mod.Context = new ModContext(mod.Info.Name, modDirectory);
 				mod.Load();
 				LoadedMods.Add(mod);
+				// Remember the bytes of the assembly this mod came from: the signature has to
+				// describe the code, not the name it claims (see RecomputeSignature).
+				if (!AssemblyHashes.ContainsKey(mod.Info.Name))
+				{
+					AssemblyHashes[mod.Info.Name] = Terraria.Mods.ModFiles.FileHash(assemblyPath);
+				}
 				Log("Loaded " + mod.Info.Name + " v" + mod.Info.Version + " (" + type.FullName + ")");
 			}
 			catch (Exception ex4)
@@ -424,6 +430,23 @@ internal static class ModLoader
 		return true;
 	}
 
+	/// <summary>
+	/// The hash of the assembly a mod was loaded from, or "unknown".
+	///
+	/// Recorded by <see cref="LoadAssembly"/> from the file it actually loaded, so the signature
+	/// describes the code that is running rather than a guess about a folder. Several
+	/// <see cref="Mod"/> types can come from one assembly; they share the hash, which is right -
+	/// the code is the same.
+	/// </summary>
+	private static string AssemblyHash(string modName)
+	{
+		string result;
+		return (modName != null && AssemblyHashes.TryGetValue(modName, out result)) ? result : "unknown";
+	}
+
+	private static readonly Dictionary<string, string> AssemblyHashes =
+		new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
 	private static void RecomputeSignature()
 	{
 		if (LoadedMods.Count == 0 && LoadedRawMods.Count == 0)
@@ -436,7 +459,20 @@ internal static class ModLoader
 		List<string> list = new List<string>();
 		foreach (Mod loadedMod in LoadedMods)
 		{
-			list.Add(loadedMod.Name + "|" + loadedMod.Version);
+			// The assembly's bytes, not just its name and version.
+			//
+			// Name and version alone was the whole of this line, and it is not enough: the
+			// handshake then accepts two players whose "CoolMod 1.2.0" differs, and they disagree
+			// about every item id, every stat and every recipe the mod touches - a desync that
+			// looks like the game being wrong. It is also the common case: an author edits content
+			// and forgets to bump the version, or one player keeps an older copy of the same
+			// release. A raw mod already hashed its contents for exactly this reason.
+			//
+			// The assembly and not the folder: a stray `CoolMod.dll.bak`, a `.pdb` or the author's
+			// `.csproj` changes nothing about how the game behaves, and refusing a join over one
+			// would be a refusal the player cannot explain or fix. What a compiled mod *does* is
+			// its code, so its code is what is signed.
+			list.Add(loadedMod.Name + "|" + loadedMod.Version + "|dll:" + AssemblyHash(loadedMod.Name));
 		}
 		foreach (RawMod loadedRawMod in LoadedRawMods)
 		{
@@ -713,6 +749,9 @@ internal static class ModLoader
 		LoadedMods.Clear();
 		LoadedRawMods.Clear();
 		BrokenMods.Clear();
+		// The hashes describe the assemblies that were loaded; after an unload they describe
+		// nothing, and a stale one would make a reloaded mod look unchanged.
+		AssemblyHashes.Clear();
 		UnknownPacketSenders.Clear();
 		Terraria.Net.ModNet.Received -= HandleModPacket;
 		IsInitialized = false;

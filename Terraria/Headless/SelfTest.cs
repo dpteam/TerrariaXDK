@@ -140,6 +140,7 @@ internal static class SelfTest
 		RunCheck("recipe capacity", CheckRecipeCapacity);
 		RunCheck("item prefixes", CheckItemPrefixes);
 		RunCheck("converter field coverage", CheckConverterFieldCoverage);
+		RunCheck("mod content hash", CheckModContentHash);
 		RunCheck("raw mod", CheckRawMod);
 		RunCheck("mod download", CheckModDownload);
 #if DEBUG
@@ -854,13 +855,24 @@ internal static class SelfTest
 		{
 			return Fail("foreign signature accepted");
 		}
-		// Signature must be stable across recomputation.
+		// Signature must be stable across recomputation, including when mods are installed. The
+		// condition used to be `&& ModCount == 0`, so it only ever held for a vanilla install and
+		// proved nothing about the case that matters: two players comparing signatures of the same
+		// mod set. With ids hashed from names and the signature hashing contents, a reload has to
+		// produce the identical string.
 		string signature = Terraria.Mods.ModLoader.Signature;
+		int modCount = Terraria.Mods.ModLoader.ModCount;
 		Terraria.Mods.ModLoader.Unload();
 		Terraria.Mods.ModLoader.Initialize();
-		if (!string.Equals(signature, Terraria.Mods.ModLoader.Signature, StringComparison.Ordinal) && Terraria.Mods.ModLoader.ModCount == 0)
+		if (Terraria.Mods.ModLoader.ModCount != modCount)
 		{
-			return Fail("signature not deterministic");
+			return Fail("a reload changed the mod count: " + modCount + " -> "
+				+ Terraria.Mods.ModLoader.ModCount);
+		}
+		if (!string.Equals(signature, Terraria.Mods.ModLoader.Signature, StringComparison.Ordinal))
+		{
+			return Fail("signature not deterministic: " + signature + " -> "
+				+ Terraria.Mods.ModLoader.Signature + " with " + modCount + " mod(s)");
 		}
 		return true;
 	}
@@ -15179,6 +15191,104 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("item type wire check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	// --- What a mod's signature hashes -------------------------------------
+
+	/// <summary>
+	/// The signature is what decides whether two players are allowed to play together, so what it
+	/// covers has to be exactly "the contents of the mod" - no more and no less.
+	///
+	/// <b>No less:</b> a compiled mod used to sign only its name and version, so two players whose
+	/// "CoolMod 1.2.0" differed passed the handshake and then disagreed about every item id, stat
+	/// and recipe the mod touches. The common case is an author editing content without bumping the
+	/// version, or one player keeping an older copy of the same release.
+	///
+	/// <b>No more:</b> build output and local toggles must not count. If <c>bin/</c> did, every
+	/// machine would produce a different signature for the same mod and nobody could ever join -
+	/// which is why this is a test and not a comment.
+	/// </summary>
+	private static bool CheckModContentHash()
+	{
+		string root = Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-modhash");
+		try
+		{
+			if (Directory.Exists(root))
+			{
+				Directory.Delete(root, recursive: true);
+			}
+			string one = Path.Combine(root, "one");
+			string two = Path.Combine(root, "two");
+			Directory.CreateDirectory(one);
+			Directory.CreateDirectory(two);
+			// Same relative path, same length, different bytes: a version that changed one number.
+			File.WriteAllText(Path.Combine(one, "CoolMod.dll"), "AAAA1111");
+			File.WriteAllText(Path.Combine(two, "CoolMod.dll"), "AAAA2222");
+			string hashOne = Terraria.Mods.ModFiles.ContentHash(one);
+			string hashTwo = Terraria.Mods.ModFiles.ContentHash(two);
+			if (hashOne == hashTwo)
+			{
+				return Fail("two mod folders with different contents hash the same: " + hashOne);
+			}
+			// Build output and the local disable toggle are not content.
+			Directory.CreateDirectory(Path.Combine(one, "bin"));
+			Directory.CreateDirectory(Path.Combine(one, "obj"));
+			File.WriteAllText(Path.Combine(one, "bin", "CoolMod.dll"), "build output");
+			File.WriteAllText(Path.Combine(one, "obj", "CoolMod.pdb"), "debug symbols");
+			File.WriteAllText(Path.Combine(one, "disabled.txt"), "true");
+			if (Terraria.Mods.ModFiles.ContentHash(one) != hashOne)
+			{
+				return Fail("bin/, obj/ or disabled.txt changed a mod's hash, so two machines with"
+					+ " the same mod would never agree on a signature");
+			}
+			// And the same contents in a different order of writing still hash the same: the file
+			// list is sorted, which is what makes the signature comparable across machines.
+			Directory.CreateDirectory(Path.Combine(two, "bin"));
+			File.WriteAllText(Path.Combine(two, "bin", "CoolMod.dll"), "build output");
+			if (Terraria.Mods.ModFiles.ContentHash(two) != hashTwo)
+			{
+				return Fail("a build artefact changed the hash of a second folder");
+			}
+			// One real byte in a real file is still a different mod.
+			File.WriteAllText(Path.Combine(two, "CoolMod.dll"), "AAAA2223");
+			if (Terraria.Mods.ModFiles.ContentHash(two) == hashTwo)
+			{
+				return Fail("editing a mod file did not change its hash");
+			}
+			// The assembly hash, which is what a compiled mod's signature uses.
+			string assembly = Path.Combine(one, "CoolMod.dll");
+			string fileHash = Terraria.Mods.ModFiles.FileHash(assembly);
+			if (fileHash != Terraria.Mods.ModFiles.FileHash(assembly))
+			{
+				return Fail("the assembly hash is not stable for one file");
+			}
+			if (fileHash == Terraria.Mods.ModFiles.FileHash(Path.Combine(two, "CoolMod.dll")))
+			{
+				return Fail("two assemblies with different bytes hash the same");
+			}
+			if (Terraria.Mods.ModFiles.FileHash(Path.Combine(one, "nope.dll")) != "missing")
+			{
+				return Fail("a missing assembly did not hash as 'missing'");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("the mod content hash check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			try
+			{
+				if (Directory.Exists(root))
+				{
+					Directory.Delete(root, recursive: true);
+				}
+			}
+			catch
+			{
+			}
 		}
 	}
 
