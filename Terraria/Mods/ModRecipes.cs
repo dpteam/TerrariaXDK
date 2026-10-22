@@ -258,9 +258,20 @@ internal static class ModRecipes
 					problems.Add("'" + modRecipe.Result + "': no such item in this build");
 					continue;
 				}
+				// A count is stored in an item's Stack, which is a short. 40000 becomes -25536, and a
+				// negative required count is not "impossible to craft": Recipe.Create sees
+				// `Stack > num` on every slot and *adds* the difference to the player's inventory.
+				// So an out-of-range count is refused here, where it can still be explained, rather
+				// than turned into an item duplicator.
+				if (modRecipe.Amount < 1 || modRecipe.Amount > short.MaxValue)
+				{
+					problems.Add("'" + modRecipe.Result + "': output amount " + modRecipe.Amount
+						+ " does not fit an item stack (1.." + short.MaxValue + ") - recipe skipped");
+					continue;
+				}
 				item.SetDefaults(type);
 				Recipe recipe = new Recipe();
-				recipe.CraftedItem.SetDefaults(item.Type, Math.Max(1, modRecipe.Amount));
+				recipe.CraftedItem.SetDefaults(item.Type, modRecipe.Amount);
 				recipe.RecipeCategory = modRecipe.Category;
 				recipe.RecipeSubCategory = modRecipe.SubCategory;
 				recipe.NeedsWater = modRecipe.NeedsWater;
@@ -268,6 +279,19 @@ internal static class ModRecipes
 				bool flag = false;
 				for (int j = 0; j < modRecipe.IngredientNames.Count && num3 < 12; j++)
 				{
+					// Same range, same reason: this count also becomes a Stack. Refusing the whole
+					// recipe rather than dropping the ingredient is deliberate - a recipe that
+					// quietly needs less is a lie, while one that is skipped says so.
+					int want = modRecipe.IngredientNames[j].Value;
+					if (want < 1 || want > short.MaxValue)
+					{
+						problems.Add("'" + modRecipe.Result + "': ingredient '"
+							+ modRecipe.IngredientNames[j].Key + "' wants " + want
+							+ ", which does not fit an item stack (1.." + short.MaxValue
+							+ ") - recipe skipped");
+						flag = true;
+						break;
+					}
 					// By name through the real table, and after ids are assigned - so an ingredient
 					// another mod defines resolves too.
 					int num6 = ItemLookup.Find(modRecipe.IngredientNames[j].Key);

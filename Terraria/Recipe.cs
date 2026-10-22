@@ -154,6 +154,14 @@ public sealed class Recipe
 		for (int i = 0; i < NumRequiredItems; i++)
 		{
 			int num = RequiredItem[i].Stack;
+			// A non-positive requirement must never reach the subtraction below: with a negative
+			// count every slot matches `Stack > num` and the player's stack *grows*. Vanilla
+			// recipes are all positive, and mod recipes are range-checked when they are added -
+			// this is the guard that keeps a negative count from ever being an item duplicator.
+			if (num <= 0)
+			{
+				continue;
+			}
 			for (int j = 0; j < 48; j++)
 			{
 				if (ActiveUI.ActivePlayer.Inventory[j].NetID == RequiredItem[i].NetID)

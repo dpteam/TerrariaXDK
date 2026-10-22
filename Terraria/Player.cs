@@ -10431,6 +10431,14 @@ public sealed class Player
 		for (int num = r.NumRequiredItems - 1; num >= 0; num--)
 		{
 			int num2 = r.RequiredItem[num].Stack;
+			// A requirement of nothing is not a recipe: it would read as craftable while the player
+			// holds none of it, and Recipe.Create would subtract nothing - a free item. Mod recipes
+			// are range-checked when they are added; this is the guard for anything that reaches a
+			// Recipe another way, and it says "no" instead of "already covered".
+			if (num2 <= 0)
+			{
+				return false;
+			}
 			for (int num3 = 47; num3 >= 0; num3--)
 			{
 				if (Inventory[num3].NetID == r.RequiredItem[num].NetID)

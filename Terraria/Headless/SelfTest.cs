@@ -14652,6 +14652,87 @@ internal static class SelfTest
 			{
 				return Fail("a full recipe table did not say why the recipe was refused");
 			}
+			// --- a count that does not fit a Stack is refused, not wrapped ---
+			// Stack is a short. 40000 becomes -25536, and a negative *required* count makes
+			// Recipe.Create add items instead of taking them: an item duplicator made of a typo.
+			// The table has to be back to a normal size first, or "no room" answers instead.
+			Recipe.NumRecipes = saved;
+			Terraria.Mods.ModRecipes.Clear();
+			Terraria.Mods.ModRecipe fat = Terraria.Mods.ModRecipes.Register("CapacityTest", "Wood", out error);
+			if (fat == null)
+			{
+				return Fail("could not register the amount test recipe: " + error);
+			}
+			fat.AddIngredient("Copper Ore", 1);
+			fat.Amount = 40000;
+			int added2 = Terraria.Mods.ModRecipes.Apply(out problems);
+			if (added2 != 0)
+			{
+				return Fail("a recipe with an output amount of 40000 was added");
+			}
+			if (!SaidAny(problems, "does not fit an item stack"))
+			{
+				return Fail("an out-of-range output amount was refused without a reason");
+			}
+			Terraria.Mods.ModRecipes.Clear();
+			Terraria.Mods.ModRecipe greedy = Terraria.Mods.ModRecipes.Register("CapacityTest", "Wood", out error);
+			if (greedy == null)
+			{
+				return Fail("could not register the ingredient test recipe: " + error);
+			}
+			greedy.AddIngredient("Copper Ore", 40000);
+			int added3 = Terraria.Mods.ModRecipes.Apply(out problems);
+			if (added3 != 0)
+			{
+				return Fail("a recipe wanting 40000 of an ingredient was added");
+			}
+			if (!SaidAny(problems, "does not fit an item stack"))
+			{
+				return Fail("an out-of-range ingredient count was refused without a reason");
+			}
+			// And a sane count still works, so the range check is not simply refusing everything.
+			Terraria.Mods.ModRecipes.Clear();
+			Terraria.Mods.ModRecipe ok = Terraria.Mods.ModRecipes.Register("CapacityTest", "Wood", out error);
+			if (ok == null)
+			{
+				return Fail("could not register the control recipe: " + error);
+			}
+			ok.AddIngredient("Copper Ore", 250);
+			ok.Amount = 3;
+			int added4 = Terraria.Mods.ModRecipes.Apply(out problems);
+			if (added4 != 1)
+			{
+				return Fail("a sane recipe with 250 of an ingredient and an amount of 3 was not added");
+			}
+			// --- and a negative requirement is never "already covered" ---
+			// The load-time check should make this unreachable, which is exactly why it is worth
+			// asserting: a recipe with Stack = -1 used to be craftable while the player held
+			// nothing, because CanCraftRecipe subtracts from a number that starts below zero.
+			Tutorial savedTutorial = Main.TutorialState;
+			try
+			{
+				// Past the tutorial, so the recipe checks below are about items and not about the
+				// tutorial's scripted sequence.
+				Main.TutorialState = Tutorial.NUM_TUTORIALS;
+				Player crafter = new Player();
+				Recipe probe = new Recipe();
+				probe.CraftedItem.SetDefaults(1);
+				probe.RequiredItem[0].SetDefaults(1, 1);
+				probe.NumRequiredItems = 1;
+				if (crafter.CanCraftRecipe(probe))
+				{
+					return Fail("a recipe was craftable with an empty inventory");
+				}
+				probe.RequiredItem[0].Stack = -1;
+				if (crafter.CanCraftRecipe(probe))
+				{
+					return Fail("a negative required count made a recipe craftable for free");
+				}
+			}
+			finally
+			{
+				Main.TutorialState = savedTutorial;
+			}
 			return true;
 		}
 		catch (Exception ex)
@@ -14663,6 +14744,19 @@ internal static class SelfTest
 			Recipe.NumRecipes = saved;
 			Terraria.Mods.ModRecipes.Clear();
 		}
+	}
+
+	/// <summary>True when any problem line mentions <paramref name="fragment"/>.</summary>
+	private static bool SaidAny(List<string> problems, string fragment)
+	{
+		for (int i = 0; i < problems.Count; i++)
+		{
+			if (problems[i].IndexOf(fragment, StringComparison.Ordinal) >= 0)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	// --- Item ids on the wire ---------------------------------------------

@@ -757,6 +757,9 @@ internal static class TConfigConverter
 		Stations = new List<string>();
 		Amount = 1;
 		NeedsWater = false;
+		// A count that does not fit an item's Stack makes the whole recipe a lie: dropping just the
+		// ingredient would make it cheaper than the pack says, and keeping it would make it free.
+		bool badCount = false;
 		for (int i = 0; i < lines.Count; i++)
 		{
 			TConfigImporter.SectionLine sectionLine = lines[i];
@@ -769,6 +772,11 @@ internal static class TConfigConverter
 				if (sectionLine.Key.Equals("Items", StringComparison.OrdinalIgnoreCase))
 				{
 					List<KeyValuePair<string, int>> parsed = ParseCountedList(sectionLine.Value, itemName, result);
+					if (parsed == null)
+					{
+						badCount = true;
+						continue;
+					}
 					for (int j = 0; j < parsed.Count; j++)
 					{
 						Ingredients.Add(parsed[j]);
@@ -783,6 +791,11 @@ internal static class TConfigConverter
 					int parsedAmount;
 					if (int.TryParse(sectionLine.Value, out parsedAmount) && parsedAmount > 0)
 					{
+						if (!CountFits(itemName, "amount", parsedAmount, result))
+						{
+							badCount = true;
+							continue;
+						}
 						Amount = parsedAmount;
 					}
 				}
@@ -803,6 +816,11 @@ internal static class TConfigConverter
 					continue;
 				}
 				Item ingredient = default(Item);
+				if (!CountFits(itemName, "ingredient '" + sectionLine.Key + "' count", num, result))
+				{
+					badCount = true;
+					continue;
+				}
 				// By name through the real table; SetDefaults(string) knows only the legacy items.
 				int ingredientType = Terraria.ItemLookup.Find(sectionLine.Key);
 				if (ingredientType > 0)
@@ -841,6 +859,11 @@ internal static class TConfigConverter
 				int num2;
 				if (int.TryParse(sectionLine.Value, out num2) && num2 > 0)
 				{
+					if (!CountFits(itemName, "amount", num2, result))
+					{
+						badCount = true;
+						continue;
+					}
 					Amount = num2;
 				}
 			}
@@ -848,6 +871,10 @@ internal static class TConfigConverter
 			{
 				NeedsWater = IsTrue(sectionLine.Value);
 			}
+		}
+		if (badCount)
+		{
+			return false;
 		}
 		if (Ingredients.Count == 0)
 		{
@@ -864,9 +891,36 @@ internal static class TConfigConverter
 	}
 
 	/// <summary>
+	/// A recipe count has to fit an item's <c>Stack</c>, which is a <c>short</c>.
+	///
+	/// Above that it wraps negative, and a negative count is not "impossible to craft": it is the
+	/// opposite. <c>CanCraftRecipe</c> subtracts what the player has and finds the remainder
+	/// already satisfied, and <c>Recipe.Create</c> computes <c>Stack &gt; count</c> on every slot
+	/// and then *adds* the difference. So one typo in one line of a pack becomes free crafting and
+	/// item duplication. Checked here as well as in <c>ModRecipes.Apply</c> because the two answer
+	/// different people: this one tells the pack author at conversion time, that one protects a
+	/// hand-written or compiled mod at load time.
+	/// </summary>
+	private static bool CountFits(string itemName, string what, int count, Result result)
+	{
+		if (count > 0 && count <= short.MaxValue)
+		{
+			return true;
+		}
+		result.RecipesSkipped++;
+		result.Warnings.Add("'" + itemName + "': " + what + " is " + count
+			+ ", which does not fit an item stack (1.." + short.MaxValue + ") - recipe dropped");
+		return false;
+	}
+
+	/// <summary>
 	/// Parses tConfig's newer ingredient list: <c>6 Copper Bar, 2 Wood</c>. The count comes first
 	/// and the name is everything after the first space, so an item whose name contains a space
 	/// still works.
+	///
+	/// Returns <c>null</c> when a count cannot be stored in an item stack: the caller then drops the
+	/// whole recipe, because a list with one ingredient quietly missing is a recipe that lies about
+	/// its cost.
 	/// </summary>
 	private static List<KeyValuePair<string, int>> ParseCountedList(string value, string itemName, Result result)
 	{
@@ -890,6 +944,12 @@ internal static class TConfigConverter
 				result.RecipesSkipped++;
 				result.Warnings.Add("'" + itemName + "': ingredient '" + text + "' has no count, dropped");
 				continue;
+			}
+			if (!CountFits(itemName, "ingredient '" + text.Substring(num + 1).Trim() + "' count", count, result))
+			{
+				// One bad count makes the whole list wrong, so the caller drops the recipe. A
+				// partial list would quietly make the item cheaper than the pack says.
+				return null;
 			}
 			list.Add(new KeyValuePair<string, int>(text.Substring(num + 1).Trim(), count));
 		}
