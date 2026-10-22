@@ -86,9 +86,79 @@ public sealed class NetMessage
 		}
 	}
 
-	/// <summary>The gamertag of a sender, for a log line. Never throws: this is called on a refusal path.</summary>
-	private static string SenderName(NetClient sender)
+	/// <summary>
+	/// A player slot from a packet, or -1 when it names nobody this build has.
+	///
+	/// The slot travels as a byte, so 0..255 are all representable, and <c>Main.PlayerSet</c> holds
+	/// nine. Every handler that reads one used it as an index on the next line, so a client sending
+	/// 200 crashed the host with <c>IndexOutOfRangeException</c> - one packet, no state needed. The
+	/// caller breaks out of the case when this returns -1; the rest of the packet is discarded with
+	/// it, which is what already happens to any malformed frame.
+	/// </summary>
+	private static int ReadPlayerSlot(NetClient sender, string what)
 	{
+		return ReadSlot(sender, what, Main.PlayerSet.Length, "player");
+	}
+
+	/// <summary>An NPC slot from a packet, or -1. <c>Main.NPCSet</c> holds 197.</summary>
+	private static int ReadNpcSlot(NetClient sender, string what)
+	{
+		return ReadSlot(sender, what, Main.NPCSet.Length, "NPC");
+	}
+
+	/// <summary>An item slot from a packet, or -1. <c>Main.ItemSet</c> holds 201.</summary>
+	private static int ReadItemSlot(NetClient sender, string what)
+	{
+		return ReadSlot(sender, what, Main.ItemSet.Length, "item");
+	}
+
+	/// <summary>
+	/// One byte from the packet, checked against the table it will index.
+	///
+	/// The byte is always consumed, so a refused slot does not shift the rest of the packet - the
+	/// caller may still need to read it, and a frame that is misread is worse than one that is
+	/// dropped.
+	/// </summary>
+	private static int ReadSlot(NetClient sender, string what, int count, string kind)
+	{
+		int num = PacketIn.ReadByte();
+		if (num < 0 || num >= count)
+		{
+			RefuseIndex(sender, what, num, count, kind);
+			return -1;
+		}
+		return num;
+	}
+
+	/// <summary>Logs a refused slot once per sender and message, so a flood cannot fill the log.</summary>
+	private static void RefuseIndex(NetClient sender, string what, int index, int count, string kind)
+	{
+		string text = SenderName(sender) + "|" + what + "|" + index;
+		if (ReportedIndices.Add(text))
+		{
+			RefusedIndexCount++;
+			RefusedIndices.Add(what + " " + index);
+			Program.LogWarn("Net", "refused " + what + " " + index + " from " + SenderName(sender)
+				+ " (this build has " + count + " " + kind + " slots)");
+		}
+	}
+
+	/// <summary>
+	/// How many distinct out-of-range slots have been refused. For the tests: "no exception was
+	/// thrown" is also true when the guard was never reached, and that is exactly the mistake this
+	/// counter exists to catch.
+	/// </summary>
+	internal static int RefusedIndexCount;
+
+	/// <summary>The refusal lines, for a test that needs to say which packet was not refused.</summary>
+	internal static readonly System.Collections.Generic.List<string> RefusedIndices =
+		new System.Collections.Generic.List<string>();
+
+	private static readonly System.Collections.Generic.HashSet<string> ReportedIndices =
+		new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+
+	/// <summary>The gamertag of a sender, for a log line. Never throws: this is called on a refusal path.</summary>
+	private static string SenderName(NetClient sender)	{
 		try
 		{
 			if (sender != null && sender.NetGamer != null && !string.IsNullOrEmpty(sender.NetGamer.Gamertag))
@@ -1786,7 +1856,11 @@ public sealed class NetMessage
 				do
 				{
 					NetworkGamer networkGamer = allGamers[--num10];
-					int num11 = PacketIn.ReadByte();
+					int num11 = ReadPlayerSlot(sender, "message 7 player");
+					if (num11 < 0)
+					{
+						break;
+					}
 					Player tag = Main.PlayerSet[num11];
 					_ = networkGamer.IsLocal;
 					networkGamer.Tag = tag;
@@ -1799,6 +1873,13 @@ public sealed class NetMessage
 				int num5 = PacketIn.ReadByte();
 				int num6 = num5 & 0x80;
 				num5 ^= num6;
+				// The high bit is a flag, so the slot is 0..127 and PlayerSet holds nine. A client
+				// sending 200 used to index past the end on the next line.
+				if (num5 < 0 || num5 >= Main.PlayerSet.Length)
+				{
+					RefuseIndex(sender, "message 14 player", num5, Main.PlayerSet.Length, "player");
+					break;
+				}
 				Player player = Main.PlayerSet[num5];
 				if (num6 != 0)
 				{
@@ -1817,7 +1898,11 @@ public sealed class NetMessage
 			}
 			case 23:
 			{
-				int num13 = PacketIn.ReadByte();
+				int num13 = ReadNpcSlot(sender, "message 23 NPC");
+				if (num13 < 0)
+				{
+					break;
+				}
 				int num14 = (int)ReadCompacted();
 				Main.NPCSet[num13].Life = num14;
 				if (num14 == 0)
@@ -1911,10 +1996,20 @@ public sealed class NetMessage
 			}
 			case 54:
 			{
-				int num8 = PacketIn.ReadByte();
+				int num8 = ReadNpcSlot(sender, "message 54 NPC");
 				for (int i = 0; i < 5; i++)
 				{
 					uint num9 = PacketIn.ReadByte();
+					if (num8 < 0)
+					{
+						// The remaining bytes still have to be consumed: a skipped ReadCompacted
+						// would shift the rest of this packet.
+						if (num9 != 0)
+						{
+							ReadCompacted();
+						}
+						continue;
+					}
 					Main.NPCSet[num8].ActiveBuffs[i].Type = (ushort)num9;
 					Main.NPCSet[num8].ActiveBuffs[i].Time = (ushort)((num9 != 0) ? ReadCompacted() : 0u);
 				}
@@ -1932,7 +2027,11 @@ public sealed class NetMessage
 				break;
 			case 64:
 			{
-				int num4 = PacketIn.ReadByte();
+				int num4 = ReadPlayerSlot(sender, "message 64 player");
+				if (num4 < 0)
+				{
+					break;
+				}
 				UI ui2 = Main.PlayerSet[num4].ui;
 				num4 = PacketIn.ReadByte();
 				ui2?.SetTriggerState((Trigger)num4);
@@ -2075,7 +2174,11 @@ public sealed class NetMessage
 				break;
 			case 31:
 			{
-				int num36 = PacketIn.ReadByte();
+				int num36 = ReadPlayerSlot(sender, "message 31 player");
+				if (num36 < 0)
+				{
+					break;
+				}
 				Player player2 = Main.PlayerSet[num36];
 				ushort x = PacketIn.ReadUInt16();
 				int y = PacketIn.ReadUInt16();
@@ -2128,9 +2231,13 @@ public sealed class NetMessage
 			}
 			case 53:
 			{
-				int num39 = PacketIn.ReadByte();
+				int num39 = ReadNpcSlot(sender, "message 53 NPC");
 				int buffType = PacketIn.ReadByte();
 				int time = (int)ReadCompacted();
+				if (num39 < 0)
+				{
+					break;
+				}
 				Main.NPCSet[num39].AddBuff(buffType, time, quiet: true);
 				CreateMessage1(54, num39);
 				SendMessage();
@@ -2218,9 +2325,20 @@ public sealed class NetMessage
 		}
 		case 5:
 		{
-			int num119 = PacketIn.ReadByte();
+			int num119 = ReadPlayerSlot(sender, "message 5 player");
+			if (num119 < 0)
+			{
+				break;
+			}
 			Player player18 = Main.PlayerSet[num119];
 			int num120 = PacketIn.ReadByte();
+			// Inventory is 49 slots, then the eleven armour slots: 60 in total. A byte covers
+			// 0..255, and `armor[151]` was one packet away from a crash.
+			if (num120 < 0 || num120 >= 49 + player18.armor.Length)
+			{
+				RefuseIndex(sender, "message 5 slot", num120, 49 + player18.armor.Length, "inventory");
+				break;
+			}
 			int num121 = PacketIn.ReadInt16();
 			int prefix3 = 0;
 			int type5 = 0;
@@ -2268,7 +2386,11 @@ public sealed class NetMessage
 		}
 		case 12:
 		{
-			int num72 = PacketIn.ReadByte();
+			int num72 = ReadPlayerSlot(sender, "message 12 player");
+			if (num72 < 0)
+			{
+				break;
+			}
 			Player player8 = Main.PlayerSet[num72];
 			if (Main.NetMode == 1)
 			{
@@ -2584,7 +2706,11 @@ public sealed class NetMessage
 		}
 		case 21:
 		{
-			int num65 = PacketIn.ReadByte();
+			int num65 = ReadItemSlot(sender, "message 21 item");
+			if (num65 < 0)
+			{
+				break;
+			}
 			int num66 = PacketIn.ReadInt16();
 			int num67 = num66 & 0x1F;
 			num66 >>= 5;
@@ -2660,10 +2786,14 @@ public sealed class NetMessage
 		}
 		case 22:
 		{
-			int num52 = PacketIn.ReadByte();
+			int num52 = ReadItemSlot(sender, "message 22 item");
 			int num53 = PacketIn.ReadByte();
 			int num54 = num53 & 0x80;
 			num53 ^= num54;
+			if (num52 < 0)
+			{
+				break;
+			}
 			Main.ItemSet[num52].Owner = (byte)num53;
 			if (num53 < 8)
 			{
@@ -3012,6 +3142,13 @@ public sealed class NetMessage
 			int num116 = PacketIn.ReadByte();
 			int num117 = num116 >> 4;
 			num116 &= 0xF;
+			// Four bits hold 0..15; PlayerSet holds nine. The team is in the high nibble, so the
+			// slot has to be checked after masking, not before.
+			if (num116 >= Main.PlayerSet.Length)
+			{
+				RefuseIndex(sender, "message 45 player", num116, Main.PlayerSet.Length, "player");
+				break;
+			}
 			Player player17 = Main.PlayerSet[num116];
 			int team = player17.team;
 			player17.team = (byte)num117;
@@ -3081,7 +3218,11 @@ public sealed class NetMessage
 			{
 				EchoMessage(sender);
 			}
-			int num90 = PacketIn.ReadByte();
+			int num90 = ReadPlayerSlot(sender, "message 50 player");
+			if (num90 < 0)
+			{
+				break;
+			}
 			Player player12 = Main.PlayerSet[num90];
 			for (int num91 = 0; num91 < 10; num91++)
 			{
@@ -3107,7 +3248,12 @@ public sealed class NetMessage
 			{
 				EchoMessage(sender);
 			}
-			Player player9 = Main.PlayerSet[PacketIn.ReadByte()];
+			int num122 = ReadPlayerSlot(sender, "message 51 player");
+			if (num122 < 0)
+			{
+				break;
+			}
+			Player player9 = Main.PlayerSet[num122];
 			Main.PlaySound(2, player9.XYWH.X, player9.XYWH.Y);
 			break;
 		}

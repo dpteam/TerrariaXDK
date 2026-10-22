@@ -6398,6 +6398,65 @@ internal static class SelfTest
 						{
 							Main.TileSet[11, 11].WallType = 0;
 						}
+						// --- and a slot number past the table is refused ----------------------
+						// Every one of these travels as a byte (or four bits) and is used as an
+						// index on the next line: PlayerSet holds 9, NPCSet 197, ItemSet 201. A
+						// client sending 200 used to crash the host with one packet - no state, no
+						// timing, just a number that does not exist.
+						try
+						{
+							int refusalsBefore = NetMessage.RefusedIndexCount;
+							// Message 5 (inventory): player slot 200, then a real player with slot 200.
+							RefuseOne(itemClient, "message 5 player", new byte[3] { 5, 200, 3 });
+							RefuseOne(itemClient, "message 5 slot", new byte[3] { 5, 1, 200 });
+							// Message 23 (NPC sync) is a client-side handler: the host ignores it, so it
+							// cannot be tested in host mode. A malicious *host* is the risk here - the
+							// client would index NPCSet[250] - so this one runs with NetMode = 1. The
+							// guard is the first statement of the case, so nothing touches the UI.
+							int savedMode = Main.NetMode;
+							try
+							{
+								Main.NetMode = 1;
+								RefuseOne(itemClient, "message 23 NPC", new byte[3] { 23, 250, 0 });
+							}
+							finally
+							{
+								Main.NetMode = savedMode;
+							}
+							// Message 50 (player buffs): player slot 200.
+							RefuseOne(itemClient, "message 50 player", new byte[3] { 50, 200, 0 });
+							// Message 22 (item owner): item slot 250.
+							RefuseOne(itemClient, "message 22 item", new byte[3] { 22, 250, 0 });
+							// Message 51 (play a sound at a player): player slot 200.
+							RefuseOne(itemClient, "message 51 player", new byte[2] { 51, 200 });
+							// Message 45 (team): slot 15 in the low nibble, which is a valid four-bit
+							// number and not a valid player.
+							RefuseOne(itemClient, "message 45 team", new byte[2] { 45, 0x0F });
+							// "No exception" is also true when the guard is never reached, which is the
+							// mistake this project has made once already (IsValidWallType, written and
+							// never called). The counter is the proof that each packet hit its guard.
+							if (NetMessage.RefusedIndexCount - refusalsBefore < 7)
+							{
+								string seen = "";
+								for (int i = refusalsBefore; i < NetMessage.RefusedIndices.Count; i++)
+								{
+									seen += " [" + NetMessage.RefusedIndices[i] + "]";
+								}
+								return Fail("only " + (NetMessage.RefusedIndexCount - refusalsBefore)
+									+ " of 7 out-of-range packets reached a guard - refused:" + seen
+									+ "; the rest were accepted, or the check is not wired in");
+							}
+						}
+						catch (Exception ex)
+						{
+							return Fail("a packet with an out-of-range slot threw " + ex.GetType().Name
+								+ ": " + ex.Message);
+						}
+						// Nothing above changed a real slot: the roster is intact.
+						if (Main.PlayerSet[1].buff[0].Type != 3)
+						{
+							return Fail("a refused player slot changed the real player's buffs");
+						}
 						// --- and a tile type past this build's table is refused ---------------
 						// The type travels as a byte and every per-tile table is 150 long, so a
 						// packet with type 200 indexed `TileFrameImportant[200]` on the next line -
@@ -6659,6 +6718,39 @@ internal static class SelfTest
 		NetMessage.PacketIn.BaseStream.Write(buffer, 0, buffer.Length);
 		NetMessage.PacketIn.BaseStream.Position = 0;
 		NetMessage.GetData(client);
+	}
+
+	/// <summary>
+	/// Feeds one raw packet into the host as if it arrived from that client. The bytes are the whole
+	/// message: the id, then its fields.
+	///
+	/// Deliberately not a typed helper: the point of these packets is that their fields are wrong,
+	/// so a builder that "knows" the layout would hide the case being tested.
+	/// </summary>
+	private static void SendRaw(NetClient client, byte[] buffer)
+	{
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.PacketIn.BaseStream.Write(buffer, 0, buffer.Length);
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.GetData(client);
+	}
+
+	/// <summary>
+	/// Sends one deliberately out-of-range packet and requires that it does not throw.
+	///
+	/// Named, so a failure says which packet: "a packet with an out-of-range slot threw" over six
+	/// candidates is a message that costs another run to understand.
+	/// </summary>
+	private static void RefuseOne(NetClient client, string what, byte[] buffer)
+	{
+		try
+		{
+			SendRaw(client, buffer);
+		}
+		catch (Exception ex)
+		{
+			throw new InvalidOperationException(what + ": " + ex.GetType().Name + ": " + ex.Message, ex);
+		}
 	}
 
 	/// <summary>
