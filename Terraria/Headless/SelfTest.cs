@@ -2382,9 +2382,44 @@ internal static class SelfTest
 			{
 				return Fail("the second mod's item is missing from the registry");
 			}
-			if (other.Type != sword.Type + 1)
+			// Not sequential any more, and that is the point: ids are hashed from the item's name
+			// so that inserting an item does not renumber the ones after it. What still has to
+			// hold is that both are in range, distinct, and that the same set gives the same
+			// numbers on a second run - the next block checks the repeat.
+			if (other.Type == sword.Type)
 			{
-				return Fail("ids are not sequential in sorted order: " + sword.Type + " then " + other.Type);
+				return Fail("two mod items share id " + sword.Type);
+			}
+			if (other.Type < Terraria.Mods.ModItems.IdBase || other.Type >= Terraria.Mods.ModItems.IdLimit)
+			{
+				return Fail("a mod item id is outside the mod range: " + other.Type);
+			}
+			// --- the id does not move when another item is added -------------------
+			// This is the whole reason ids are hashed instead of counted. With a contiguous run,
+			// inserting one item renumbers every item after it - and the id is a number in the
+			// save file, so the player's sword becomes whatever now carries that number. The
+			// new item's mod name is chosen to sort first, which is the case that used to shift
+			// everything.
+			int swordId = sword.Type;
+			int otherId = other.Type;
+			Terraria.Mods.ModItems.Register("AAA First", "Inserted", "sword.png", root, out error);
+			Terraria.Mods.ModItems.Finalize(null);
+			if (sword.Type != swordId)
+			{
+				return Fail("adding an item moved 'Test Sword' from id " + swordId + " to " + sword.Type);
+			}
+			if (other.Type != otherId)
+			{
+				return Fail("adding an item moved the second mod's item from id " + otherId
+					+ " to " + other.Type);
+			}
+			// And the same set still gives the same ids on a second run: that is what two players
+			// in one game depend on, since ids travel on the wire.
+			Terraria.Mods.ModItems.Finalize(null);
+			if (sword.Type != swordId || other.Type != otherId)
+			{
+				return Fail("ids changed on a repeated load of the same set: " + swordId + " -> "
+					+ sword.Type + ", " + otherId + " -> " + other.Type);
 			}
 			// --- applying -----------------------------------------------------
 			Item item = default(Item);

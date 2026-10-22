@@ -153,18 +153,42 @@ internal static class ModItems
 				int num = string.Compare(a.ModName, b.ModName, StringComparison.OrdinalIgnoreCase);
 				return (num != 0) ? num : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
 			});
-			int num2 = IdBase;
+			// Ids are hashed from "mod/name", not handed out in sequence.
+			//
+			// Sequence looked simpler and cost the player items: the id is a number in the save
+			// file, so a contiguous run means *inserting one item renumbers every item after it*.
+			// Add one mod whose name sorts early and the sword a player saved becomes an axe -
+			// silently, because the new number is still a defined item. Hashing makes an id depend
+			// on the item's own name instead of on how many items happened to come before it, so
+			// adding a mod leaves the existing ones where they were. The exception is the few
+			// pairs whose hashes collide; the probe below moves the later one, which is a handful
+			// of items rather than all of them.
+			//
+			// Still deterministic for the same mod set, and that is not negotiable: the sort above
+			// fixes the order, so the probe walks the same slots on every machine and every run.
+			// Ids travel on the wire, and "same mods, different ids" is a desync that looks like
+			// an item turning into something else.
+			bool[] taken = new bool[IdLimit - IdBase];
 			for (int i = 0; i < Unassigned.Count; i++)
 			{
-				if (num2 >= IdLimit)
+				Pending pending0 = Unassigned[i];
+				int num2 = PreferredId(pending0.ModName, pending0.Name) - IdBase;
+				int num3 = 0;
+				while (taken[num2] && num3 < taken.Length)
 				{
-					ModLoader.Log("[Mods] too many new items: '" + Unassigned[i].ModName + "/"
-						+ Unassigned[i].Name + "' has no id and will not exist");
+					num2 = (num2 + 1) % taken.Length;
+					num3++;
+				}
+				if (num3 >= taken.Length)
+				{
+					ModLoader.Log("[Mods] too many new items: '" + pending0.ModName + "/"
+						+ pending0.Name + "' has no id and will not exist");
 					continue;
 				}
-				Unassigned[i].Item.Type = num2;
-				ById[num2] = Unassigned[i].Item;
-				num2++;
+				taken[num2] = true;
+				int num4 = IdBase + num2;
+				pending0.Item.Type = num4;
+				ById[num4] = pending0.Item;
 			}
 			// Group the sprites per mod so each mod gets one sheet.
 			Dictionary<string, Dictionary<string, string>> dictionary =
@@ -228,10 +252,36 @@ internal static class ModItems
 			Unassigned.Clear();
 			if (count > 0)
 			{
+				// Not a range any more: ids are hashed, so the highest one says nothing about the
+				// count. Naming a range that is not contiguous would be a lie in the log.
 				ModLoader.Log("[Mods] " + count.ToString(CultureInfo.InvariantCulture)
-					+ " new item(s) registered, ids " + IdBase + ".." + (IdBase + count - 1));
+					+ " new item(s) registered, ids in " + IdBase + ".." + (IdLimit - 1));
 			}
 		}
+	}
+
+	/// <summary>
+	/// The id an item asks for, derived from its own name and its mod's.
+	///
+	/// FNV-1a over "mod/name" in lower case, folded into the usable range. Small, dependency-free
+	/// and, crucially, <b>stable across runtimes and platforms</b>: the same string has to give the
+	/// same number on Linux, on Windows and in the self-test, or two players would disagree about
+	/// what id 20043 means. Lower case because the registry treats names case-insensitively, so
+	/// "Sword" and "sword" are the same item and must land on the same id.
+	///
+	/// The number is not an identity by itself - <see cref="Finalize"/> probes past collisions -
+	/// but it is what makes an id depend on the item rather than on how many items precede it.
+	/// </summary>
+	private static int PreferredId(string modName, string name)
+	{
+		string key = (modName ?? string.Empty).ToLowerInvariant() + "/" + (name ?? string.Empty).ToLowerInvariant();
+		uint hash = 2166136261u;
+		for (int i = 0; i < key.Length; i++)
+		{
+			hash ^= key[i];
+			hash *= 16777619u;
+		}
+		return IdBase + (int)(hash % (uint)(IdLimit - IdBase));
 	}
 
 	/// <summary>Every registered definition, for the tests and the mod list.</summary>
