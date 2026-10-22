@@ -112,6 +112,7 @@ internal static class SelfTest
 		RunCheck("font atlas", CheckFontAtlas);
 		RunCheck("item names", CheckItemNames);
 		RunCheck("inventory grid", CheckInventoryGrid);
+		RunCheck("inventory once per frame", CheckInventoryOncePerFrame);
 		RunCheck("custom language", CheckCustomLanguage);
 		RunCheck("whitelist", CheckWhitelist);
 		RunCheck("relay session", CheckRelaySession);
@@ -2030,6 +2031,74 @@ internal static class SelfTest
 			catch
 			{
 			}
+		}
+	}
+
+	// --- Inventory: one action per frame ------------------------------------
+
+	/// <summary>
+	/// A click must move an item once, not twice.
+	///
+	/// The inventory's slot handler is reachable from two places that both run every frame - the
+	/// pointer path and the stick path - and <c>IsButtonTriggered</c> is a pure edge test that is
+	/// not consumed. Both calls therefore saw the same click and the action ran twice: the stack
+	/// was picked up and put straight back. On screen that is "the mouse does nothing", and a slot
+	/// whose second call was a no-op looked like the only one that worked.
+	///
+	/// The gate is tiny, which is exactly why it is tested: the bug it prevents lives in the
+	/// interaction between two callers, not in either of them.
+	/// </summary>
+	private static bool CheckInventoryOncePerFrame()
+	{
+		try
+		{
+			FrameGate frameGate = new FrameGate();
+			// First caller in a frame acts, second does not - the whole point.
+			if (!frameGate.TryBegin())
+			{
+				return Fail("the first action of a frame was refused");
+			}
+			if (frameGate.TryBegin())
+			{
+				return Fail("a second action in the same frame was allowed");
+			}
+			if (!frameGate.Taken)
+			{
+				return Fail("the gate does not report that it was taken");
+			}
+			// A new frame starts clean.
+			frameGate.Reset();
+			if (frameGate.Taken)
+			{
+				return Fail("the gate stayed taken after a reset");
+			}
+			if (!frameGate.TryBegin())
+			{
+				return Fail("the gate refused the first action of the next frame");
+			}
+			// A frame in which nothing acts must leave the gate open for the next caller.
+			frameGate.Reset();
+			if (frameGate.Taken || !frameGate.TryBegin())
+			{
+				return Fail("an idle frame closed the gate");
+			}
+			// The UI's own gate is reset by UpdateMouse, so it starts closed after construction and
+			// must not carry state between screens.
+			UI ui = new UI();
+			if (ui.InventoryActionGate == null)
+			{
+				return Fail("the UI has no inventory action gate");
+			}
+			ui.InventoryActionGate.Reset();
+			if (!ui.InventoryActionGate.TryBegin() || ui.InventoryActionGate.TryBegin())
+			{
+				return Fail("the UI's gate does not limit one action per frame");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("inventory once-per-frame check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 

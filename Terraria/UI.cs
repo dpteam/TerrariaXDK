@@ -543,7 +543,70 @@ public sealed class UI
 
 	private float invMouseCell;
 
+	/// <summary>
+	/// True on the frame the pointer clicked on an inventory slot.
+	///
+	/// Slot actions must not depend on <c>Buttons.A</c>: that button is only synthesised when the
+	/// pointer's click is not "handled by the screen", and the inventory is exactly such a screen.
+	/// So a click inside the inventory produced no <c>A</c> at all, and every slot action was
+	/// unreachable by mouse while the tabs (which read the pointer directly) worked.
+	/// </summary>
+	private bool pointerActivate;
+
+	/// <summary>
+	/// True for the rest of the frame in which the pointer already acted on a slot.
+	///
+	/// The same handler is reachable from two places - the pointer path and
+	/// <see cref="PositionInventoryCursor"/> - and both run every frame while the inventory is
+	/// open. <see cref="IsButtonTriggered"/> is a pure edge test that is not consumed, so the
+	/// action ran twice: the item was picked up and immediately put back, which looks exactly like
+	/// "the mouse does nothing" and is why only a slot whose second call was a no-op appeared to
+	/// work.
+	/// </summary>
+	private readonly FrameGate inventoryAction = new FrameGate();
+
+	/// <summary>Test hook: the gate the inventory uses to act once per frame.</summary>
+	internal FrameGate InventoryActionGate => inventoryAction;
+
 	private bool invMouseLayoutValid;
+
+	/// <summary>True when the player asked to act on the slot under the pointer.</summary>
+	private bool ActivatePressed()
+	{
+		return pointerActivate || IsButtonTriggered(Buttons.A);
+	}
+
+	/// <summary>Equip-section slots, rebuilt while drawing so a click lands on the drawn square.</summary>
+	private readonly Rectangle[] equipSlotRects = new Rectangle[16];
+
+	private readonly sbyte[] equipSlotX = new sbyte[16];
+
+	private readonly sbyte[] equipSlotY = new sbyte[16];
+
+	private readonly bool[] equipSlotValid = new bool[16];
+
+	/// <summary>Housing-section slots, same idea.</summary>
+	private readonly Rectangle[] housingSlotRects = new Rectangle[11];
+
+	private readonly sbyte[] housingSlotX = new sbyte[11];
+
+	private readonly sbyte[] housingSlotY = new sbyte[11];
+
+	private readonly bool[] housingSlotValid = new bool[11];
+
+	/// <summary>Chest, bank and safe grid, recorded while drawing.</summary>
+	private readonly Rectangle[] chestSlotRects = new Rectangle[20];
+
+	private readonly sbyte[] chestSlotX = new sbyte[20];
+
+	private readonly sbyte[] chestSlotY = new sbyte[20];
+
+	private readonly bool[] chestSlotValid = new bool[20];
+
+	/// <summary>Shop rows, recorded while drawing.</summary>
+	private readonly Rectangle[] shopSlotRects = new Rectangle[20];
+
+	private readonly bool[] shopSlotValid = new bool[20];
 
 	/// <summary>Coin row, ammo row and trash slot, for the pointer hit-test.</summary>
 	private Rectangle invMouseCoin;
@@ -5795,6 +5858,71 @@ public sealed class UI
 	/// must not also act on the slot that happened to be highlighted, which is exactly what
 	/// "clicking the Equipment tab moved an item" was.
 	/// </summary>
+	/// <summary>
+	/// Finds the equipment slot under the pointer and moves the section cursor onto it. The
+	/// rectangles were recorded by <see cref="DrawEquip"/>, so this cannot disagree with what is
+	/// on screen - the lesson from the inventory grid, where draw and hit-test used two different
+	/// formulas.
+	/// </summary>
+	private bool TryEquipSlotUnderPointer()
+	{
+		for (int i = 0; i < equipSlotRects.Length; i++)
+		{
+			if (equipSlotValid[i] && equipSlotRects[i].Contains(MouseX, MouseY))
+			{
+				inventoryEquipX = equipSlotX[i];
+				inventoryEquipY = equipSlotY[i];
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/// <summary>Same for the housing list.</summary>
+	private bool TryHousingSlotUnderPointer()
+	{
+		for (int i = 0; i < housingSlotRects.Length; i++)
+		{
+			if (housingSlotValid[i] && housingSlotRects[i].Contains(MouseX, MouseY))
+			{
+				inventoryHousingX = housingSlotX[i];
+				inventoryHousingY = housingSlotY[i];
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/// <summary>And the chest / bank / safe grid.</summary>
+	private bool TryChestSlotUnderPointer()
+	{
+		for (int i = 0; i < chestSlotRects.Length; i++)
+		{
+			if (chestSlotValid[i] && chestSlotRects[i].Contains(MouseX, MouseY))
+			{
+				inventoryChestX = chestSlotX[i];
+				inventoryChestY = chestSlotY[i];
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/// <summary>And the shop grid, which uses the same cursor variables as a chest.</summary>
+	private bool TryShopSlotUnderPointer()
+	{
+		for (int i = 0; i < shopSlotRects.Length; i++)
+		{
+			if (shopSlotValid[i] && shopSlotRects[i].Contains(MouseX, MouseY))
+			{
+				inventoryChestX = (sbyte)(i % 5);
+				inventoryChestY = (sbyte)(i / 5);
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private bool UpdateInventoryMouseHover(out bool OverGrid)
 	{
 		OverGrid = false;
@@ -5804,7 +5932,44 @@ public sealed class UI
 		{
 			return true;
 		}
-		if (!invMouseLayoutValid || invMouseCell <= 0f || ActiveInvSection != InventorySection.ITEMS)
+		if (!invMouseLayoutValid || invMouseCell <= 0f)
+		{
+			return false;
+		}
+		// Equipment and housing have their own grids and their own cursor variables, and the
+		// pointer used to be ignored in both: the hover function gave up unless the ITEMS tab was
+		// active, so those two sections had no mouse at all. The rectangles come from the draw
+		// pass, so a click lands on the square that was actually drawn.
+		if (ActiveInvSection == InventorySection.EQUIP && TryEquipSlotUnderPointer())
+		{
+			OverGrid = true;
+			return true;
+		}
+		if (ActiveInvSection == InventorySection.HOUSING && TryHousingSlotUnderPointer())
+		{
+			OverGrid = true;
+			return true;
+		}
+		if (ActiveInvSection == InventorySection.CHEST)
+		{
+			// Chest, bank, safe and shop share this tab; which grid is on screen decides which
+			// rectangles were recorded.
+			if (npcShop > 0)
+			{
+				if (TryShopSlotUnderPointer())
+				{
+					OverGrid = true;
+					return true;
+				}
+			}
+			else if (TryChestSlotUnderPointer())
+			{
+				OverGrid = true;
+				return true;
+			}
+			return false;
+		}
+		if (ActiveInvSection != InventorySection.ITEMS)
 		{
 			return false;
 		}
@@ -5896,6 +6061,7 @@ public sealed class UI
 	private void UpdateMouse()
 	{
 		inventoryMenuDone = false;
+		inventoryAction.Reset();
 		// The pointer must be tracked on EVERY screen, including ones without menu entries
 		// (map, inventory): otherwise MouseX/MouseY stay at their last value and the rendered
 		// cursor freezes in place while the real pointer moves. That was the "stuck cursor".
@@ -5923,10 +6089,47 @@ public sealed class UI
 				// click would act on whatever slot was selected before the pointer moved.
 				UpdateInventoryMenuOnce();
 				bool overGrid;
+				// A click on a slot is this screen's own business. It cannot be routed through
+				// `Buttons.A`, because that button is only synthesised when the pointer is NOT
+				// handled by the screen - and the inventory is such a screen. That is why every
+				// slot action was dead to the mouse while the tabs, which read the pointer
+				// directly, still worked.
+				pointerActivate = Terraria.Input.KeyboardMouseInput.LeftClicked;
 				if (UpdateInventoryMouseHover(out overGrid) && overGrid)
 				{
-					UpdateInventory();
+					inventoryAction.TryBegin();
+					// Each section has its own action handler, and the pointer has to call the
+					// one that belongs to the section it is pointing at. Only ITEMS was wired up,
+					// so equipment, housing and crafting were unreachable by mouse even with the
+					// cursor moved onto the right slot.
+					switch (ActiveInvSection)
+					{
+					case InventorySection.EQUIP:
+						UpdateEquip();
+						break;
+					case InventorySection.HOUSING:
+						UpdateHousing();
+						break;
+					case InventorySection.ITEMS:
+						UpdateInventory();
+						break;
+					case InventorySection.CHEST:
+						if (npcShop > 0)
+						{
+							UpdateShop();
+						}
+						else
+						{
+							UpdateStorage();
+						}
+						break;
+					default:
+						// Crafting keeps its own input path: the recipe grid is clipped and
+						// scrolled, so pointing at it needs its own mapping. Listed in BUGS.md.
+						break;
+					}
 				}
+				pointerActivate = false;
 			}
 		}
 		if (uiCoords == null)
@@ -8937,7 +9140,7 @@ public sealed class UI
 				Main.PlaySound(7);
 			}
 		}
-		if (IsButtonTriggered(Buttons.A))
+		if (ActivatePressed())
 		{
 			if (reforge)
 			{
@@ -9534,7 +9737,7 @@ public sealed class UI
 		{
 			return;
 		}
-		if (IsButtonTriggered(Buttons.A))
+		if (ActivatePressed())
 		{
 			if (ActivePlayer.SelectedItem == num && ActivePlayer.itemAnimation > 0)
 			{
@@ -9666,6 +9869,10 @@ public sealed class UI
 		{
 			toolTip.Init();
 		}
+		for (int i = 0; i < chestSlotRects.Length; i++)
+		{
+			chestSlotValid[i] = false;
+		}
 		for (int i = 0; i < 5; i++)
 		{
 			for (int j = 0; j < 4; j++)
@@ -9673,6 +9880,10 @@ public sealed class UI
 				x = num * 2 + INVENTORY_X + i * num;
 				num2 = num + INVENTORY_Y + j * num;
 				int num3 = i + j * 5;
+				chestSlotRects[num3] = new Rectangle(x, num2, num, num);
+				chestSlotX[num3] = (sbyte)i;
+				chestSlotY[num3] = (sbyte)j;
+				chestSlotValid[num3] = true;
 				SpriteSheet<_sheetSprites>.DrawTL(444, x, num2, c, inventoryScale);
 				if (inventoryChestX == i && inventoryChestY == j)
 				{
@@ -9694,7 +9905,7 @@ public sealed class UI
 	private void UpdateShop()
 	{
 		int num = inventoryChestX + inventoryChestY * 5;
-		if (IsButtonTriggered(Buttons.A))
+		if (ActivatePressed())
 		{
 			if (mouseItem.Type == 0)
 			{
@@ -9779,6 +9990,10 @@ public sealed class UI
 	{
 		Color c = new Color(invAlpha, invAlpha, invAlpha, invAlpha);
 		inventoryScale = Main.ScreenMultiplier;
+		for (int i = 0; i < shopSlotRects.Length; i++)
+		{
+			shopSlotValid[i] = false;
+		}
 		for (int i = 0; i < 5; i++)
 		{
 			for (int j = 0; j < 4; j++)
@@ -9787,6 +10002,8 @@ public sealed class UI
 				int x = num * 2 + INVENTORY_X + i * num;
 				int y = num + INVENTORY_Y + j * num;
 				int num2 = i + j * 5;
+				shopSlotRects[num2] = new Rectangle(x, y, num, num);
+				shopSlotValid[num2] = true;
 				SpriteSheet<_sheetSprites>.DrawTL(445, x, y, c, inventoryScale);
 				if (ActiveInvSection == InventorySection.CHEST && inventoryChestX == i && inventoryChestY == j)
 				{
@@ -9810,7 +10027,7 @@ public sealed class UI
 	{
 		if (inventoryEquipY == 0)
 		{
-			if (IsButtonTriggered(Buttons.A))
+			if (ActivatePressed())
 			{
 				int num = inventoryEquipX + inventoryBuffX;
 				num %= 10;
@@ -9831,7 +10048,7 @@ public sealed class UI
 		{
 			num2 = ((inventoryEquipX != 0) ? (inventoryEquipY + 7) : (inventoryEquipY - 1));
 		}
-		if (IsButtonTriggered(Buttons.A))
+		if (ActivatePressed())
 		{
 			if (reforge)
 			{
@@ -9891,9 +10108,17 @@ public sealed class UI
 			SpriteSheet<_sheetSprites>.DrawCentered(136, ref rect);
 		}
 		string extraInfo = null;
+		for (int i = 0; i < equipSlotRects.Length; i++)
+		{
+			equipSlotValid[i] = false;
+		}
 		for (int i = 0; i < 5; i++)
 		{
 			int num3 = ActivePlayer.buff[inventoryBuffX + i].Type;
+			equipSlotRects[i] = new Rectangle(num2, y, num, num);
+			equipSlotX[i] = (sbyte)i;
+			equipSlotY[i] = 0;
+			equipSlotValid[i] = true;
 			if (inventoryEquipY == 0 && inventoryEquipX == i)
 			{
 				DrawInventoryCursor(num2, y, inventoryScale);
@@ -9926,6 +10151,10 @@ public sealed class UI
 		y = INVENTORY_Y + (int)(88f * Main.ScreenMultiplier);
 		for (int j = 0; j < 3; j++)
 		{
+			equipSlotRects[5 + j] = new Rectangle(num2, y, num, num);
+			equipSlotX[5 + j] = 0;
+			equipSlotY[5 + j] = (sbyte)(j + 1);
+			equipSlotValid[5 + j] = true;
 			if (inventoryEquipX == 0 && inventoryEquipY == j + 1)
 			{
 				DrawInventoryCursor(num2, y, inventoryScale);
@@ -9945,6 +10174,10 @@ public sealed class UI
 		y += (int)(32f * Main.ScreenMultiplier);
 		for (int k = 3; k < 8; k++)
 		{
+			equipSlotRects[8 + k - 3] = new Rectangle(num2, y, num, num);
+			equipSlotX[8 + k - 3] = (sbyte)(k - 3);
+			equipSlotY[8 + k - 3] = 4;
+			equipSlotValid[8 + k - 3] = true;
 			if (inventoryEquipY == 4 && inventoryEquipX == k - 3)
 			{
 				DrawInventoryCursor(num2, y, inventoryScale);
@@ -9964,6 +10197,10 @@ public sealed class UI
 		y = INVENTORY_Y + (int)(88f * Main.ScreenMultiplier);
 		for (int l = 8; l < 11; l++)
 		{
+			equipSlotRects[13 + l - 8] = new Rectangle(num2, y, num, num);
+			equipSlotX[13 + l - 8] = 4;
+			equipSlotY[13 + l - 8] = (sbyte)(l - 7);
+			equipSlotValid[13 + l - 8] = true;
 			if (inventoryEquipX == 4 && inventoryEquipY == l - 7)
 			{
 				DrawInventoryCursor(num2, y, inventoryScale);
@@ -10026,6 +10263,10 @@ public sealed class UI
 		string extraInfo = null;
 		int num = INVENTORY_X;
 		int num2 = INVENTORY_Y;
+		for (int i = 0; i < housingSlotRects.Length; i++)
+		{
+			housingSlotValid[i] = false;
+		}
 		for (int i = 0; i < 11; i++)
 		{
 			if (i == 6)
@@ -10033,6 +10274,10 @@ public sealed class UI
 				num += (int)(240f * Main.ScreenMultiplier);
 				num2 = INVENTORY_Y;
 			}
+			housingSlotRects[i] = new Rectangle(num, num2, (int)(52f * Main.ScreenMultiplier), (int)(56f * Main.ScreenMultiplier));
+			housingSlotX[i] = (sbyte)(i / 6);
+			housingSlotY[i] = (sbyte)(i % 6);
+			housingSlotValid[i] = true;
 			string text = null;
 			NPC nPC = null;
 			int num3 = -1;
@@ -11688,6 +11933,12 @@ public sealed class UI
 
 	public void PositionInventoryCursor(int dx, int dy)
 	{
+		// The pointer already acted on a slot this frame: running the same handler again would
+		// undo it, because IsButtonTriggered is not consumed.
+		if (inventoryAction.Taken)
+		{
+			return;
+		}
 		while (true)
 		{
 			switch (ActiveInvSection)
