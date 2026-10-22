@@ -230,6 +230,18 @@ public sealed class ModItem
 		set { Set("ammo", value); }
 	}
 
+	/// <summary>The ammo this item consumes, by the name the game shows.</summary>
+	public string UseAmmoName
+	{
+		set { Set("useAmmoName", value ?? ""); }
+	}
+
+	/// <summary>The ammo type this item is, by name.</summary>
+	public string AmmoName
+	{
+		set { Set("ammoName", value ?? ""); }
+	}
+
 	public int Crit
 	{
 		set { Set("crit", value); }

@@ -524,6 +524,14 @@ internal static class TConfigConverter
 	{
 		string text = Path.GetFileNameWithoutExtension(iniPath);
 		Item item = default(Item);
+		// A pack-wide table in Item/: say so, instead of "no such item in this build".
+		string serviceReason = Terraria.Mods.RawMod.ServiceFileReason(text);
+		if (serviceReason != null)
+		{
+			result.UnknownItems++;
+			result.Warnings.Add("'" + text + "': " + serviceReason + " - not converted");
+			return;
+		}
 		// SetDefaults is not a lookup table: for a few items it reads the active player (the
 		// familiar clothes take their colour from it), and it can throw when there is no UI yet.
 		// That is a bug in those items, but it must not take a whole pack down with it.
@@ -1165,6 +1173,15 @@ internal static class TConfigConverter
 	private static void WriteItemRaw(string iniPath, string packDirectory, string outputDirectory, Result result)
 	{
 		string text = Path.GetFileNameWithoutExtension(iniPath);
+		// The same check as the project path: a pack-wide table is not an item, and "no such item
+		// in this build" hid that.
+		string text4 = Terraria.Mods.RawMod.ServiceFileReason(text);
+		if (text4 != null)
+		{
+			result.UnknownItems++;
+			result.Warnings.Add("'" + text + "': " + text4 + " - not converted");
+			return;
+		}
 		string error;
 		List<TConfigImporter.SectionLine> lines = TConfigImporter.ReadIniSections(iniPath, out error);
 		if (lines == null)
@@ -1277,9 +1294,9 @@ internal static class TConfigConverter
 		}
 		try
 		{
-			string text4 = Path.Combine(outputDirectory, "Item");
-			Directory.CreateDirectory(text4);
-			File.WriteAllText(Path.Combine(text4, text + ".ini"), stringBuilder.ToString(), new UTF8Encoding(false));
+			string text5 = Path.Combine(outputDirectory, "Item");
+			Directory.CreateDirectory(text5);
+			File.WriteAllText(Path.Combine(text5, text + ".ini"), stringBuilder.ToString(), new UTF8Encoding(false));
 		}
 		catch (Exception ex2)
 		{
@@ -1489,7 +1506,11 @@ internal static class TConfigConverter
 		}
 		if (text2 == "setname")
 		{
-			return "renames the item, which this build cannot do";
+			// Verified against tConfig's own source (refs/T111M Config.cs): setName is the *armour
+			// set* name, used only to group the three pieces so that the mod's SetBonus method can
+			// run. It is not a display name, and without mod code there is no bonus to run - so
+			// "renames the item" would have been the wrong reason, and a rename the wrong fix.
+			return "names an armour set, and set bonuses are code, which this build cannot load from a pack";
 		}
 		if (text2 == "projectile")
 		{
@@ -1497,7 +1518,9 @@ internal static class TConfigConverter
 		}
 		if (text2 == "useammoname" || text2 == "ammoname")
 		{
-			return "names an ammo type, and this build has no ammo table to resolve it";
+			// Resolved by name at load time; see ItemOverrides. The check only needs to know the
+			// value is text rather than a number.
+			return null;
 		}
 		if (text2 == "pretendtype")
 		{
@@ -1505,11 +1528,19 @@ internal static class TConfigConverter
 		}
 		if (text2 == "headslot" || text2 == "bodyslot" || text2 == "legslot" || text2 == "hasarms")
 		{
+			// tConfig uses a negative slot number to mean "custom sprite"; this build would have to
+			// draw mod armour on the player, and it cannot.
 			return "needs a drawn armour sprite, which this build cannot load from a pack";
 		}
 		if (IsText(field))
 		{
 			// Any non-empty text is a valid tooltip.
+			return null;
+		}
+		if (IsItemName(field))
+		{
+			// An item name is text; whether it resolves is decided at load time, and a miss is
+			// reported there with the name in it - which is more useful than a conversion error.
 			return null;
 		}
 		if (IsBoolean(field))
@@ -1537,6 +1568,17 @@ internal static class TConfigConverter
 	private static bool IsColour(string field)
 	{
 		return string.Equals((field ?? string.Empty).Trim(), "color", StringComparison.OrdinalIgnoreCase);
+	}
+
+	/// <summary>
+	/// True for a field whose value is an item name rather than a number: the two ammo fields are
+	/// written by name in a pack and resolved through the item table at load time.
+	/// </summary>
+	internal static bool IsItemName(string field)
+	{
+		string text = (field ?? string.Empty).Trim();
+		return text.Equals("useAmmoName", StringComparison.OrdinalIgnoreCase)
+			|| text.Equals("ammoName", StringComparison.OrdinalIgnoreCase);
 	}
 
 	/// <summary>
@@ -1646,6 +1688,12 @@ internal static class TConfigConverter
 			return "Ammo";
 		case "useammo":
 			return "UseAmmo";
+		case "useammoname":
+			// The ammo type by name. Applied through ItemOverride.Set, which resolves it - there is
+			// no property for "an ammo item's name".
+			return "UseAmmoName";
+		case "ammoname":
+			return "AmmoName";
 		case "stack":
 			// tConfig's name for MaxStack. 119 items in the packs on this machine use it.
 			return "MaxStack";
@@ -1725,7 +1773,6 @@ internal static class TConfigConverter
 		string text = PropertyName(field);
 		return text == "ToolTip" || text == "ToolTip2";
 	}
-
 	internal static string Identifier(string name, bool upperFirst)
 	{
 		if (string.IsNullOrEmpty(name))

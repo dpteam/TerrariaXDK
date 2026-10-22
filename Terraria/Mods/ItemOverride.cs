@@ -264,6 +264,21 @@ public sealed class ItemOverride
 		set { Set("ammo", value); }
 	}
 
+	/// <summary>
+	/// The ammo this item consumes, by the name the game shows ("Bolt"). tConfig writes the name
+	/// rather than the id, and the registry resolves it through the real item table.
+	/// </summary>
+	public string UseAmmoName
+	{
+		set { Set("useAmmoName", value); }
+	}
+
+	/// <summary>The ammo type this item is, by name.</summary>
+	public string AmmoName
+	{
+		set { Set("ammoName", value); }
+	}
+
 	/// <summary>The line shown when the item is hovered.</summary>
 	public string ToolTip
 	{

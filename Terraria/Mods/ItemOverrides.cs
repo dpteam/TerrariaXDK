@@ -39,7 +39,7 @@ internal static class ItemOverrides
 	/// tConfig pack's <c>width</c> means the same thing whether it is changing a sword or defining
 	/// one, and two tables would drift apart.
 	/// </summary>
-	private static readonly string[] SupportedFields = new string[44]
+	private static readonly string[] SupportedFields = new string[46]
 	{
 		"damage", "defense", "pick", "axe", "hammer", "useAnimation", "useTime", "useSound", "shoot", "shootSpeed",
 		"knockBack", "mana", "healLife", "healMana", "buffType", "buffTime", "rare", "value", "maxStack", "autoReuse",
@@ -47,8 +47,9 @@ internal static class ItemOverrides
 		"width", "height", "useStyle", "holdStyle", "scale", "isMaterial", "material", "ammo", "useAmmo",
 		"useTurn", "toolTip", "toolTip2", "createTileName",
 		// tConfig spellings that mean the same as a field above: `stack` is MaxStack, `color` is
-		// the sprite tint, `noUseGraphic` is the item that only fires a projectile.
-		"stack", "color", "noUseGraphic"
+		// the sprite tint, `noUseGraphic` is the item that only fires a projectile, and the two
+		// ammo fields are written by name rather than by id.
+		"stack", "color", "noUseGraphic", "useAmmoName", "ammoName"
 	};
 
 	public static bool IsSupportedField(string field)
@@ -380,6 +381,29 @@ internal static class ItemOverrides
 				item.NoUseGraphic = flag;
 			}
 			break;
+		case "useammoname":
+		case "ammoname":
+		{
+			// tConfig writes the ammo type by name ("Bolt"), the item field takes an id. Resolved
+			// through the real name table, the same way ingredients are - and a miss is logged
+			// rather than silently becoming ammo id 0, which would mean "uses nothing".
+			int num5 = Terraria.ItemLookup.Find(value);
+			if (num5 <= 0)
+			{
+				Errors.Add("item " + item.Type + ": '" + field + "' names '" + value
+					+ "', which is not an item in this build - left as it was");
+				break;
+			}
+			if (field.Equals("useAmmoName", StringComparison.OrdinalIgnoreCase))
+			{
+				item.UseAmmo = (byte)num5;
+			}
+			else
+			{
+				item.Ammo = (byte)num5;
+			}
+			break;
+		}
 		}
 	}
 

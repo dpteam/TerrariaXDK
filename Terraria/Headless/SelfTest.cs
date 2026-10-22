@@ -13253,6 +13253,12 @@ internal static class SelfTest
 				"[Recipe]\r\nItems=2 Stone Block, 1 Wood\r\nTiles=Work Bench\r\nAmount=3\r\n");
 			// A file with no sprite and no matching item: reported, and it must not stop the rest.
 			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "Imaginary Thing.ini"), "damage=3\r\n");
+			// A pack-wide table that lives in Item/: it must be reported as "not an item", not as
+			// "no such item in this build".
+			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "DropTables.ini"), "Slime=Gel,1\r\n");
+			// An ammo field written by name, which the item table resolves.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "Copper Bow.ini"),
+				"useAmmoName=Wooden Arrow\r\n");
 			// Content this build cannot load. It must be counted and reported, not silently
 			// skipped: a pack with 146 NPCs that loads "fine" and spawns nothing is the report
 			// this prevents.
@@ -13297,9 +13303,9 @@ internal static class SelfTest
 			{
 				return Fail("expected 1 new item, got " + rawMod.NewItems);
 			}
-			if (rawMod.Overrides != 1)
+			if (rawMod.Overrides != 2)
 			{
-				return Fail("expected 1 override, got " + rawMod.Overrides);
+				return Fail("expected 2 overrides (Copper Bar and Copper Bow), got " + rawMod.Overrides);
 			}
 			if (rawMod.Recipes != 2)
 			{
@@ -13344,7 +13350,37 @@ internal static class SelfTest
 			{
 				return Fail("the NPC folder was counted but never mentioned in the report");
 			}
-			// The new item is in the registry with its fields, and gets an id like any other.
+			// The service file is reported as "not an item", not as "no such item".
+			bool saidService = false;
+			for (int i = 0; i < rawMod.Problems.Count; i++)
+			{
+				if (rawMod.Problems[i].IndexOf("drop table", StringComparison.OrdinalIgnoreCase) >= 0)
+				{
+					saidService = true;
+				}
+			}
+			if (!saidService)
+			{
+				return Fail("DropTables.ini was not reported as a pack table rather than an item");
+			}
+			// And the ammo field written by name resolves through the item table.
+			int bowId = Terraria.ItemLookup.Find("Copper Bow");
+			if (bowId <= 0)
+			{
+				return Fail("the test cannot find Copper Bow");
+			}
+			Item bow = default(Item);
+			bow.SetDefaults(bowId);
+			int arrowId = Terraria.ItemLookup.Find("Wooden Arrow");
+			if (arrowId <= 0)
+			{
+				return Fail("the test cannot find Wooden Arrow");
+			}
+			if (bow.UseAmmo != arrowId)
+			{
+				return Fail("'useAmmoName=Wooden Arrow' did not reach UseAmmo (got " + bow.UseAmmo
+					+ ", expected " + arrowId + ")");
+			}
 			// Ids exist only after Finalize, so that comes first - All() is keyed by id.
 			Terraria.Mods.ModItems.Finalize(null);
 			Terraria.Mods.ModItem definition = null;
@@ -13396,9 +13432,10 @@ internal static class SelfTest
 			{
 				return Fail("the raw override did not reach the item: value is " + bar.Value);
 			}
-			if (Terraria.Mods.ItemOverrides.Count != overridesBefore + 1)
+			if (Terraria.Mods.ItemOverrides.Count != overridesBefore + 2)
 			{
-				return Fail("the override was not registered");
+				return Fail("expected 2 overrides registered (Copper Bar and Copper Bow), got "
+					+ (Terraria.Mods.ItemOverrides.Count - overridesBefore));
 			}
 			// The recipe is pending, and both spellings reached the registry.
 			if (Terraria.Mods.ModRecipes.Count != 2)

@@ -145,6 +145,35 @@ internal sealed class RawMod
 	}
 
 	/// <summary>
+	/// File names in <c>Item/</c> that are not items but pack-wide tables.
+	///
+	/// tConfig keeps the NPC drop tables in <c>Item/DropTables.ini</c>, so the loader and the
+	/// converter both found a file whose "item name" does not exist and said "no such item in this
+	/// build, skipped" - a true statement that tells the player nothing, because the file was never
+	/// an item.
+	/// </summary>
+	private static readonly string[] ServiceFiles = new string[2] { "DropTables", "Recipes" };
+
+	/// <summary>
+	/// The reason to report when this file is a pack-wide table rather than an item, or null when
+	/// it is an ordinary item file.
+	/// </summary>
+	internal static string ServiceFileReason(string name)
+	{
+		for (int i = 0; i < ServiceFiles.Length; i++)
+		{
+			if (!string.Equals(name, ServiceFiles[i], StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+			return (ServiceFiles[i] == "DropTables")
+				? "this is the pack's NPC drop table, not an item - it needs mod NPCs, which this build does not have"
+				: "this is a pack-wide recipe table, not an item";
+		}
+		return null;
+	}
+
+	/// <summary>
 	/// True for a folder the loader should treat as a raw mod: no assembly, but item INI files
 	/// (or a manifest) in it.
 	///
@@ -256,6 +285,14 @@ internal sealed class RawMod
 	private void LoadItemFile(string iniPath)
 	{
 		string text = Path.GetFileNameWithoutExtension(iniPath);
+		// A pack-wide table that happens to live in Item/. Reported for what it is: the generic
+		// "no such item in this build" was true and useless, because the file was never an item.
+		string text4 = ServiceFileReason(text);
+		if (text4 != null)
+		{
+			_problems.Add("'" + text + "': " + text4 + " - not loaded");
+			return;
+		}
 		string error;
 		List<TConfigImporter.SectionLine> list = TConfigImporter.ReadIniSections(iniPath, out error);
 		if (list == null)

@@ -91,6 +91,14 @@ internal static class TConfigImporter
 	private static bool ApplyItemFile(string path)
 	{
 		string text = Path.GetFileNameWithoutExtension(path);
+		// A pack-wide table in Item/ is not an item; saying "unknown item" hid that.
+		string serviceReason = Terraria.Mods.RawMod.ServiceFileReason(text);
+		if (serviceReason != null)
+		{
+			ModLoader.Log("tConfig: '" + text + "': " + serviceReason);
+			SkippedItems++;
+			return false;
+		}
 		// By name, through the real table. SetDefaults(string) only knows the two dozen legacy
 		// console items, so almost every pack item was reported as "unknown" and skipped.
 		int type = Terraria.ItemLookup.Find(text);
