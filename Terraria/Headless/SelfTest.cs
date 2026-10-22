@@ -6528,10 +6528,17 @@ internal static class SelfTest
 							RefuseOne(itemClient, "message 32 chest", new byte[4] { 32, 0xE8, 0x07, 0 });
 							RefuseOne(itemClient, "message 32 chest slot", new byte[3] { 32, 0, 200 });
 							RefuseOne(itemClient, "message 47 sign", new byte[4] { 47, 1, 0xE8, 0x07 });
+							// --- and a tile position outside the world is refused --------------
+							// This is the most reachable one of all: message 15 is the message the
+							// game sends constantly, and Main.TileSet is 5040x1440 while the position
+							// arrives as two uint16. x = 60000 indexed past the end on the next line.
+							RefuseOne(itemClient, "message 15 position", new byte[6] { 15, 0x60, 0xEA, 0, 0, 1 });
+							RefuseOne(itemClient, "message 17 position", new byte[6] { 17, 0, 0x60, 0xEA, 0, 1 });
+							RefuseOne(itemClient, "message 19 position", new byte[6] { 19, 0x60, 0xEA, 0, 0, 1 });
 							// "No exception" is also true when the guard is never reached, which is the
 							// mistake this project has made once already (IsValidWallType, written and
 							// never called). The counter is the proof that each packet hit its guard.
-							if (NetMessage.RefusedIndexCount - refusalsBefore < 12)
+							if (NetMessage.RefusedIndexCount - refusalsBefore < 15)
 							{
 								string seen = "";
 								for (int i = refusalsBefore; i < NetMessage.RefusedIndices.Count; i++)
@@ -6539,7 +6546,7 @@ internal static class SelfTest
 									seen += " [" + NetMessage.RefusedIndices[i] + "]";
 								}
 								return Fail("only " + (NetMessage.RefusedIndexCount - refusalsBefore)
-									+ " of 12 out-of-range packets reached a guard - refused:" + seen
+									+ " of 15 out-of-range packets reached a guard - refused:" + seen
 									+ "; the rest were accepted, or the check is not wired in");
 							}
 						}

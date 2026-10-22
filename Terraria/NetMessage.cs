@@ -121,6 +121,33 @@ public sealed class NetMessage
 	}
 
 	/// <summary>
+	/// Two tile coordinates from a packet, or false when they are outside the world.
+	///
+	/// This is the most reachable instance of the whole class: <c>MSG_TILE</c> (15), the tile action
+	/// (17), the door (19) and the section (20) all carry a position as two <c>uint16</c>, and
+	/// <c>Main.TileSet</c> is 5040 by 1440. A client sending x = 60000 indexed past the end on the
+	/// very next line - and message 15 is the message the game sends constantly, so this is not a
+	/// corner of the protocol.
+	///
+	/// The bound is <c>Main.MaxTilesX/Y</c>, the world's real size, not the array's capacity: a tile
+	/// outside the world is not "allowed but empty", it is a packet about a place that does not
+	/// exist.
+	/// </summary>
+	private static bool ReadTilePosition(NetClient sender, string what, out int x, out int y)
+	{
+		x = PacketIn.ReadUInt16();
+		y = PacketIn.ReadUInt16();
+		if (x >= Main.MaxTilesX || y >= Main.MaxTilesY)
+		{
+			RefuseIndex(sender, what + " x=" + x + " y=" + y, x, Main.MaxTilesX, "tile");
+			x = -1;
+			y = -1;
+			return false;
+		}
+		return true;
+	}
+
+	/// <summary>
 	/// A chest slot from a packet, or -1 when it names no chest this build has.
 	///
 	/// The index travels as a compacted integer, which is unbounded: <c>Main.ChestSet</c> holds 1000,
@@ -2231,8 +2258,12 @@ public sealed class NetMessage
 					break;
 				}
 				Player player2 = Main.PlayerSet[num36];
-				ushort x = PacketIn.ReadUInt16();
-				int y = PacketIn.ReadUInt16();
+				int x;
+				int y;
+				if (!ReadTilePosition(sender, "message 31 chest position", out x, out y))
+				{
+					break;
+				}
 				int num37 = Chest.FindChest(x, y);
 				if (num37 >= 0 && Chest.UsingChest(num37) == -1)
 				{
@@ -2249,8 +2280,12 @@ public sealed class NetMessage
 			}
 			case 34:
 			{
-				int num33 = PacketIn.ReadUInt16();
-				int num34 = PacketIn.ReadUInt16();
+				int num33;
+				int num34;
+				if (!ReadTilePosition(sender, "message 34 chest position", out num33, out num34))
+				{
+					break;
+				}
 				if (Main.NetMode == 2)
 				{
 					// Breaking a chest is still a world edit.
@@ -2270,8 +2305,12 @@ public sealed class NetMessage
 			case 46:
 			{
 				int number3 = PacketIn.ReadByte();
-				ushort x2 = PacketIn.ReadUInt16();
-				int y2 = PacketIn.ReadUInt16();
+				int x2;
+				int y2;
+				if (!ReadTilePosition(sender, "message 46 sign position", out x2, out y2))
+				{
+					break;
+				}
 				int num40 = Sign.ReadSign(x2, y2);
 				if (num40 >= 0)
 				{
@@ -2537,8 +2576,12 @@ public sealed class NetMessage
 		}
 		case 15:
 		{
-			int num55 = PacketIn.ReadUInt16();
-			int num56 = PacketIn.ReadUInt16();
+			int num55;
+			int num56;
+			if (!ReadTilePosition(sender, "message 15 tile position", out num55, out num56))
+			{
+				break;
+			}
 			int num57 = PacketIn.ReadByte();
 			int isActive = Main.TileSet[num55, num56].IsActive;
 			Main.TileSet[num55, num56].IsActive = (byte)(num57 & 1);
@@ -2611,8 +2654,12 @@ public sealed class NetMessage
 		case 17:
 		{
 			int num94 = PacketIn.ReadByte();
-			int num95 = PacketIn.ReadUInt16();
-			int num96 = PacketIn.ReadUInt16();
+			int num95;
+			int num96;
+			if (!ReadTilePosition(sender, "message 17 tile position", out num95, out num96))
+			{
+				break;
+			}
 			int num97 = ((num94 > 4) ? 1 : PacketIn.ReadByte());
 			bool flag5 = num97 == 1;
 			int num98 = 0;
@@ -2664,8 +2711,12 @@ public sealed class NetMessage
 		}
 		case 19:
 		{
-			ushort i4 = PacketIn.ReadUInt16();
-			int j4 = PacketIn.ReadUInt16();
+			int i4;
+			int j4;
+			if (!ReadTilePosition(sender, "message 19 door position", out i4, out j4))
+			{
+				break;
+			}
 			int direction = PacketIn.ReadSByte();
 			if (Main.NetMode == 2)
 			{
@@ -2691,8 +2742,12 @@ public sealed class NetMessage
 		case 20:
 		{
 			int num79 = PacketIn.ReadByte();
-			int num80 = PacketIn.ReadUInt16();
-			int num81 = PacketIn.ReadUInt16();
+			int num80;
+			int num81;
+			if (!ReadTilePosition(sender, "message 20 section position", out num80, out num81))
+			{
+				break;
+			}
 			if (Main.NetMode == 2)
 			{
 				// Bulk tile data is another way to write the world, so it is gated the same way.
@@ -2879,8 +2934,12 @@ public sealed class NetMessage
 			{
 				EchoMessage(sender);
 			}
-			ushort i3 = PacketIn.ReadUInt16();
-			int j3 = PacketIn.ReadUInt16();
+			int i3;
+			int j3;
+			if (!ReadTilePosition(sender, "message 24 door position", out i3, out j3))
+			{
+				break;
+			}
 			WorldGen.CloseDoor(i3, j3, forced: true);
 			break;
 		}
