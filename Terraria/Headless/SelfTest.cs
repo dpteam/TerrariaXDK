@@ -6432,10 +6432,28 @@ internal static class SelfTest
 							// Message 45 (team): slot 15 in the low nibble, which is a valid four-bit
 							// number and not a valid player.
 							RefuseOne(itemClient, "message 45 team", new byte[2] { 45, 0x0F });
+							// Message 45 again, with a valid slot and team 15: the team index reaches
+							// `Main.TeamColors[team]` (5 entries) and `26 + team` as a text id (37
+							// entries), so 15 used to index 41.
+							RefuseOne(itemClient, "message 45 bad team", new byte[2] { 45, 0xF1 });
+							// Message 18 (chat text by id): the id is a uint16 and Lang.MiscText has
+							// 37 entries. This one is host-to-client, so the crash would be on the
+							// client - a host running a different build, or a corrupted frame. Like
+							// message 23 it is only handled in client mode.
+							int savedMode2 = Main.NetMode;
+							try
+							{
+								Main.NetMode = 1;
+								RefuseOne(itemClient, "message 18 text id", new byte[6] { 18, 255, 255, 255, 0xFF, 0xFF });
+							}
+							finally
+							{
+								Main.NetMode = savedMode2;
+							}
 							// "No exception" is also true when the guard is never reached, which is the
 							// mistake this project has made once already (IsValidWallType, written and
 							// never called). The counter is the proof that each packet hit its guard.
-							if (NetMessage.RefusedIndexCount - refusalsBefore < 7)
+							if (NetMessage.RefusedIndexCount - refusalsBefore < 9)
 							{
 								string seen = "";
 								for (int i = refusalsBefore; i < NetMessage.RefusedIndices.Count; i++)
@@ -6443,7 +6461,7 @@ internal static class SelfTest
 									seen += " [" + NetMessage.RefusedIndices[i] + "]";
 								}
 								return Fail("only " + (NetMessage.RefusedIndexCount - refusalsBefore)
-									+ " of 7 out-of-range packets reached a guard - refused:" + seen
+									+ " of 9 out-of-range packets reached a guard - refused:" + seen
 									+ "; the rest were accepted, or the check is not wired in");
 							}
 						}

@@ -100,6 +100,26 @@ public sealed class NetMessage
 		return ReadSlot(sender, what, Main.PlayerSet.Length, "player");
 	}
 
+	/// <summary>
+	/// A message id from a packet, turned into text, or a placeholder when this build has no such
+	/// message.
+	///
+	/// <c>Lang.MiscText</c> holds 37 entries and the id travels as a <c>uint16</c>, so 37..65535 are
+	/// all reachable. The sender here is the host - messages 2, 18, 37 and 38 are chat and status
+	/// lines - so the crash is on the *client*, caused by a host running a different build or by a
+	/// corrupted frame. A missing message is worth a line in the log, not an exception in the
+	/// middle of a disconnect.
+	/// </summary>
+	private static string MiscText(NetClient sender, uint id)
+	{
+		if (id < Lang.MiscText.Length && Lang.MiscText[id] != null)
+		{
+			return Lang.MiscText[id];
+		}
+		RefuseIndex(sender, "message text", (int)id, Lang.MiscText.Length, "message");
+		return Texts.Format("net.text.unknown", id);
+	}
+
 	/// <summary>An NPC slot from a packet, or -1. <c>Main.NPCSet</c> holds 197.</summary>
 	private static int ReadNpcSlot(NetClient sender, string what)
 	{
@@ -1358,7 +1378,7 @@ public sealed class NetMessage
 	{
 		if (player < 0 || Main.PlayerSet[player].client == null)
 		{
-			Main.NewText(Lang.MiscText[textId], r, g, b);
+			Main.NewText(MiscText(null, (uint)textId), r, g, b);
 			if (player >= 0 && Main.PlayerSet[player].client == null)
 			{
 				return;
@@ -1383,7 +1403,7 @@ public sealed class NetMessage
 	{
 		if (player < 0 || Main.PlayerSet[player].client == null)
 		{
-			Main.NewText(prefix + Lang.MiscText[textId], r, g, b);
+			Main.NewText(prefix + MiscText(null, (uint)textId), r, g, b);
 			if (player >= 0 && Main.PlayerSet[player].client == null)
 			{
 				return;
@@ -1409,7 +1429,7 @@ public sealed class NetMessage
 	{
 		if (player < 0 || Main.PlayerSet[player].client == null)
 		{
-			Main.NewText(Lang.MiscText[textId] + postfix, r, g, b);
+			Main.NewText(MiscText(null, (uint)textId) + postfix, r, g, b);
 			if (player >= 0 && Main.PlayerSet[player].client == null)
 			{
 				return;
@@ -1688,7 +1708,7 @@ public sealed class NetMessage
 			{
 			case 2:
 				Netplay.PlayDisconnect = true;
-				mainUI.statusText = Lang.MiscText[PacketIn.ReadUInt16()];
+				mainUI.statusText = MiscText(sender, PacketIn.ReadUInt16());
 				break;
 			case 3:
 			{
@@ -1948,7 +1968,7 @@ public sealed class NetMessage
 				if (num == 18)
 				{
 					num18 = PacketIn.ReadUInt16();
-					text = Lang.MiscText[num18];
+					text = MiscText(sender, num18);
 				}
 				else if (num == 63)
 				{
@@ -1966,10 +1986,10 @@ public sealed class NetMessage
 					switch (num)
 					{
 					case 37:
-						text += Lang.MiscText[num18];
+						text += MiscText(sender, num18);
 						break;
 					case 38:
-						text = Lang.MiscText[num18] + text;
+						text = MiscText(sender, num18) + text;
 						break;
 					}
 				}
@@ -3142,11 +3162,17 @@ public sealed class NetMessage
 			int num116 = PacketIn.ReadByte();
 			int num117 = num116 >> 4;
 			num116 &= 0xF;
-			// Four bits hold 0..15; PlayerSet holds nine. The team is in the high nibble, so the
-			// slot has to be checked after masking, not before.
+			// Four bits hold 0..15; PlayerSet holds nine and there are five teams. Both are checked:
+			// the team index reaches `Main.TeamColors[team]` and `26 + team` as a text id, and
+			// `Lang.MiscText` has 37 entries - so team 15 used to index 41.
 			if (num116 >= Main.PlayerSet.Length)
 			{
 				RefuseIndex(sender, "message 45 player", num116, Main.PlayerSet.Length, "player");
+				break;
+			}
+			if (num117 >= Main.TeamColors.Length)
+			{
+				RefuseIndex(sender, "message 45 team", num117, Main.TeamColors.Length, "team");
 				break;
 			}
 			Player player17 = Main.PlayerSet[num116];

@@ -322,6 +322,7 @@ internal static class Texts
 		Add(dictionary, "ui.keyboard.del", "del");
 		Add(dictionary, "ui.keyboard.caps", "caps");
 		Add(dictionary, "ui.keyboard.caps.on", "CAPS");
+		Add(dictionary, "net.text.unknown", "(unknown message {0})");
 		Add(dictionary, "ui.mods.raw.detail", "{0} item(s), v{1} - no compiler needed");
 		Add(dictionary, "ui.mods.raw.detail.skipped", "{0} item(s), {1} file(s) unusable, v{2}");
 		Add(dictionary, "ui.mods.raw.detail.refused", "{0} item(s), {1} refused, v{2}");
