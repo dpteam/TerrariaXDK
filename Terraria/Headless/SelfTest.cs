@@ -1025,6 +1025,34 @@ internal static class SelfTest
 			return Fail("click double-fires on screens that handle the mouse");
 		}
 		Terraria.Input.KeyboardMouseInput.MouseHandledByScreen = false;
+		// NPC / sign dialog: it is a menu that does its own hit-testing, so a click in it must
+		// reach neither "use item" nor the world. Before this, a click on "Shop" swung the
+		// pickaxe: the dialog lives in gameplay, so the left button became RightTrigger and
+		// Buttons.A was never synthesised at all.
+		Terraria.Input.KeyboardMouseInput.MouseHandledByScreen = true;
+		GamePadState dialogClick = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(leftDown, array[0], empty, true, false);
+		if (dialogClick.IsButtonDown(Buttons.A) || dialogClick.IsButtonDown(Buttons.RightTrigger))
+		{
+			return Fail("a click in the NPC dialog also fires an action in the world");
+		}
+		Terraria.Input.KeyboardMouseInput.MouseHandledByScreen = false;
+		// The dialog has to be recognised as one. ChatOpen is what the input layer reads, so it
+		// must be true with no chat text and no sign only when there is no player either.
+		UI dialogUi = new UI();
+		if (dialogUi.ChatOpen)
+		{
+			return Fail("ChatOpen is true with no chat and no player");
+		}
+		dialogUi.npcChatText = new UserString("hello", NowVerified: true);
+		if (!dialogUi.ChatOpen)
+		{
+			return Fail("ChatOpen does not see an open NPC dialog");
+		}
+		dialogUi.npcChatText = null;
+		if (dialogUi.ChatOpen)
+		{
+			return Fail("ChatOpen stays true after the dialog closed");
+		}
 		// Inventory: right click splits a stack instead of cancelling.
 		GamePadState inventoryRight = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(rightDown, array[0], empty, true, false, true, false, true);
 		if (!inventoryRight.IsButtonDown(Buttons.RightTrigger))

@@ -439,7 +439,16 @@ public sealed class UI
 	/// True when the pointer is over an interface element, so a click belongs to the UI and
 	/// not to the player. Mirrors the PC version's <c>mouseInterface</c>.
 	/// </summary>
-	public bool CursorOverInterface => InventoryMode > 0 || CurMenuType != MenuType.NONE;
+	public bool CursorOverInterface => InventoryMode > 0 || CurMenuType != MenuType.NONE || ChatOpen;
+
+	/// <summary>
+	/// True while the NPC / sign dialog is up. It is a screen, but it lives in gameplay, so
+	/// <see cref="CurMenuType"/> says NONE and the input layer treated a click in it as "use
+	/// item": the pickaxe swung and the option was never activated. The dialog handles the
+	/// click itself, through rectangles recorded while drawing, so the input layer has to know
+	/// it is looking at a menu.
+	/// </summary>
+	public bool ChatOpen => npcChatText != null || (ActivePlayer != null && ActivePlayer.sign != -1);
 
 	/// <summary>
 	/// True while the mouse is the active pointing device. Screens use it to suppress the
@@ -603,6 +612,15 @@ public sealed class UI
 
 	private readonly bool[] chestSlotValid = new bool[20];
 
+	/// <summary>
+	/// Loot all / deposit / quick stack, drawn in their own column beside the chest grid.
+	/// Indexed by the same 1..3 value the cursor uses, so a click can set the cursor exactly
+	/// the way the stick does.
+	/// </summary>
+	private readonly Rectangle[] chestButtonRects = new Rectangle[4];
+
+	private readonly bool[] chestButtonValid = new bool[4];
+
 	/// <summary>Shop rows, recorded while drawing.</summary>
 	private readonly Rectangle[] shopSlotRects = new Rectangle[20];
 
@@ -675,6 +693,18 @@ public sealed class UI
 	public bool craftingShowCraftable;
 
 	public sbyte CraftingRecipeX;
+
+	/// <summary>
+	/// Index of the recipe drawn in the leftmost cell of the selected row.
+	///
+	/// This used to be <see cref="CraftingRecipeX"/> itself, which works for a stick - the row
+	/// slides and the cursor stays on the first cell - but not for a pointer. Hovering cell 3
+	/// of a row whose window started at 0 selected recipe 3, which moved the window to 3, so
+	/// cell 3 now showed recipe 6, and the next frame selected that: the grid scrolled by
+	/// itself for as long as the pointer rested on it. The window is what the stick and the
+	/// wheel move; the pointer moves only the cursor inside it.
+	/// </summary>
+	public sbyte CraftingRecipeWindowX;
 
 	public sbyte CraftingRecipeY;
 
@@ -991,6 +1021,7 @@ public sealed class UI
 		craftingSection = CraftingSection.RECIPES;
 		craftingShowCraftable = false;
 		CraftingRecipeX = 0;
+		CraftingRecipeWindowX = 0;
 		CraftingRecipeY = 0;
 		craftingIngredientX = 0;
 		craftingIngredientY = 0;
@@ -5945,6 +5976,23 @@ public sealed class UI
 		return false;
 	}
 
+	/// <summary>And the loot all / deposit / quick stack column of the chest screen.</summary>
+	private bool TryChestButtonUnderPointer()
+	{
+		for (int i = 1; i < chestButtonRects.Length; i++)
+		{
+			if (chestButtonValid[i] && chestButtonRects[i].Contains(MouseX, MouseY))
+			{
+				// The cursor value -1 is what tells UpdateStorage "this is a button, not a slot",
+				// and the row number picks which of the three.
+				inventoryChestX = -1;
+				inventoryChestY = (sbyte)i;
+				return true;
+			}
+		}
+		return false;
+	}
+
 	/// <summary>And the shop grid, which uses the same cursor variables as a chest.</summary>
 	private bool TryShopSlotUnderPointer()
 	{
@@ -5969,14 +6017,11 @@ public sealed class UI
 		{
 			return true;
 		}
-		if (!invMouseLayoutValid || invMouseCell <= 0f)
-		{
-			return false;
-		}
-		// Equipment and housing have their own grids and their own cursor variables, and the
-		// pointer used to be ignored in both: the hover function gave up unless the ITEMS tab was
-		// active, so those two sections had no mouse at all. The rectangles come from the draw
-		// pass, so a click lands on the square that was actually drawn.
+		// Equipment, housing and chest have their own grids and their own cursor variables, and
+		// each records its rectangles in its own draw call. They must NOT be gated on the 10x4
+		// items layout below: that grid is not even drawn on those tabs, so gating them on it
+		// made the whole section dead to the pointer until the player happened to open the items
+		// tab first - which is why a chest opened straight from the world ignored the mouse.
 		if (ActiveInvSection == InventorySection.EQUIP && TryEquipSlotUnderPointer())
 		{
 			OverGrid = true;
@@ -5999,14 +6044,29 @@ public sealed class UI
 					return true;
 				}
 			}
-			else if (TryChestSlotUnderPointer())
+			else
 			{
-				OverGrid = true;
-				return true;
+				// Loot all / deposit / quick stack are drawn in their own column to the left of
+				// the chest grid. They were reachable only with the stick, so the three buttons
+				// every chest screen shows were the part of it the mouse could not press.
+				if (TryChestButtonUnderPointer())
+				{
+					OverGrid = true;
+					return true;
+				}
+				if (TryChestSlotUnderPointer())
+				{
+					OverGrid = true;
+					return true;
+				}
 			}
 			return false;
 		}
 		if (ActiveInvSection != InventorySection.ITEMS)
+		{
+			return false;
+		}
+		if (!invMouseLayoutValid || invMouseCell <= 0f)
 		{
 			return false;
 		}
@@ -6132,6 +6192,14 @@ public sealed class UI
 				// slot action was dead to the mouse while the tabs, which read the pointer
 				// directly, still worked.
 				pointerActivate = Terraria.Input.KeyboardMouseInput.LeftClicked;
+				if (pointerActivate)
+				{
+					// A click belongs to the screen, even when it lands on empty space. Taking the
+					// gate keeps the stick path below from acting on the slot the cursor happened
+					// to be sitting on: with no synthetic A involved, "click the panel" used to
+					// move an item from wherever the cursor was left.
+					inventoryAction.TryBegin();
+				}
 				if (ActiveInvSection == InventorySection.CRAFTING)
 				{
 					// The recipe grid has its own hit-test: rows are subcategories and each row
@@ -8934,6 +9002,15 @@ public sealed class UI
 	/// <summary>How many cells were recorded this draw.</summary>
 	private int craftSlotCount;
 
+	/// <summary>Ingredient cells of the selected recipe, recorded while drawing.</summary>
+	private readonly Rectangle[] craftIngredientRects = new Rectangle[12];
+
+	private readonly sbyte[] craftIngredientCol = new sbyte[12];
+
+	private readonly sbyte[] craftIngredientRow = new sbyte[12];
+
+	private readonly bool[] craftIngredientValid = new bool[12];
+
 	/// <summary>Which chat option the pointer is over, or -1.</summary>
 	private int NpcChatOptionUnderPointer()
 	{
@@ -8941,6 +9018,8 @@ public sealed class UI
 		{
 			return -1;
 		}
+		// Straight from the input layer: UpdateNpcChat runs from Player.Update, which may be
+		// before UI.Update, so the UI's own MouseX can still be one frame behind.
 		int num = Terraria.Input.KeyboardMouseInput.MouseX;
 		int num2 = Terraria.Input.KeyboardMouseInput.MouseY;
 		for (int i = 0; i < npcChatOptionRects.Length; i++)
@@ -8997,13 +9076,18 @@ public sealed class UI
 		{
 			npcChatOptionValid[i] = false;
 		}
+		// A word is a small target, and the option is meant to be aimed at, not spelled. The
+		// gap between two options is 30px (more at higher presets), so a little padding cannot
+		// make them overlap; it only stops the pointer from having to land on a letter.
+		int padX = (int)(8f * Main.ScreenMultiplier);
+		int padY = (int)(6f * Main.ScreenMultiplier);
 		if (focusText != null)
 		{
 			pivot = MeasureString(BoldSmallFont, focusText);
 			pivot.X *= 0.5f;
 			pivot.Y *= 0.5f;
 			DrawStringScaled(BoldSmallFont, focusText, new Vector2((float)num4 + pivot.X, (float)num5 + pivot.Y), focusColor, pivot, (npcChatSelectedItem == 0) ? 1.1f : 0.9f);
-			npcChatOptionRects[0] = new Rectangle(num4, num5, (int)(pivot.X * 2f), (int)(pivot.Y * 2f));
+			npcChatOptionRects[0] = new Rectangle(num4 - padX, num5 - padY, (int)(pivot.X * 2f) + padX * 2, (int)(pivot.Y * 2f) + padY * 2);
 			npcChatOptionValid[0] = true;
 		}
 		string text2 = Lang.InterfaceText[52];
@@ -9023,7 +9107,7 @@ public sealed class UI
 		pivot2.X *= 0.5f;
 		pivot2.Y *= 0.5f;
 		DrawStringScaled(BoldSmallFont, text2, new Vector2((float)num4 + pivot2.X, (float)num5 + pivot2.Y), c, pivot2, (npcChatSelectedItem == 1) ? 1.1f : 0.9f);
-		npcChatOptionRects[1] = new Rectangle(num4, num5, (int)(pivot2.X * 2f), (int)(pivot2.Y * 2f));
+		npcChatOptionRects[1] = new Rectangle(num4 - padX, num5 - padY, (int)(pivot2.X * 2f) + padX * 2, (int)(pivot2.Y * 2f) + padY * 2);
 		npcChatOptionValid[1] = true;
 		if (focusText3 != null)
 		{
@@ -9032,7 +9116,7 @@ public sealed class UI
 			pivot3.X *= 0.5f;
 			pivot3.Y *= 0.5f;
 			DrawStringScaled(BoldSmallFont, focusText3, new Vector2((float)num4 + pivot3.X, (float)num5 + pivot3.Y), c, pivot3, (npcChatSelectedItem == 2) ? 1.1f : 0.9f);
-			npcChatOptionRects[2] = new Rectangle(num4, num5, (int)(pivot3.X * 2f), (int)(pivot3.Y * 2f));
+			npcChatOptionRects[2] = new Rectangle(num4 - padX, num5 - padY, (int)(pivot3.X * 2f) + padX * 2, (int)(pivot3.Y * 2f) + padY * 2);
 			npcChatOptionValid[2] = true;
 		}
 	}
@@ -9783,9 +9867,14 @@ public sealed class UI
 	}
 
 	private void UpdateStorage()
-	{		if (inventoryChestX < 0)
+	{
+		if (inventoryChestX < 0)
 		{
-			if (!IsButtonTriggered(Buttons.A))
+			// ActivatePressed rather than Buttons.A: the pointer sets the same cursor value the
+			// stick does, and one gate for both keeps a click and a button press from drifting
+			// apart. The buttons were unreachable by mouse only because nothing recorded where
+			// they were drawn - see DrawStorage.
+			if (!ActivatePressed())
 			{
 				return;
 			}
@@ -9972,16 +10061,28 @@ public sealed class UI
 		int num = (int)(56f * inventoryScale);
 		int x = num * 2 + INVENTORY_X - num;
 		int num2 = num + INVENTORY_Y + num;
+		// The three buttons are recorded the same way the slots are: from the numbers they are
+		// drawn with, so the pointer and the picture cannot disagree.
+		for (int i = 0; i < chestButtonValid.Length; i++)
+		{
+			chestButtonValid[i] = false;
+		}
+		chestButtonRects[1] = new Rectangle(x, num2, num, num);
+		chestButtonValid[1] = true;
 		int id = ((inventoryChestX < 0 && inventoryChestY == 1) ? 448 : 451);
 		SpriteSheet<_sheetSprites>.DrawTL(id, x, num2, c, inventoryScale);
 		id = 1085;
 		DrawInventoryItem(id, x, num2, Color.White);
 		num2 += num;
+		chestButtonRects[2] = new Rectangle(x, num2, num, num);
+		chestButtonValid[2] = true;
 		id = ((inventoryChestX < 0 && inventoryChestY == 2) ? 448 : 451);
 		SpriteSheet<_sheetSprites>.DrawTL(id, x, num2, c, inventoryScale);
 		id = 213;
 		DrawInventoryItem(id, x, num2, Color.White);
 		num2 += num;
+		chestButtonRects[3] = new Rectangle(x, num2, num, num);
+		chestButtonValid[3] = true;
 		id = ((inventoryChestX < 0 && inventoryChestY == 3) ? 448 : 451);
 		SpriteSheet<_sheetSprites>.DrawTL(id, x, num2, c, inventoryScale);
 		id = 1469;
@@ -10730,6 +10831,12 @@ public sealed class UI
 			craftSlotValid[i] = false;
 		}
 		craftSlotCount = 0;
+		// Reset here rather than where the cells are recorded: with no recipes at all the
+		// recording loop never runs, and stale rectangles would keep claiming the panel.
+		for (int i = 0; i < craftIngredientValid.Length; i++)
+		{
+			craftIngredientValid[i] = false;
+		}
 		int count = CurrentRecipeCategory.Count;
 		int num5 = (int)(56f * Main.ScreenMultiplier);
 		byte b = 8;
@@ -10816,7 +10923,7 @@ public sealed class UI
 							num14 -= (int)((1f - Math.Abs(craftingRecipeScrollX)) * (float)num5) * Math.Sign(craftingRecipeScrollX);
 						}
 						Recipe.SubCategoryList subCategoryList = CurrentRecipeCategory[num11];
-						int num15 = ((num11 == CraftingRecipeY) ? (CraftingRecipeX - Math.Sign(craftingRecipeScrollX)) : 0);
+						int num15 = ((num11 == CraftingRecipeY) ? (CraftingRecipeWindowX - Math.Sign(craftingRecipeScrollX)) : 0);
 						int count2 = subCategoryList.RecipeList.Count;
 						for (int l = -num13; l < b + num13; l++)
 						{
@@ -10945,6 +11052,13 @@ public sealed class UI
 					int num22 = (int)(50f * Main.ScreenMultiplier);
 					int x = num18 + num22 * num21;
 					int y = num19 + num22 * m;
+					if (num20 < craftIngredientRects.Length)
+					{
+						craftIngredientRects[num20] = new Rectangle(x, y, num22, num22);
+						craftIngredientCol[num20] = (sbyte)num21;
+						craftIngredientRow[num20] = (sbyte)m;
+						craftIngredientValid[num20] = true;
+					}
 					if (craftingSection == CraftingSection.INGREDIENTS && num21 == craftingIngredientX && m == craftingIngredientY)
 					{
 						DrawInventoryCursor(x, y, inventoryScale);
@@ -11875,6 +11989,7 @@ public sealed class UI
 			worldFadeTarget = 0.5f;
 		}
 		CraftingRecipeX = 0;
+		CraftingRecipeWindowX = 0;
 		CraftingRecipeY = 0;
 		ActivePlayer.AdjTiles();
 		if (npcShop > 0)
@@ -12040,13 +12155,25 @@ public sealed class UI
 		// Wheel over the crafting grid scrolls the recipe list, as on the PC version. It has
 		// to come after the section switch above: the wheel used to be turned into shoulder
 		// presses, so it changed section instead of scrolling.
-		if (wheelSteps != 0 && ActiveInvSection == InventorySection.CRAFTING && craftingSection == CraftingSection.RECIPES && CraftingRecipeY >= 0 && CraftingRecipeY < CurrentRecipeCategory.Count)
+		if (wheelSteps != 0 && ActiveInvSection == InventorySection.CRAFTING && CraftingRecipeY >= 0 && CraftingRecipeY < CurrentRecipeCategory.Count)
 		{
+			// One cell per frame, no matter how many notches arrived at once. A free-spinning
+			// wheel reports several notches in a single frame, and in a row that scrolls
+			// sideways the skipped cells are never seen - that was "the scroll is too fast".
+			int step = ((wheelSteps > 0) ? 1 : (-1));
 			int recipeCount = CurrentRecipeCategory[CraftingRecipeY].RecipeList.Count;
-			int nextRecipe = Terraria.Input.WheelNav.Wrap(CraftingRecipeX, wheelSteps, recipeCount);
-			if (nextRecipe != CraftingRecipeX)
+			// The wheel moves the row, not the cursor inside it: with the window as the cursor,
+			// scrolling and hovering would fight over the same number.
+			int nextRecipe = Terraria.Input.WheelNav.Wrap(CraftingRecipeWindowX, step, recipeCount);
+			if (nextRecipe != CraftingRecipeWindowX)
 			{
-				craftingRecipeScrollX = Terraria.Input.WheelNav.Direction(CraftingRecipeX, nextRecipe, recipeCount);
+				// No slide animation: the cells are only hit-testable once it has finished, so
+				// animating a wheel scroll made the grid ignore clicks for the next 20 frames.
+				craftingRecipeScrollX = 0f;
+				craftingRecipeScrollY = 0f;
+				// The wheel always means "the recipe row", whatever the pointer last selected.
+				craftingSection = CraftingSection.RECIPES;
+				CraftingRecipeWindowX = (sbyte)nextRecipe;
 				CraftingRecipeX = (sbyte)nextRecipe;
 			}
 		}
@@ -12304,18 +12431,53 @@ public sealed class UI
 	/// </summary>
 	private void UpdateCraftingPointer()
 	{
+		// A pointer does not need the slide animation: the highlight should be under the cursor
+		// on the next frame, not twenty frames later. It also has a hard cost - cells are only
+		// recorded while no animation is in flight, so after every wheel notch the grid was
+		// unclickable for a third of a second. That was the "not everything presses" report.
+		craftingRecipeScrollX = 0f;
+		craftingRecipeScrollY = 0f;
+		int col;
 		int row;
+		if (TryCraftingIngredientUnderPointer(out col, out row))
+		{
+			// Both panels are visible at once, so the pointer decides which one has the cursor;
+			// there is no reason to make the player press the "switch section" button as well.
+			if (craftingSection != CraftingSection.INGREDIENTS || craftingIngredientX != col || craftingIngredientY != row)
+			{
+				craftingSection = CraftingSection.INGREDIENTS;
+				craftingIngredientX = (sbyte)col;
+				craftingIngredientY = (sbyte)row;
+			}
+			// Clicking an ingredient selects it and shows its count; it does not craft. Crafting
+			// by clicking a list of things you already have would be an accident waiting to
+			// happen, and the recipe cell is the thing that means "make this".
+			return;
+		}
+		int row2;
 		int index;
-		if (!TryCraftingRecipeUnderPointer(out row, out index))
+		if (!TryCraftingRecipeUnderPointer(out row2, out index))
 		{
 			return;
 		}
-		if (row != CraftingRecipeY || index != CraftingRecipeX)
+		craftingSection = CraftingSection.RECIPES;
+		if (row2 != CraftingRecipeY)
 		{
-			CraftingRecipeY = (sbyte)row;
+			// A different row starts from its first recipe: the window is shared, so carrying
+			// the previous row's offset over would show a row starting in the middle. The index
+			// from the cell rectangles was computed against the old window, so it is not used on
+			// this frame - the next one records the row again and the pointer selects properly.
+			CraftingRecipeY = (sbyte)row2;
+			CraftingRecipeWindowX = 0;
+			CraftingRecipeX = 0;
+			return;
+		}
+		if (index != CraftingRecipeX)
+		{
+			// Only the cursor moves. The window must stay put, otherwise the row slides under
+			// a pointer that has not moved and the next frame selects a different recipe - the
+			// grid then scrolls by itself for as long as the pointer rests on it.
 			CraftingRecipeX = (sbyte)index;
-			craftingRecipeScrollX = 0f;
-			craftingRecipeScrollY = 0f;
 			Main.PlaySound(12);
 		}
 		if (!pointerActivate)
@@ -12324,11 +12486,11 @@ public sealed class UI
 		}
 		// The recipe is read from the list rather than from CraftingRecipe: that field is only
 		// updated while drawing, so on the frame of the click it still holds the previous one.
-		if (row < 0 || row >= CurrentRecipeCategory.Count)
+		if (row2 < 0 || row2 >= CurrentRecipeCategory.Count)
 		{
 			return;
 		}
-		System.Collections.Generic.List<short> list = CurrentRecipeCategory[row].RecipeList;
+		System.Collections.Generic.List<short> list = CurrentRecipeCategory[row2].RecipeList;
 		if (index < 0 || index >= list.Count)
 		{
 			return;
@@ -12339,6 +12501,29 @@ public sealed class UI
 		{
 			CraftOnce(recipe);
 		}
+	}
+
+	/// <summary>Which ingredient cell the pointer is over, or false.</summary>
+	private bool TryCraftingIngredientUnderPointer(out int Col, out int Row)
+	{
+		Col = 0;
+		Row = 0;
+		if (!Terraria.Input.KeyboardMouseInput.Enabled || !Terraria.Input.KeyboardMouseInput.CursorOverride)
+		{
+			return false;
+		}
+		int num = Terraria.Input.KeyboardMouseInput.MouseX;
+		int num2 = Terraria.Input.KeyboardMouseInput.MouseY;
+		for (int i = 0; i < craftIngredientValid.Length; i++)
+		{
+			if (craftIngredientValid[i] && craftIngredientRects[i].Contains(num, num2))
+			{
+				Col = craftIngredientCol[i];
+				Row = craftIngredientRow[i];
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/// <summary>Which recipe cell the pointer is over, as (row, index within that row).</summary>
@@ -12406,6 +12591,7 @@ public sealed class UI
 		Recipe.FindRecipes(this, (Recipe.Category)Category, craftingShowCraftable);
 		craftingCategory = (Recipe.Category)Category;
 		CraftingRecipeX = 0;
+		CraftingRecipeWindowX = 0;
 		CraftingRecipeY = 0;
 		craftingRecipeScrollX = 0f;
 		craftingRecipeScrollY = 0f;
@@ -12427,6 +12613,7 @@ public sealed class UI
 		{
 			craftingShowCraftable = !craftingShowCraftable;
 			CraftingRecipeX = 0;
+			CraftingRecipeWindowX = 0;
 			craftingRecipeScrollX = 0f;
 			craftingRecipeScrollY = 0f;
 			Recipe.FindRecipes(this, craftingCategory, craftingShowCraftable);
@@ -12437,7 +12624,10 @@ public sealed class UI
 		}
 		else
 		{
-			if (UpdateCraftButtonInput(CraftingRecipe))
+			// The pointer has already acted if it clicked this frame. Without this the synthetic
+			// Buttons.A made a click anywhere in the crafting panel craft the selected recipe,
+			// and a click on a recipe cell could craft twice.
+			if (!inventoryAction.Taken && UpdateCraftButtonInput(CraftingRecipe))
 			{
 				return;
 			}
@@ -12470,7 +12660,7 @@ public sealed class UI
 						int count = CurrentRecipeCategory[CraftingRecipeY].RecipeList.Count;
 						if (count != 1)
 						{
-							int num = CraftingRecipeX + dx;
+							int num = CraftingRecipeWindowX + dx;
 							if (num < 0)
 							{
 								num += count;
@@ -12479,6 +12669,10 @@ public sealed class UI
 							{
 								num -= count;
 							}
+							// The stick moves the row and keeps the cursor on its first cell, the
+							// way the console build did. The pointer is the case that needs them
+							// apart (see CraftingRecipeWindowX).
+							CraftingRecipeWindowX = (sbyte)num;
 							CraftingRecipeX = (sbyte)num;
 							craftingRecipeScrollX = dx;
 						}
@@ -12486,6 +12680,7 @@ public sealed class UI
 					else if (craftingRecipeScrollX == 0f && craftingRecipeScrollY == 0f)
 					{
 						CraftingRecipeX = 0;
+						CraftingRecipeWindowX = 0;
 						int num2 = CraftingRecipeY + dy;
 						int count2 = CurrentRecipeCategory.Count;
 						if (num2 < 0)

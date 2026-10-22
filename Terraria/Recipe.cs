@@ -313,6 +313,7 @@ public sealed class Recipe
 		{
 			ActiveUI.CraftingRecipe = NewRecipe;
 			ActiveUI.CraftingRecipeX = 0;
+			ActiveUI.CraftingRecipeWindowX = 0;
 			ActiveUI.CraftingRecipeY = 0;
 		}
 		else
@@ -325,6 +326,16 @@ public sealed class Recipe
 			if (ActiveUI.CraftingRecipeX >= count2)
 			{
 				ActiveUI.CraftingRecipeX = (sbyte)(count2 - 1);
+			}
+			// The window is the row's leftmost cell and is not the cursor, so it needs its own
+			// bound: the rebuilt list can be shorter than the offset the row was scrolled to.
+			if (count2 <= 0)
+			{
+				ActiveUI.CraftingRecipeWindowX = 0;
+			}
+			else if (ActiveUI.CraftingRecipeWindowX >= count2 || ActiveUI.CraftingRecipeWindowX < 0)
+			{
+				ActiveUI.CraftingRecipeWindowX = 0;
 			}
 		}
 		CurrentRecipes.Clear();

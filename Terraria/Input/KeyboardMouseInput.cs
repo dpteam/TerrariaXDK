@@ -414,11 +414,15 @@ internal static class KeyboardMouseInput
 		{
 			return;
 		}
-		MenuContext = ui.CurMenuType != MenuType.NONE || ui.InventoryMode > 0 || MessageBox.IsVisible();
+		// The NPC / sign dialog is a screen that lives in gameplay, so CurMenuType cannot see it.
+		// Left as gameplay, a click on "Shop" became "use item": the pickaxe swung, and the
+		// dialog's own option rectangles were the only way in - with the swing happening on top.
+		bool dialog = ui.ChatOpen;
+		MenuContext = dialog || ui.CurMenuType != MenuType.NONE || ui.InventoryMode > 0 || MessageBox.IsVisible();
 		_inventoryContext = ui.InventoryMode > 0;
 		_enterConfirms = ui.CurMenuMode == MenuMode.CREATE_CHARACTER;
 		// Only screens that consume the click themselves opt out of "left click = A".
-		MouseHandledByScreen = ui.CurMenuType != MenuType.NONE && (ui.CurMenuMode == MenuMode.CREATE_CHARACTER || ui.CurMenuMode == MenuMode.WORLD_SELECT || ui.CurMenuMode == MenuMode.MAP);
+		MouseHandledByScreen = dialog || (ui.CurMenuType != MenuType.NONE && (ui.CurMenuMode == MenuMode.CREATE_CHARACTER || ui.CurMenuMode == MenuMode.WORLD_SELECT || ui.CurMenuMode == MenuMode.MAP));
 		// A click that lands nowhere on a menu list must do nothing, not activate the
 		// previously highlighted entry.
 		if (!MouseHandledByScreen && ui.ClickOutsideMenuEntries)
