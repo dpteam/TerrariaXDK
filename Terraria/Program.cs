@@ -56,7 +56,14 @@ internal static class Program
 				{
 					// Turns an old tConfig pack into a mod project. Headless for the same reason:
 					// it reads INI files and item names, and needs no window to do it.
-					Environment.ExitCode = ConvertTConfig(args, i + 1);
+					Environment.ExitCode = ConvertTConfig(args, i + 1, raw: false);
+					return;
+				}
+				if (text == "--tconfig-raw")
+				{
+					// The same pack, written as a raw mod: a folder the game loads without any
+					// compiler. This is the path for machines that have no .NET SDK.
+					Environment.ExitCode = ConvertTConfig(args, i + 1, raw: true);
 					return;
 				}
 				if (text == "--font-check")
@@ -168,11 +175,13 @@ internal static class Program
 	/// <summary>
 	/// <c>--tconfig-convert &lt;pack&gt; [--out &lt;dir&gt;] [--name &lt;Mod&gt;]</c>: writes a mod
 	/// project that does what the pack did, and returns an exit code.
+	/// <c>--tconfig-raw</c> takes the same arguments and writes a raw mod (INI + PNG) instead -
+	/// the same pack, usable without a compiler.
 	///
 	/// The pack is read the same way the runtime importer reads it, so the conversion cannot
 	/// disagree with what the game would have done with the folder.
 	/// </summary>
-	private static int ConvertTConfig(string[] args, int start)
+	private static int ConvertTConfig(string[] args, int start, bool raw)
 	{
 		Terraria.Storage.AppPaths.Headless = true;
 		try
@@ -211,25 +220,33 @@ internal static class Program
 		}
 		if (pack == null)
 		{
-			Console.Error.WriteLine("Usage: TerrariaXDK.exe --tconfig-convert <pack> [--out <dir>] [--name <Mod>]");
+			Console.Error.WriteLine("Usage: TerrariaXDK.exe " + (raw ? "--tconfig-raw" : "--tconfig-convert")
+				+ " <pack> [--out <dir>] [--name <Mod>]");
 			Console.Error.WriteLine("  <pack>  folder with Item/*.ini, e.g. Storage/tConfig/MyPack");
-			Console.Error.WriteLine("  --out   where to write the project (default: Storage/ModSources/<Mod>)");
+			Console.Error.WriteLine(raw
+				? "  --out   where to write the mod folder (default: Storage/Mods/<Mod>)"
+				: "  --out   where to write the project (default: Storage/ModSources/<Mod>)");
 			return 2;
 		}
 		if (output == null)
 		{
 			string text2 = (name != null) ? name : new DirectoryInfo(Path.GetFullPath(pack)).Name;
-			output = Path.Combine(Terraria.Storage.AppPaths.ModSources, text2);
+			output = Path.Combine(raw ? Terraria.Storage.AppPaths.Mods : Terraria.Storage.AppPaths.ModSources, text2);
 		}
 		string error;
-		Terraria.Mods.TConfigConverter.Result result = Terraria.Mods.TConfigConverter.Convert(pack, output, name, out error);
+		Terraria.Mods.TConfigConverter.Result result = Terraria.Mods.TConfigConverter.Convert(pack, output, name, raw, out error);
 		if (result == null)
 		{
 			Console.Error.WriteLine("Cannot convert: " + error);
 			return 1;
 		}
-		Console.WriteLine("Wrote " + result.ProjectFile);
+		Console.WriteLine("Wrote " + (result.IsRaw ? result.ManifestFile : result.ProjectFile));
 		Console.WriteLine("  " + result.Items + " item(s), " + result.Fields + " field(s)");
+		if (result.IsRaw)
+		{
+			Console.WriteLine("  " + result.NewItems + " new item(s), " + result.Recipes + " recipe(s)");
+			Console.WriteLine("  restart the game to load it from Storage/Mods/" + Path.GetFileName(result.OutputDirectory) + "/");
+		}
 		if (result.UnknownItems > 0)
 		{
 			Console.WriteLine("  " + result.UnknownItems + " item(s) skipped: not in this build");
@@ -260,8 +277,11 @@ internal static class Program
 		{
 			Console.WriteLine("Log: " + result.LogFile);
 		}
-		Console.WriteLine("Build it with: dotnet build \"" + result.ProjectFile + "\"");
-		Console.WriteLine("Then copy the DLL into Storage/Mods/" + Path.GetFileNameWithoutExtension(result.ProjectFile) + "/");
+		if (!result.IsRaw)
+		{
+			Console.WriteLine("Build it with: dotnet build \"" + result.ProjectFile + "\"");
+			Console.WriteLine("Then copy the DLL into Storage/Mods/" + Path.GetFileNameWithoutExtension(result.ProjectFile) + "/");
+		}
 		// A conversion with failures still succeeded, but not cleanly - say so in the exit code so
 		// a build script notices instead of shipping a mod that is missing half its items.
 		return (result.Errors.Count > 0) ? 3 : 0;

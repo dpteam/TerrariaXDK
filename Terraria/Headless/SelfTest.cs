@@ -2638,9 +2638,11 @@ internal static class SelfTest
 			{
 				return Fail("the pack row is '" + Terraria.Mods.ModMenu.FolderAt(packIndex) + "'");
 			}
-			// Converting the pack writes a project and asks about the original.
+			// Converting the pack writes a project and asks about the original. (The raw
+			// conversion, which is the menu's default key, is checked at the end - it writes into
+			// Storage/Mods, and doing it here would add a row to this list mid-test.)
 			Terraria.Mods.ModMenu.SelectForTests(packIndex);
-			Terraria.Mods.ModMenu.ConvertSelectedForTests();
+			Terraria.Mods.ModMenu.ConvertSelectedForTests(raw: false);
 			string project = System.IO.Path.Combine(sources, "OldPack", "OldPack.csproj");
 			if (!System.IO.File.Exists(project))
 			{
@@ -2663,7 +2665,7 @@ internal static class SelfTest
 			// Answering "delete" moves it into Backups - not away for good: the only copy of
 			// somebody's pack must not disappear because a menu button was pressed.
 			Terraria.Mods.ModMenu.SelectForTests(packIndex);
-			Terraria.Mods.ModMenu.ConvertSelectedForTests();
+			Terraria.Mods.ModMenu.ConvertSelectedForTests(raw: false);
 			Terraria.Mods.ModMenu.AnswerConfirmForTests(true);
 			if (System.IO.Directory.Exists(System.IO.Path.Combine(packs, "OldPack")))
 			{
@@ -2685,7 +2687,12 @@ internal static class SelfTest
 			// The list reflects the removal, and the cursor is still inside it.
 			if (Terraria.Mods.ModMenu.EntryCount != 1)
 			{
-				return Fail("the list still holds " + Terraria.Mods.ModMenu.EntryCount + " row(s) after the pack was removed");
+				string dump = "";
+				for (int i = 0; i < Terraria.Mods.ModMenu.EntryCount; i++)
+				{
+					dump += " [" + Terraria.Mods.ModMenu.FolderAt(i) + (Terraria.Mods.ModMenu.IsPackAt(i) ? "/pack" : "/mod") + "]";
+				}
+				return Fail("the list still holds " + Terraria.Mods.ModMenu.EntryCount + " row(s) after the pack was removed:" + dump);
 			}
 			if (Terraria.Mods.ModMenu.IsPackAt(0))
 			{
@@ -2693,10 +2700,89 @@ internal static class SelfTest
 			}
 			// Converting a mod must do nothing at all: it is not a pack.
 			Terraria.Mods.ModMenu.SelectForTests(0);
-			Terraria.Mods.ModMenu.ConvertSelectedForTests();
+			Terraria.Mods.ModMenu.ConvertSelectedForTests(raw: false);
 			if (Terraria.Mods.ModMenu.IsConfirmingForTests)
 			{
 				return Fail("converting a mod asked a question");
+			}
+			// --- the raw conversion, which is the menu's default ------------------
+			// Its own folders: it writes a mod into the Mods root, and that changes this list.
+			string mods2 = System.IO.Path.Combine(root, "Mods2");
+			string packs2 = System.IO.Path.Combine(root, "tConfig2");
+			System.IO.Directory.CreateDirectory(mods2);
+			string pack2Items = System.IO.Path.Combine(packs2, "RawPack", "Item");
+			System.IO.Directory.CreateDirectory(pack2Items);
+			System.IO.File.WriteAllText(System.IO.Path.Combine(pack2Items, "Copper Bar.ini"), "value=4321\r\n");
+			System.IO.File.WriteAllText(System.IO.Path.Combine(pack2Items, "Test Blade.ini"), "type=-1\r\ndamage=9\r\n");
+			WriteTinyPng(System.IO.Path.Combine(pack2Items, "Test Blade.png"));
+			Terraria.Mods.ModMenu.ModsRootOverride = mods2;
+			Terraria.Mods.ModMenu.PacksRootOverride = packs2;
+			Terraria.Mods.ModMenu.Reset();
+			int rawPackIndex = -1;
+			for (int i = 0; i < Terraria.Mods.ModMenu.EntryCount; i++)
+			{
+				if (Terraria.Mods.ModMenu.IsPackAt(i))
+				{
+					rawPackIndex = i;
+				}
+			}
+			if (rawPackIndex < 0)
+			{
+				return Fail("the second pack is not in the list");
+			}
+			Terraria.Mods.ModMenu.SelectForTests(rawPackIndex);
+			Terraria.Mods.ModMenu.ConvertSelectedForTests();
+			string rawFolder = System.IO.Path.Combine(mods2, "RawPack");
+			if (!System.IO.File.Exists(System.IO.Path.Combine(rawFolder, "mod.ini")))
+			{
+				return Fail("the menu's convert wrote no mod.ini (" + Terraria.Mods.ModMenu.StatusForTests + ")");
+			}
+			string rawOverride = System.IO.Path.Combine(rawFolder, "Item", "Copper Bar.ini");
+			string rawNew = System.IO.Path.Combine(rawFolder, "Item", "Test Blade.ini");
+			if (!System.IO.File.Exists(rawOverride) || !System.IO.File.Exists(rawNew))
+			{
+				return Fail("the raw mod is missing an item file");
+			}
+			if (!System.IO.File.Exists(System.IO.Path.Combine(rawFolder, "Item", "Test Blade.png")))
+			{
+				return Fail("the raw mod is missing a sprite");
+			}
+			if (!System.IO.File.ReadAllText(rawOverride).Contains("value=4321"))
+			{
+				return Fail("the raw override lost its value");
+			}
+			if (!System.IO.File.ReadAllText(rawNew).Contains("type=-1"))
+			{
+				return Fail("the raw new item lost its marker");
+			}
+			if (!Terraria.Mods.ModMenu.IsConfirmingForTests)
+			{
+				return Fail("the raw conversion did not ask about the original pack");
+			}
+			Terraria.Mods.ModMenu.AnswerConfirmForTests(false);
+			// Re-converting must not leave items the pack no longer has: the folder is cleaned
+			// first, but only because this tool generated it.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(rawFolder, "Item", "Stale.ini"), "damage=1\r\n");
+			Terraria.Mods.ModMenu.SelectForTests(rawPackIndex);
+			Terraria.Mods.ModMenu.ConvertSelectedForTests();
+			Terraria.Mods.ModMenu.AnswerConfirmForTests(false);
+			if (System.IO.File.Exists(System.IO.Path.Combine(rawFolder, "Item", "Stale.ini")))
+			{
+				return Fail("re-converting kept an item the pack no longer has");
+			}
+			// And the converted folder is a mod row now, not a pack.
+			Terraria.Mods.ModMenu.Rebuild();
+			bool sawRaw = false;
+			for (int i = 0; i < Terraria.Mods.ModMenu.EntryCount; i++)
+			{
+				if (Terraria.Mods.ModMenu.FolderAt(i) == "RawPack" && !Terraria.Mods.ModMenu.IsPackAt(i))
+				{
+					sawRaw = true;
+				}
+			}
+			if (!sawRaw)
+			{
+				return Fail("the converted folder is not listed as a mod");
 			}
 			return true;
 		}
@@ -13345,6 +13431,7 @@ internal static class SelfTest
 				"ui.settings.cheats", "ui.settings.keys", "ui.settings.mods", "ui.settings.display",
 				"ui.settings.network", "ui.settings.hud", "ui.menu.cheats",
 				"ui.mods.kind.raw", "ui.mods.raw.detail",
+				"ui.mods.convert.raw.done", "ui.mods.convert.raw.partial",
 				"ui.cheats.title", "ui.cheats.hint", "ui.cheats.more",
 				"ui.cheats.god", "ui.cheats.noclip", "ui.cheats.mana", "ui.cheats.buffs",
 				"ui.cheats.fall", "ui.cheats.heal", "ui.cheats.caps", "ui.cheats.dawn",

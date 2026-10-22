@@ -248,12 +248,25 @@ internal static class ModMenu
 		Main.PlaySound(12);
 		// One line has room for one sentence, so it says the two things that matter: it worked,
 		// and whether anything was lost. The detail is in the log and in the generated README.
-		_status = job.Result.HasProblems
-			? Texts.Format("ui.mods.convert.partial", job.ModName,
+		if (job.Result.HasProblems)
+		{
+			_status = Texts.Format(job.Result.IsRaw ? "ui.mods.convert.raw.partial" : "ui.mods.convert.partial",
+				job.ModName,
 				(job.Result.Errors.Count + job.Result.Warnings.Count).ToString(),
-				string.IsNullOrEmpty(job.Result.LogFile) ? job.Result.OutputDirectory : job.Result.LogFile)
-			: Texts.Format("ui.mods.convert.done", job.ModName, job.Result.OutputDirectory);
+				string.IsNullOrEmpty(job.Result.LogFile) ? job.Result.OutputDirectory : job.Result.LogFile);
+		}
+		else
+		{
+			_status = Texts.Format(job.Result.IsRaw ? "ui.mods.convert.raw.done" : "ui.mods.convert.done",
+				job.ModName, job.Result.OutputDirectory);
+		}
 		_statusTime = 900;
+		// A raw mod landed in Storage/Mods, so the game has something new to load - the same
+		// "restart required" a toggle shows. A project is not loaded until it is built and copied.
+		if (job.Result.IsRaw)
+		{
+			_dirty = true;
+		}
 		_pending = new PendingDelete();
 		_pending.Folder = job.ModName;
 		_pending.PackPath = job.PackDirectory;
@@ -323,9 +336,14 @@ internal static class ModMenu
 		}
 		// Convert. On a mod this does nothing: there is nothing to convert, and quietly
 		// re-converting a mod folder would be a surprise.
+		// C writes a raw mod (no compiler needed), P a C# project (for adding behaviour).
 		if (KeyboardMouseInput.KeyPressed(Keys.C) || KeyboardMouseInput.KeyPressed(Keys.Enter))
 		{
-			ConvertSelected();
+			ConvertSelected(raw: true);
+		}
+		if (KeyboardMouseInput.KeyPressed(Keys.P))
+		{
+			ConvertSelected(raw: false);
 		}
 		if (KeyboardMouseInput.KeyPressed(Keys.R))
 		{
@@ -336,7 +354,7 @@ internal static class ModMenu
 		return false;
 	}
 
-	/// <summary>The only action a row has: a mod toggles, a pack converts.</summary>
+	/// <summary>The only action a row has: a mod toggles, a pack converts (raw, the useful default).</summary>
 	private static void Activate(int index)
 	{
 		if (index < 0 || index >= Entries.Count)
@@ -345,7 +363,7 @@ internal static class ModMenu
 		}
 		if (Entries[index].Kind == EntryKind.Pack)
 		{
-			ConvertSelected();
+			ConvertSelected(raw: true);
 			return;
 		}
 		Toggle(index);
@@ -435,7 +453,11 @@ internal static class ModMenu
 		return ui != null && ui.IsButtonTriggered(button);
 	}
 
-	private static void ConvertSelected()
+	/// <summary>
+	/// Converts the selected pack. Raw by default: it needs no compiler, so it is the conversion
+	/// that always works. The C# project is the option for someone who wants to add behaviour.
+	/// </summary>
+	private static void ConvertSelected(bool raw)
 	{
 		if (_selected < 0 || _selected >= Entries.Count)
 		{
@@ -446,10 +468,13 @@ internal static class ModMenu
 		{
 			return;
 		}
-		string output = Path.Combine(ModSourcesRootOverride ?? Terraria.Storage.AppPaths.ModSources, entry.Folder);
+		string output = raw
+			? Path.Combine(ModsRootOverride ?? Terraria.Storage.AppPaths.Mods, entry.Folder)
+			: Path.Combine(ModSourcesRootOverride ?? Terraria.Storage.AppPaths.ModSources, entry.Folder);
 		// Started here and advanced in Update: the conversion runs a few files per frame so the
 		// progress bar can move and the screen stays alive.
 		TConfigConverter.Job job = new TConfigConverter.Job();
+		job.Raw = raw;
 		string error;
 		if (!job.Begin(entry.PackPath, output, entry.Folder, out error))
 		{
@@ -839,10 +864,13 @@ internal static class ModMenu
 		ClampScroll();
 	}
 
-	/// <summary>Test hook: runs the conversion action on the selected row, to completion.</summary>
-	internal static void ConvertSelectedForTests()
+	/// <summary>
+	/// Test hook: runs the conversion action on the selected row, to completion.
+	/// <paramref name="raw"/> picks the output kind, like the two keys do.
+	/// </summary>
+	internal static void ConvertSelectedForTests(bool raw = true)
 	{
-		ConvertSelected();
+		ConvertSelected(raw);
 		// The menu converts a few files per frame; a test has no frames, so it pumps instead.
 		// The real code path is unchanged - this only drives it.
 		while (_job != null)

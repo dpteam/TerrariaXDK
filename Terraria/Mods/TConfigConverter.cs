@@ -74,6 +74,15 @@ internal static class TConfigConverter
 		/// <summary>Path of the log written for this run, or empty when logging failed too.</summary>
 		public string LogFile = string.Empty;
 
+		/// <summary>
+		/// True when the output is a raw mod (INI + PNG, no assembly) rather than a C# project.
+		/// Both are "the pack, converted" - the difference is whether the result needs a compiler.
+		/// </summary>
+		public bool IsRaw;
+
+		/// <summary>The written <c>mod.ini</c> of a raw mod; empty for a project.</summary>
+		public string ManifestFile = string.Empty;
+
 		public bool HasProblems => Errors.Count > 0 || Warnings.Count > 0;
 	}
 
@@ -100,8 +109,18 @@ internal static class TConfigConverter
 	/// </summary>
 	internal static Result Convert(string packDirectory, string outputDirectory, string modName, out string error)
 	{
+		return Convert(packDirectory, outputDirectory, modName, raw: false, out error);
+	}
+
+	/// <summary>
+	/// The same conversion, with the output chosen: <paramref name="raw"/> writes a mod folder the
+	/// game can load as it is, otherwise a C# project.
+	/// </summary>
+	internal static Result Convert(string packDirectory, string outputDirectory, string modName, bool raw, out string error)
+	{
 		error = null;
 		Job job = new Job();
+		job.Raw = raw;
 		try
 		{
 			if (!job.Begin(packDirectory, outputDirectory, modName, out error))
@@ -150,6 +169,15 @@ internal static class TConfigConverter
 
 		internal string ModName;
 
+		/// <summary>
+		/// Write a raw mod (INI + PNG) instead of a C# project. Set before <see cref="Begin"/>.
+		///
+		/// Same reader, same report, same log: the only difference is the output. A raw mod is
+		/// what a player can actually use without a .NET SDK on the machine, so this is the
+		/// default in the menu and the project is the option.
+		/// </summary>
+		internal bool Raw;
+
 		private readonly List<string> _files = new List<string>();
 
 		private readonly StringBuilder _body = new StringBuilder();
@@ -189,7 +217,17 @@ internal static class TConfigConverter
 				// The folder name is the pack's name everywhere else, so it is the honest default.
 				modName = new DirectoryInfo(Path.GetFullPath(packDirectory)).Name;
 			}
-			modName = Identifier(modName, upperFirst: true);
+			if (Raw)
+			{
+				// A raw mod's name becomes a folder under Storage/Mods and the name the menu
+				// shows, so it stays readable ("Omnirs Weapons"). A C# project needs an
+				// identifier instead, which is a different requirement.
+				modName = FolderName(modName);
+			}
+			else
+			{
+				modName = Identifier(modName, upperFirst: true);
+			}
 			if (modName.Length == 0)
 			{
 				error = "the pack folder name has no usable characters for a mod name";
@@ -217,6 +255,23 @@ internal static class TConfigConverter
 				error = "no Item/*.ini files in " + packDirectory;
 				return false;
 			}
+			if (Raw)
+			{
+				// Clear the previous conversion before this one writes: a pack that dropped an item
+				// must not keep the old file, or the mod would still define it. Only inside a folder
+				// this tool generated - see CleanStaleItems.
+				try
+				{
+					Directory.CreateDirectory(outputDirectory);
+				}
+				catch (Exception ex2)
+				{
+					error = "cannot create " + outputDirectory + ": " + ex2.Message;
+					Result.Errors.Add(error);
+					return false;
+				}
+				CleanStaleItems(outputDirectory);
+			}
 			return true;
 		}
 
@@ -230,7 +285,14 @@ internal static class TConfigConverter
 				CurrentFile = Path.GetFileNameWithoutExtension(text);
 				try
 				{
-					AppendItem(_body, text, PackDirectory, OutputDirectory, _used, Result);
+					if (Raw)
+					{
+						WriteItemRaw(text, PackDirectory, OutputDirectory, Result);
+					}
+					else
+					{
+						AppendItem(_body, text, PackDirectory, OutputDirectory, _used, Result);
+					}
 				}
 				catch (Exception ex)
 				{
@@ -271,6 +333,29 @@ internal static class TConfigConverter
 			string text = Path.Combine(OutputDirectory, ModName + ".cs");
 			string text2 = Path.Combine(OutputDirectory, ModName + ".csproj");
 			string text3 = Path.Combine(OutputDirectory, "README.md");
+			if (Raw)
+			{
+				// A raw mod: the folder the game loads, with the manifest and a report. No
+				// project, no compiler - that is the whole point of this mode.
+				try
+				{
+					Directory.CreateDirectory(OutputDirectory);
+					File.WriteAllText(Path.Combine(OutputDirectory, "mod.ini"),
+						Manifest(ModName, PackDirectory), new UTF8Encoding(false));
+					File.WriteAllText(text3, RawReadme(ModName, PackDirectory, Result), new UTF8Encoding(false));
+				}
+				catch (Exception ex)
+				{
+					error = "cannot write to " + OutputDirectory + ": " + ex.Message;
+					Result.Errors.Add(error);
+					return false;
+				}
+				Result.OutputDirectory = OutputDirectory;
+				Result.ManifestFile = Path.Combine(OutputDirectory, "mod.ini");
+				Result.IsRaw = true;
+				Result.LogFile = WriteLog(PackDirectory, Result, null);
+				return true;
+			}
 			try
 			{
 				Directory.CreateDirectory(OutputDirectory);
@@ -518,111 +603,12 @@ internal static class TConfigConverter
 		{
 			return;
 		}
-		List<KeyValuePair<string, int>> ingredients = new List<KeyValuePair<string, int>>();
-		List<string> stations = new List<string>();
-		int amount = 1;
-		bool needsWater = false;
-		for (int i = 0; i < lines.Count; i++)
+		List<KeyValuePair<string, int>> ingredients;
+		List<string> stations;
+		int amount;
+		bool needsWater;
+		if (!ReadRecipe(lines, itemName, result, out ingredients, out stations, out amount, out needsWater))
 		{
-			TConfigImporter.SectionLine sectionLine = lines[i];
-			if (sectionLine.Section.Equals("Recipe", StringComparison.OrdinalIgnoreCase))
-			{
-				// The newer tConfig spelling: the whole recipe on three lines, with comma-separated
-				// lists. Without this branch those items converted into a mod that could never
-				// craft them - the file was read, the sections were skipped as "not item fields",
-				// and nothing said the recipe had been dropped.
-				if (sectionLine.Key.Equals("Items", StringComparison.OrdinalIgnoreCase))
-				{
-					List<KeyValuePair<string, int>> parsed = ParseCountedList(sectionLine.Value, itemName, result);
-					for (int j = 0; j < parsed.Count; j++)
-					{
-						ingredients.Add(parsed[j]);
-					}
-				}
-				else if (sectionLine.Key.Equals("Tiles", StringComparison.OrdinalIgnoreCase))
-				{
-					AddStations(stations, sectionLine.Value, itemName, result);
-				}
-				else if (sectionLine.Key.Equals("Amount", StringComparison.OrdinalIgnoreCase))
-				{
-					int parsedAmount;
-					if (int.TryParse(sectionLine.Value, out parsedAmount) && parsedAmount > 0)
-					{
-						amount = parsedAmount;
-					}
-				}
-				else if (sectionLine.Key.Equals("needWater", StringComparison.OrdinalIgnoreCase))
-				{
-					needsWater = IsTrue(sectionLine.Value);
-				}
-				continue;
-			}
-			if (sectionLine.Section.Equals("Items", StringComparison.OrdinalIgnoreCase))
-			{
-				int num;
-				if (!int.TryParse(sectionLine.Value, out num) || num <= 0)
-				{
-					result.RecipesSkipped++;
-					result.Warnings.Add("'" + itemName + "': ingredient '" + sectionLine.Key
-						+ "' has the count '" + sectionLine.Value + "', which is not a number");
-					continue;
-				}
-				Item ingredient = default(Item);
-				// By name through the real table; SetDefaults(string) knows only the legacy items.
-				int ingredientType = Terraria.ItemLookup.Find(sectionLine.Key);
-				if (ingredientType > 0)
-				{
-					ingredient.SetDefaults(ingredientType);
-				}
-				if (ingredient.Type <= 0)
-				{
-					// The ingredient may be another item this same pack defines; those exist in
-					// the generated mod but not in this build, so it cannot be verified here. The
-					// generated code checks it at load time and logs.
-					result.Warnings.Add("'" + itemName + "': ingredient '" + sectionLine.Key
-						+ "' is not an item in this build - kept in the recipe, verified when the mod loads");
-				}
-				ingredients.Add(new KeyValuePair<string, int>(sectionLine.Key, num));
-			}
-			else if (sectionLine.Section.Equals("Tiles", StringComparison.OrdinalIgnoreCase))
-			{
-				if (!IsTrue(sectionLine.Value))
-				{
-					continue;
-				}
-				if (Terraria.Mods.ModRecipes.StationId(sectionLine.Key) < 0)
-				{
-					// The station is usually a tile the pack adds itself, and this build has no mod
-					// tiles. Dropping the whole recipe would leave the item unobtainable, which is
-					// worse than dropping the station - so the station goes and the caveat stays.
-					result.Warnings.Add("'" + itemName + "': station '" + sectionLine.Key
-						+ "' is a mod tile this build does not have - the recipe is converted without it");
-					continue;
-				}
-				stations.Add(sectionLine.Key);
-			}
-			else if (sectionLine.Section.Equals("Amount", StringComparison.OrdinalIgnoreCase))
-			{
-				int num2;
-				if (int.TryParse(sectionLine.Value, out num2) && num2 > 0)
-				{
-					amount = num2;
-				}
-			}
-			else if (sectionLine.Section.Equals("needWater", StringComparison.OrdinalIgnoreCase))
-			{
-				needsWater = IsTrue(sectionLine.Value);
-			}
-		}
-		if (ingredients.Count == 0)
-		{
-			return;
-		}
-		if (ingredients.Count > 12)
-		{
-			result.RecipesSkipped++;
-			result.Warnings.Add("'" + itemName + "': " + ingredients.Count
-				+ " ingredients, but a recipe holds at most 12 - recipe not converted");
 			return;
 		}
 		string text = UniqueIdentifier(Identifier("recipe " + itemName, upperFirst: false), used);
@@ -651,6 +637,130 @@ internal static class TConfigConverter
 		}
 		body.Append("\t\t}\n\n");
 		result.Recipes++;
+	}
+
+	/// <summary>
+	/// Reads the recipe a pack file describes, in either spelling it may use.
+	///
+	/// One reader for both outputs: the project generator and the raw-mod writer must agree
+	/// about what a pack says, or "convert" and "convert to raw" would produce different mods
+	/// from the same folder.
+	///
+	/// Returns false when there is nothing usable - no ingredients, or more than a recipe holds.
+	/// Stations this build has no tile for are dropped with a warning rather than failing: an
+	/// item that exists and cannot be made is worse than one made without a bench.
+	/// </summary>
+	internal static bool ReadRecipe(List<TConfigImporter.SectionLine> lines, string itemName, Result result,
+		out List<KeyValuePair<string, int>> Ingredients, out List<string> Stations, out int Amount, out bool NeedsWater)
+	{
+		Ingredients = new List<KeyValuePair<string, int>>();
+		Stations = new List<string>();
+		Amount = 1;
+		NeedsWater = false;
+		for (int i = 0; i < lines.Count; i++)
+		{
+			TConfigImporter.SectionLine sectionLine = lines[i];
+			if (sectionLine.Section.Equals("Recipe", StringComparison.OrdinalIgnoreCase))
+			{
+				// The newer tConfig spelling: the whole recipe on three lines, with comma-separated
+				// lists. Without this branch those items converted into a mod that could never
+				// craft them - the file was read, the sections were skipped as "not item fields",
+				// and nothing said the recipe had been dropped.
+				if (sectionLine.Key.Equals("Items", StringComparison.OrdinalIgnoreCase))
+				{
+					List<KeyValuePair<string, int>> parsed = ParseCountedList(sectionLine.Value, itemName, result);
+					for (int j = 0; j < parsed.Count; j++)
+					{
+						Ingredients.Add(parsed[j]);
+					}
+				}
+				else if (sectionLine.Key.Equals("Tiles", StringComparison.OrdinalIgnoreCase))
+				{
+					AddStations(Stations, sectionLine.Value, itemName, result);
+				}
+				else if (sectionLine.Key.Equals("Amount", StringComparison.OrdinalIgnoreCase))
+				{
+					int parsedAmount;
+					if (int.TryParse(sectionLine.Value, out parsedAmount) && parsedAmount > 0)
+					{
+						Amount = parsedAmount;
+					}
+				}
+				else if (sectionLine.Key.Equals("needWater", StringComparison.OrdinalIgnoreCase))
+				{
+					NeedsWater = IsTrue(sectionLine.Value);
+				}
+				continue;
+			}
+			if (sectionLine.Section.Equals("Items", StringComparison.OrdinalIgnoreCase))
+			{
+				int num;
+				if (!int.TryParse(sectionLine.Value, out num) || num <= 0)
+				{
+					result.RecipesSkipped++;
+					result.Warnings.Add("'" + itemName + "': ingredient '" + sectionLine.Key
+						+ "' has the count '" + sectionLine.Value + "', which is not a number");
+					continue;
+				}
+				Item ingredient = default(Item);
+				// By name through the real table; SetDefaults(string) knows only the legacy items.
+				int ingredientType = Terraria.ItemLookup.Find(sectionLine.Key);
+				if (ingredientType > 0)
+				{
+					ingredient.SetDefaults(ingredientType);
+				}
+				if (ingredient.Type <= 0)
+				{
+					// The ingredient may be another item this same pack defines; those exist in
+					// the generated mod but not in this build, so it cannot be verified here. The
+					// generated code checks it at load time and logs.
+					result.Warnings.Add("'" + itemName + "': ingredient '" + sectionLine.Key
+						+ "' is not an item in this build - kept in the recipe, verified when the mod loads");
+				}
+				Ingredients.Add(new KeyValuePair<string, int>(sectionLine.Key, num));
+			}
+			else if (sectionLine.Section.Equals("Tiles", StringComparison.OrdinalIgnoreCase))
+			{
+				if (!IsTrue(sectionLine.Value))
+				{
+					continue;
+				}
+				if (Terraria.Mods.ModRecipes.StationId(sectionLine.Key) < 0)
+				{
+					// The station is usually a tile the pack adds itself, and this build has no mod
+					// tiles. Dropping the whole recipe would leave the item unobtainable, which is
+					// worse than dropping the station - so the station goes and the caveat stays.
+					result.Warnings.Add("'" + itemName + "': station '" + sectionLine.Key
+						+ "' is a mod tile this build does not have - the recipe is converted without it");
+					continue;
+				}
+				Stations.Add(sectionLine.Key);
+			}
+			else if (sectionLine.Section.Equals("Amount", StringComparison.OrdinalIgnoreCase))
+			{
+				int num2;
+				if (int.TryParse(sectionLine.Value, out num2) && num2 > 0)
+				{
+					Amount = num2;
+				}
+			}
+			else if (sectionLine.Section.Equals("needWater", StringComparison.OrdinalIgnoreCase))
+			{
+				NeedsWater = IsTrue(sectionLine.Value);
+			}
+		}
+		if (Ingredients.Count == 0)
+		{
+			return false;
+		}
+		if (Ingredients.Count > 12)
+		{
+			result.RecipesSkipped++;
+			result.Warnings.Add("'" + itemName + "': " + Ingredients.Count
+				+ " ingredients, but a recipe holds at most 12 - recipe not converted");
+			return false;
+		}
+		return true;
 	}
 
 	/// <summary>
@@ -952,6 +1062,295 @@ internal static class TConfigConverter
 			}
 		}
 		return false;
+	}
+
+	/// <summary>
+	/// Marker line in a generated <c>mod.ini</c>. It is what makes it safe to clean the folder
+	/// before writing: a folder this tool did not generate must never have files removed.
+	/// </summary>
+	private const string GeneratedMarker = "; Generated by TerrariaXDK from a tConfig pack";
+
+	/// <summary>
+	/// Writes one raw mod item file: the supported fields, then the recipe in the section-per-thing
+	/// spelling, plus the sprite for a new item.
+	///
+	/// The rewrite is deliberate. Copying the pack verbatim would be shorter, but then every
+	/// unsupported field would be reported again at load time, and the conversion report would
+	/// describe a file rather than the mod: what the player gets is exactly what the report says
+	/// it gets.
+	/// </summary>
+	private static void WriteItemRaw(string iniPath, string packDirectory, string outputDirectory, Result result)
+	{
+		string text = Path.GetFileNameWithoutExtension(iniPath);
+		string error;
+		List<TConfigImporter.SectionLine> lines = TConfigImporter.ReadIniSections(iniPath, out error);
+		if (lines == null)
+		{
+			result.FailedFiles++;
+			result.Errors.Add("'" + text + "': " + Path.GetFileName(iniPath) + ": " + error);
+			return;
+		}
+		bool flag = DefinesNewItem(iniPath);
+		if (!flag && Terraria.ItemLookup.Find(text) <= 0)
+		{
+			// Unknown name without type=-1: a hand-written pack may simply have forgotten the
+			// marker. A sprite is the evidence that it means to define something.
+			if (!File.Exists(Path.ChangeExtension(iniPath, ".png")))
+			{
+				result.UnknownItems++;
+				result.Warnings.Add("'" + text + "': no such item in this build, skipped");
+				return;
+			}
+			flag = true;
+		}
+		StringBuilder stringBuilder = new StringBuilder();
+		stringBuilder.Append("; Converted from '").Append(Path.GetFileName(packDirectory)).Append("' by TerrariaXDK.\n");
+		stringBuilder.Append("; Only the fields this build understands are kept; the rest are listed in README.md.\n");
+		if (flag)
+		{
+			string text2 = Path.ChangeExtension(iniPath, ".png");
+			if (!File.Exists(text2))
+			{
+				result.NewItemsSkipped++;
+				result.Warnings.Add("'" + text + "': new item with no sprite (" + Path.GetFileName(text2)
+					+ ") - an item that cannot be drawn would look like a bug, so it is not converted");
+				return;
+			}
+			try
+			{
+				string text3 = Path.Combine(outputDirectory, "Item");
+				Directory.CreateDirectory(text3);
+				File.Copy(text2, Path.Combine(text3, text + ".png"), overwrite: true);
+				result.SpritesCopied++;
+			}
+			catch (Exception ex)
+			{
+				result.FailedFiles++;
+				result.Errors.Add("'" + text + "': cannot copy the sprite (" + ex.GetType().Name + ": " + ex.Message + ")");
+				return;
+			}
+			stringBuilder.Append("type=-1\n");
+		}
+		int num = 0;
+		for (int i = 0; i < lines.Count; i++)
+		{
+			TConfigImporter.SectionLine sectionLine = lines[i];
+			if (IsRecipeSection(sectionLine.Section))
+			{
+				continue;
+			}
+			if (string.Equals(sectionLine.Key, "type", StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+			if (!Terraria.Mods.ItemOverrides.IsSupportedField(sectionLine.Key))
+			{
+				result.UnsupportedFields++;
+				result.Warnings.Add("'" + text + "': field '" + sectionLine.Key + "' has no equivalent, dropped");
+				continue;
+			}
+			if (!IsUsableValue(sectionLine.Key, sectionLine.Value))
+			{
+				result.UnsupportedFields++;
+				result.Warnings.Add("'" + text + "': field '" + sectionLine.Key + "' has the value '"
+					+ sectionLine.Value + "', which is not a number - dropped");
+				continue;
+			}
+			stringBuilder.Append(sectionLine.Key).Append('=').Append(sectionLine.Value).Append('\n');
+			num++;
+		}
+		List<KeyValuePair<string, int>> list;
+		List<string> list2;
+		int num2;
+		bool flag2;
+		bool flag3 = ReadRecipe(lines, text, result, out list, out list2, out num2, out flag2);
+		if (flag3)
+		{
+			stringBuilder.Append("\n[Items]\n");
+			for (int j = 0; j < list.Count; j++)
+			{
+				stringBuilder.Append(list[j].Key).Append('=').Append(list[j].Value.ToString(CultureInfo.InvariantCulture)).Append('\n');
+			}
+			if (list2.Count > 0)
+			{
+				stringBuilder.Append("[Tiles]\n");
+				for (int k = 0; k < list2.Count; k++)
+				{
+					stringBuilder.Append(list2[k]).Append("=true\n");
+				}
+			}
+			stringBuilder.Append("[Amount]\n").Append(num2.ToString(CultureInfo.InvariantCulture)).Append('\n');
+			if (flag2)
+			{
+				stringBuilder.Append("[needWater]\ntrue\n");
+			}
+			result.Recipes++;
+		}
+		if (num == 0 && !flag && !flag3)
+		{
+			result.Warnings.Add("'" + text + "': nothing to convert");
+			return;
+		}
+		try
+		{
+			string text4 = Path.Combine(outputDirectory, "Item");
+			Directory.CreateDirectory(text4);
+			File.WriteAllText(Path.Combine(text4, text + ".ini"), stringBuilder.ToString(), new UTF8Encoding(false));
+		}
+		catch (Exception ex2)
+		{
+			result.FailedFiles++;
+			result.Errors.Add("'" + text + "': cannot write the item file (" + ex2.GetType().Name + ": " + ex2.Message + ")");
+			return;
+		}
+		result.Items++;
+		result.Fields += num;
+		if (flag)
+		{
+			result.NewItems++;
+		}
+	}
+
+	/// <summary>
+	/// Removes item files from a previous conversion that this pack no longer describes.
+	///
+	/// Only inside a folder this tool generated: re-converting a pack must not leave the items it
+	/// dropped, but it must never touch a folder the player made by hand.
+	/// </summary>
+	private static void CleanStaleItems(string outputDirectory)
+	{
+		string path = Path.Combine(outputDirectory, "mod.ini");
+		if (!File.Exists(path))
+		{
+			return;
+		}
+		string text;
+		try
+		{
+			text = File.ReadAllText(path);
+		}
+		catch
+		{
+			return;
+		}
+		if (text.IndexOf(GeneratedMarker, StringComparison.Ordinal) < 0)
+		{
+			return;
+		}
+		string text2 = Path.Combine(outputDirectory, "Item");
+		if (!Directory.Exists(text2))
+		{
+			return;
+		}
+		string[] files = Directory.GetFiles(text2, "*.ini", SearchOption.TopDirectoryOnly);
+		for (int i = 0; i < files.Length; i++)
+		{
+			// The current run has not written anything yet, so "stale" cannot be told from "fresh"
+			// here; the caller deletes before writing for exactly that reason.
+			try
+			{
+				File.Delete(files[i]);
+				string path2 = Path.ChangeExtension(files[i], ".png");
+				if (File.Exists(path2))
+				{
+					File.Delete(path2);
+				}
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	/// <summary>The <c>mod.ini</c> of a converted raw mod.</summary>
+	private static string Manifest(string modName, string packDirectory)
+	{
+		StringBuilder stringBuilder = new StringBuilder();
+		stringBuilder.Append(GeneratedMarker).Append('\n');
+		stringBuilder.Append("; A tConfig pack turned into data. Nothing here needs a compiler.\n\n");
+		stringBuilder.Append("[Mod]\n");
+		stringBuilder.Append("Name=").Append(modName).Append('\n');
+		// The pack has no version of its own, and inventing "1.0.0" would claim an authoring
+		// history that does not exist. What matters for the signature is the content hash.
+		stringBuilder.Append("Version=1.0.0\n");
+		stringBuilder.Append("Author=converted from ").Append(Path.GetFileName(packDirectory)).Append('\n');
+		return stringBuilder.ToString();
+	}
+
+	/// <summary>The README inside a converted raw mod: what it is, and what was lost.</summary>
+	private static string RawReadme(string modName, string packDirectory, Result result)
+	{
+		StringBuilder stringBuilder = new StringBuilder();
+		stringBuilder.Append("# ").Append(modName).Append("\n\n");
+		stringBuilder.Append("A raw mod, converted from `").Append(packDirectory).Append("` by TerrariaXDK.\n\n");
+		stringBuilder.Append("It is data, not code: no compiler was needed to make it and none is needed to use it.\n");
+		stringBuilder.Append("What it cannot do is run code - a pack that used tConfig's `OnUse` or a custom AI\n");
+		stringBuilder.Append("became a set of stats, sprites and recipes.\n\n");
+		stringBuilder.Append("| | |\n|---|---|\n");
+		stringBuilder.Append("| items | ").Append(result.Items).Append(" |\n");
+		stringBuilder.Append("| new items | ").Append(result.NewItems).Append(" |\n");
+		stringBuilder.Append("| fields | ").Append(result.Fields).Append(" |\n");
+		stringBuilder.Append("| recipes | ").Append(result.Recipes).Append(" |\n");
+		stringBuilder.Append("| sprites | ").Append(result.SpritesCopied).Append(" |\n\n");
+		if (result.UnknownItems > 0)
+		{
+			stringBuilder.Append("- ").Append(result.UnknownItems).Append(" file(s) named an item this build does not have\n");
+		}
+		if (result.NewItemsSkipped > 0)
+		{
+			stringBuilder.Append("- ").Append(result.NewItemsSkipped).Append(" new item(s) had no sprite and were skipped\n");
+		}
+		if (result.UnsupportedFields > 0)
+		{
+			stringBuilder.Append("- ").Append(result.UnsupportedFields).Append(" field(s) had no equivalent here and were dropped\n");
+		}
+		if (result.RecipesSkipped > 0)
+		{
+			stringBuilder.Append("- ").Append(result.RecipesSkipped).Append(" recipe(s) could not be converted\n");
+		}
+		if (result.Errors.Count > 0)
+		{
+			stringBuilder.Append("\n## What failed\n\n");
+			for (int i = 0; i < result.Errors.Count; i++)
+			{
+				stringBuilder.Append("- ").Append(result.Errors[i]).Append('\n');
+			}
+		}
+		if (result.Warnings.Count > 0)
+		{
+			stringBuilder.Append("\n## What was dropped\n\n");
+			for (int j = 0; j < result.Warnings.Count; j++)
+			{
+				stringBuilder.Append("- ").Append(result.Warnings[j]).Append('\n');
+			}
+		}
+		return stringBuilder.ToString();
+	}
+
+	/// <summary>
+	/// A name usable as a folder under <c>Storage/Mods</c>: readable, but with the characters the
+	/// filesystem refuses replaced. Unlike <see cref="Identifier"/> it keeps spaces and apostrophes,
+	/// because this is a display name the player sees in the mod list.
+	/// </summary>
+	internal static string FolderName(string name)
+	{
+		if (string.IsNullOrEmpty(name))
+		{
+			return "";
+		}
+		char[] invalidFileNameChars = Path.GetInvalidFileNameChars();
+		StringBuilder stringBuilder = new StringBuilder(name.Length);
+		for (int i = 0; i < name.Length; i++)
+		{
+			char c = name[i];
+			stringBuilder.Append((Array.IndexOf(invalidFileNameChars, c) >= 0) ? '_' : c);
+		}
+		string text = stringBuilder.ToString().Trim().Trim('.');
+		if (text.Length > 64)
+		{
+			text = text.Substring(0, 64).Trim();
+		}
+		return text;
 	}
 
 	/// <summary>
