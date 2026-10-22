@@ -6371,6 +6371,33 @@ internal static class SelfTest
 						{
 							return Fail("buff type 3 did not arrive (stored as " + target.buff[0].Type + ")");
 						}
+						// --- and a wall type past this build's table is refused ---------------
+						// Main.WallHouse is 32 long and the type arrives as a byte, so 32..255 index
+						// past the end of it - in the housing check, the player's placement check
+						// and WorldGen. This is the same class as the tile type above, and the same
+						// guard has to be *wired in*: a helper that is only tested is not a fix.
+						try
+						{
+							Main.TileSet[11, 11].IsActive = 0;
+							Main.TileSet[11, 11].Type = 0;
+							Main.TileSet[11, 11].WallType = 0;
+							SendWallSync(itemClient, 11, 11, 200);
+							if (Main.TileSet[11, 11].WallType != 0)
+							{
+								return Fail("a wall type past the table was applied ("
+									+ Main.TileSet[11, 11].WallType + ")");
+							}
+							SendWallSync(itemClient, 11, 11, 1);
+							if (Main.TileSet[11, 11].WallType != 1)
+							{
+								return Fail("a valid wall type did not arrive ("
+									+ Main.TileSet[11, 11].WallType + ")");
+							}
+						}
+						finally
+						{
+							Main.TileSet[11, 11].WallType = 0;
+						}
 						// --- and a tile type past this build's table is refused ---------------
 						// The type travels as a byte and every per-tile table is 150 long, so a
 						// packet with type 200 indexed `TileFrameImportant[200]` on the next line -
@@ -6625,6 +6652,30 @@ internal static class SelfTest
 					binaryWriter.Write(style);
 				}
 			}
+			binaryWriter.Flush();
+		}
+		byte[] buffer = stream.ToArray();
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.PacketIn.BaseStream.Write(buffer, 0, buffer.Length);
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.GetData(client);
+	}
+
+	/// <summary>
+	/// Feeds one wall-only tile sync packet (message 15) into the host: position, flags with the
+	/// "has wall" bit set and no tile, then the wall type.
+	/// </summary>
+	private static void SendWallSync(NetClient client, int x, int y, int wallType)
+	{
+		System.IO.MemoryStream stream = new System.IO.MemoryStream();
+		using (System.IO.BinaryWriter binaryWriter = new System.IO.BinaryWriter(stream, Encoding.UTF8))
+		{
+			binaryWriter.Write((byte)15);
+			binaryWriter.Write((ushort)x);
+			binaryWriter.Write((ushort)y);
+			// Bit 4 is "a wall follows"; bit 0 (a tile) is clear.
+			binaryWriter.Write((byte)4);
+			binaryWriter.Write((byte)wallType);
 			binaryWriter.Flush();
 		}
 		byte[] buffer = stream.ToArray();

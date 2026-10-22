@@ -37,31 +37,69 @@ public sealed class NetMessage
 	}
 
 	/// <summary>
+	/// Reads an optional wall type from the packet and returns it, or 0 when there is none or it is
+	/// not a wall this build has.
+	///
+	/// The byte is consumed either way: the rest of the packet depends on it, and skipping it would
+	/// misread every following field as part of this one.
+	/// </summary>
+	private static int ReadWallType(NetClient sender, int flags)
+	{
+		if ((flags & 8) == 0)
+		{
+			return 0;
+		}
+		int num = PacketIn.ReadByte();
+		if (!IsValidWallType(num))
+		{
+			RefuseWallType(sender, num);
+			return 0;
+		}
+		return num;
+	}
+
+	/// <summary>Logs a refused wall type once per sender and type.</summary>
+	private static void RefuseWallType(NetClient sender, int type)
+	{
+		string text = SenderName(sender);
+		if (ReportedWallTypes.Add(text + "|" + type))
+		{
+			Program.LogWarn("Tiles", "refused wall type " + type + " from " + text
+				+ " (this build has " + Main.WallHouse.Length + ")");
+		}
+	}
+
+	private static readonly System.Collections.Generic.HashSet<string> ReportedWallTypes =
+		new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+
+	/// <summary>
 	/// Logs a refused tile type once per sender, so a client that keeps sending one cannot flood
 	/// the log with a line per packet.
 	/// </summary>
 	private static void RefuseTileType(NetClient sender, int type)
 	{
-		string text = null;
-		try
-		{
-			if (sender != null && sender.NetGamer != null)
-			{
-				text = sender.NetGamer.Gamertag;
-			}
-		}
-		catch
-		{
-		}
-		if (string.IsNullOrEmpty(text))
-		{
-			text = "(no sender)";
-		}
+		string text = SenderName(sender);
 		if (ReportedTileTypes.Add(text + "|" + type))
 		{
 			Program.LogWarn("Tiles", "refused tile type " + type + " from " + text
 				+ " (this build has " + Main.TileFrameImportant.Length + ")");
 		}
+	}
+
+	/// <summary>The gamertag of a sender, for a log line. Never throws: this is called on a refusal path.</summary>
+	private static string SenderName(NetClient sender)
+	{
+		try
+		{
+			if (sender != null && sender.NetGamer != null && !string.IsNullOrEmpty(sender.NetGamer.Gamertag))
+			{
+				return sender.NetGamer.Gamertag;
+			}
+		}
+		catch
+		{
+		}
+		return "(no sender)";
 	}
 
 	private static readonly System.Collections.Generic.HashSet<string> ReportedTileTypes =
@@ -1712,7 +1750,10 @@ public sealed class NetMessage
 									}
 								}
 								ptr2->IsActive = (byte)num24;
-								ptr2->WallType = (byte)(((num23 & 8) != 0) ? PacketIn.ReadByte() : 0);
+								// A wall type from a packet is a byte, and Main.WallHouse is 32 long -
+								// the housing check, the player's placement check and WorldGen all
+								// index it. See IsValidWallType.
+								ptr2->WallType = (byte)ReadWallType(sender, num23 & 8);
 								if ((num23 & 2) != 0)
 								{
 									ptr2->Liquid = byte.MaxValue;
@@ -2358,7 +2399,7 @@ public sealed class NetMessage
 			}
 			if ((num57 & 4) != 0)
 			{
-				Main.TileSet[num55, num56].WallType = PacketIn.ReadByte();
+				Main.TileSet[num55, num56].WallType = (byte)ReadWallType(sender, 8);
 			}
 			if (Main.NetMode != 2 && (num57 & 8) != 0)
 			{
@@ -2524,7 +2565,7 @@ public sealed class NetMessage
 					}
 					if ((num84 & 4) != 0)
 					{
-						Main.TileSet[num82, num83].WallType = PacketIn.ReadByte();
+						Main.TileSet[num82, num83].WallType = (byte)ReadWallType(sender, 8);
 					}
 					if (Main.NetMode != 2 && (num84 & 8) != 0)
 					{
