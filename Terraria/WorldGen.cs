@@ -94,6 +94,21 @@ internal static class WorldGen
 
 	private const double JCHEST_WORLD_SIZE_MODIFIER = 1.2;
 
+	/// <summary>
+	/// The world format this build writes.
+	///
+	/// <b>50 is this port's own version</b>, and it exists for one reason: a chest slot's stack is a
+	/// <c>short</c> from 50 on, and a <c>byte</c> before. The byte was right for vanilla - every
+	/// <c>MaxStack</c> is 250 or less - and wrong for a mod item with <c>maxStack=999</c>, which
+	/// saved as 231 and came back as 231: the player's chest silently lost 768 items on every
+	/// save/load cycle. Two items in <c>SonnyMod</c> (Xp Orb, Xp Sphere) have exactly that.
+	///
+	/// Console worlds stop at 49, so 50 cannot be confused with one of them. The reader keeps
+	/// reading 43..49 unchanged, which is why the console worlds still load; only worlds written
+	/// from now on use the wider field.
+	/// </summary>
+	public const int WorldFormatVersion = 50;
+
 	public static int numMechs = 0;
 
 	public static Mech[] mech = new Mech[1000];
@@ -1532,7 +1547,7 @@ internal static class WorldGen
 		try
 		{
 			int num = binaryReader.ReadInt32();
-			if (num > 49)
+			if (num > WorldFormatVersion)
 			{
 				throw new InvalidOperationException("Invalid version");
 			}
@@ -1797,7 +1812,11 @@ internal static class WorldGen
 
 	private unsafe static void loadNewWorld(BinaryReader fileIO, int release, MemoryStream stream)
 	{
-		if (release < 50)
+		// Version 50 is this port's own (see WorldFormatVersion) and it writes a real CRC32, so the
+		// check applies to it too. The old boundary was `release < 50` because 50 was the PC
+		// edition's first version and its checksum is not a CRC32 - but this build refuses
+		// anything above WorldFormatVersion, so a file that reaches here at 50 is one of ours.
+		if (release <= WorldFormatVersion)
 		{
 			CRC32 cRC = new CRC32();
 			cRC.Update(stream.GetBuffer(), 8, (int)stream.Length - 8);
@@ -1809,8 +1828,7 @@ internal static class WorldGen
 		else
 		{
 			fileIO.ReadUInt32();
-		}
-		fileIO.ReadString();
+		}		fileIO.ReadString();
 		int worldID = fileIO.ReadInt32();
 		int worldTimestamp = ((release >= 48) ? fileIO.ReadInt32() : 0);
 		Main.RightWorld = fileIO.ReadInt32();
@@ -1933,7 +1951,9 @@ internal static class WorldGen
 			for (int k = 0; k < 20; k++)
 			{
 				int num3 = 0;
-				num3 = ((release <= 49) ? fileIO.ReadByte() : fileIO.ReadInt16());
+				// A short from 50 on: a mod item can have maxStack=999, and a byte held 231 of it.
+				// 43..49 are console worlds and keep the byte, which is why they still load.
+				num3 = ((release < WorldFormatVersion) ? fileIO.ReadByte() : fileIO.ReadInt16());
 				if (num3 > 0)
 				{
 					Main.ChestSet[j].ItemSet[k].NetDefaults(fileIO.ReadInt16(), num3);
@@ -2003,7 +2023,7 @@ internal static class WorldGen
 			using (MemoryStream memoryStream = new MemoryStream(6291456))
 			{
 				using BinaryWriter binaryWriter = new BinaryWriter(memoryStream);
-				binaryWriter.Write(49);
+				binaryWriter.Write(WorldFormatVersion);
 				binaryWriter.Write(0u);
 				binaryWriter.Write(Main.WorldName);
 				binaryWriter.Write(Main.WorldID);
@@ -2110,7 +2130,11 @@ internal static class WorldGen
 						{
 							chest.ItemSet[l].Stack = 0;
 						}
-						binaryWriter.Write((byte)chest.ItemSet[l].Stack);
+						// A short from version 50 on. The byte was right for vanilla (every MaxStack
+						// is 250 or less) and wrong for a mod item with maxStack=999: it saved as
+						// 231 and came back as 231, losing 768 items on every save. See
+						// WorldFormatVersion.
+						binaryWriter.Write((short)chest.ItemSet[l].Stack);
 						if (chest.ItemSet[l].Stack > 0)
 						{
 							binaryWriter.Write(chest.ItemSet[l].NetID);

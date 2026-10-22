@@ -83,7 +83,7 @@ internal sealed class WorldFileReport
 internal static class WorldFileInspector
 {
 	/// <summary>First version this build cannot load (console formats stop at 49).</summary>
-	public const int FirstUnsupportedVersion = 50;
+	public const int FirstUnsupportedVersion = Terraria.WorldGen.WorldFormatVersion + 1;
 
 	/// <summary>1000 chests and 1000 signs are fixed-size tables in the save format.</summary>
 	private const int ChestCount = 1000;
@@ -483,7 +483,7 @@ internal static class WorldFileInspector
 			binaryReader.ReadInt16();
 			for (int l = 0; l < 20; l++)
 			{
-				int num4 = ((release <= 49) ? binaryReader.ReadByte() : binaryReader.ReadInt16());
+				int num4 = ((release < Terraria.WorldGen.WorldFormatVersion) ? binaryReader.ReadByte() : binaryReader.ReadInt16());
 				if (num4 > 0)
 				{
 					binaryReader.ReadInt16();

@@ -138,6 +138,7 @@ internal static class SelfTest
 		RunCheck("item fields hostile", CheckItemFieldsHostile);
 		RunCheck("item type on the wire", CheckItemTypeWire);
 		RunCheck("recipe capacity", CheckRecipeCapacity);
+		RunCheck("item prefixes", CheckItemPrefixes);
 		RunCheck("raw mod", CheckRawMod);
 		RunCheck("mod download", CheckModDownload);
 #if DEBUG
@@ -9000,6 +9001,67 @@ internal static class SelfTest
 				return Fail("a missing file was not reported");
 			}
 
+			// --- the format this build writes is the format it reads -----------------
+			// Three places have to agree about the version, and a mismatch is silent: the writer
+			// would produce a file the loader refuses, or the inspector would call our own saves
+			// "PC worlds". 50 is this port's own version - it widened a chest slot's stack from a
+			// byte to a short - and the console line stops at 49.
+			//
+			// Through locals on purpose: a direct `if (const <= 49)` is folded at compile time and
+			// the compiler then reports the branch as unreachable code, which is an error here.
+			int writtenVersion = Terraria.WorldGen.WorldFormatVersion;
+			int firstRefused = WorldFileInspector.FirstUnsupportedVersion;
+			if (writtenVersion <= 49)
+			{
+				return Fail("the written world version (" + writtenVersion
+					+ ") is in the console range, so a chest stack would still be a byte");
+			}
+			if (firstRefused != writtenVersion + 1)
+			{
+				return Fail("the inspector refuses from version " + firstRefused
+					+ " but this build writes " + writtenVersion);
+			}
+			byte[] ours = new byte[64];
+			BitConverter.GetBytes(Terraria.WorldGen.WorldFormatVersion).CopyTo(ours, 0);
+			WorldFileReport mine = WorldFileInspector.Inspect(new MemoryStream(ours));
+			if (mine.Kind != WorldFileKind.Console)
+			{
+				return Fail("this build's own version was not recognised as a console world (kind "
+					+ mine.Kind + ", version " + mine.Version + ")");
+			}
+			if (mine.Summary.IndexOf("PC", StringComparison.OrdinalIgnoreCase) >= 0)
+			{
+				return Fail("this build's own version was described as a PC world: " + mine.Summary);
+			}
+
+			// --- and a chest slot keeps a stack above 255 ----------------------------
+			// The byte was right for vanilla (MaxStack is 250 or less) and wrong for a mod item
+			// with maxStack=999, which saved as 231 and came back as 231. The short is checked by
+			// writing and reading it, and the old loss is computed rather than assumed.
+			int[] stacks = new int[4] { 1, 255, 256, 999 };
+			for (int i = 0; i < stacks.Length; i++)
+			{
+				using MemoryStream stream = new MemoryStream();
+				using (BinaryWriter writer = new BinaryWriter(stream, Encoding.UTF8))
+				{
+					writer.Write((short)stacks[i]);
+					writer.Flush();
+					stream.Position = 0;
+					using BinaryReader reader = new BinaryReader(stream, Encoding.UTF8);
+					if (reader.ReadInt16() != stacks[i])
+					{
+						return Fail("a chest stack of " + stacks[i] + " did not survive the short field");
+					}
+				}
+			}
+			// What the old field would have stored: 999 & 0xFF. Stated as a number so the test
+			// documents the loss instead of just claiming there was one.
+			int byteWouldHold = 999 & 0xFF;
+			if (byteWouldHold != 231)
+			{
+				return Fail("the old byte field would have stored " + byteWouldHold + " for 999");
+			}
+
 			if (!File.Exists(text))
 			{
 				Skip("no tutorial world to validate the inspector against");
@@ -14739,6 +14801,100 @@ internal static class SelfTest
 		finally
 		{
 			Terraria.Mods.ItemOverrides.Clear();
+		}
+	}
+
+	// --- Item prefixes ------------------------------------------------------
+
+	/// <summary>
+	/// A prefix is a byte on the wire and in a save, and a name table of 84 entries.
+	///
+	/// The gap is not hypothetical: <c>EntityID.PrefixID.PIERCING = 90</c> exists in the enum and
+	/// has no name, so any code that ever assigned it would have crashed the inventory screen. And
+	/// the value arrives from outside: <c>MSG_SYNC_ITEM</c> and <c>CLIENT_INVENTORY</c> carry the
+	/// prefix as a byte, and the host used to read it straight into <c>Item.SetPrefix</c> - so a
+	/// modified client could crash the host with one packet.
+	///
+	/// This checks the funnel (SetPrefix) and the two readers (name and affix name), because the
+	/// crash is in the reader and the fix is in the writer: a build that added a prefix would pass
+	/// the funnel and still index past the table.
+	/// </summary>
+	private static bool CheckItemPrefixes()
+	{
+		try
+		{
+			int max = (int)EntityID.PrefixID.NUM_PREFIXES;
+			if (Terraria.Lang.ItemPrefixEN.Length < max)
+			{
+				return Fail("the prefix name table is shorter than the prefix enum: "
+					+ Terraria.Lang.ItemPrefixEN.Length + " names for " + max + " prefixes");
+			}
+			// Every real prefix has a name, in every language the build ships.
+			for (int i = 1; i < max; i++)
+			{
+				for (int lang = 1; lang <= 5; lang++)
+				{
+					int saved = Terraria.Lang.LangOption;
+					try
+					{
+						Terraria.Lang.LangOption = lang;
+						string name = Terraria.Lang.ItemPrefix(i);
+						if (string.IsNullOrEmpty(name))
+						{
+							return Fail("prefix " + i + " has no name in language " + lang);
+						}
+					}
+					finally
+					{
+						Terraria.Lang.LangOption = saved;
+					}
+				}
+			}
+			// And a prefix past the table is refused by the funnel rather than stored.
+			Item sword = default(Item);
+			int swordId = Terraria.ItemLookup.Find("Copper Shortsword");
+			if (swordId <= 0)
+			{
+				return Fail("the test cannot find Copper Shortsword");
+			}
+			sword.SetDefaults(swordId);
+			int before = sword.PrefixType;
+			if (sword.SetPrefix(max))
+			{
+				return Fail("SetPrefix accepted " + max + ", which has no name");
+			}
+			if (sword.PrefixType != before)
+			{
+				return Fail("a refused prefix still changed the item: " + sword.PrefixType);
+			}
+			if (sword.SetPrefix(255))
+			{
+				return Fail("SetPrefix accepted 255");
+			}
+			// The reader is safe even if something bypassed the funnel, which is the case this
+			// guard exists for: a save written by a build with more prefixes.
+			if (Terraria.Lang.ItemPrefix(max + 5) == null)
+			{
+				return Fail("ItemPrefix returned null for a prefix past the table");
+			}
+			if (Terraria.Lang.ItemAffixName(max + 5, swordId) == null)
+			{
+				return Fail("ItemAffixName returned null for a prefix past the table");
+			}
+			// A real prefix still works, so the guard is not refusing everything.
+			if (!sword.SetPrefix(1))
+			{
+				return Fail("a real prefix was refused");
+			}
+			if (sword.PrefixType != 1)
+			{
+				return Fail("a real prefix was stored as " + sword.PrefixType);
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("the item prefix check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 

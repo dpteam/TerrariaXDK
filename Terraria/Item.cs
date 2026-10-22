@@ -516,6 +516,18 @@ public struct Item
 		{
 			return false;
 		}
+		// One funnel for every source of a prefix: a save, MSG_SYNC_ITEM, CLIENT_INVENTORY, a chest
+		// slot. The value is a byte on the wire and PrefixType is a byte, so 84..255 are
+		// representable, and Lang.ItemPrefix indexes an 84-entry name table with this number - so
+		// a modified client could crash the host with one packet, and a save from a build with a
+		// larger prefix table would do the same on load. Refused here rather than at each call
+		// site, because the call sites are exactly the thing that grows.
+		if (Setting >= (int)EntityID.PrefixID.NUM_PREFIXES)
+		{
+			Program.LogWarn("Items", "prefix " + Setting + " does not exist in this build ("
+				+ (int)EntityID.PrefixID.NUM_PREFIXES + " prefixes) - ignored");
+			return false;
+		}
 		int num = Setting;
 		float num2 = 1f;
 		float num3 = 1f;

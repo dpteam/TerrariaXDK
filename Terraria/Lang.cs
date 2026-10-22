@@ -292,7 +292,7 @@ internal sealed class Lang
 		"Bullet", "Guinea Pig", "Tonbogiri", "Spectral Arrow", "Vulcan Bolt", "Slime", "Tiphia", "Bat", "Werewolf", "Zombie"
 	};
 
-	private static readonly string[] ItemPrefixEN = new string[84]
+	internal static readonly string[] ItemPrefixEN = new string[84]
 	{
 		null, "Large", "Massive", "Dangerous", "Savage", "Sharp", "Pointy", "Tiny", "Terrible", "Small",
 		"Dull", "Unhappy", "Bulky", "Shameful", "Heavy", "Light", "Sighted", "Rapid", "Hasty", "Intimidating",
@@ -561,6 +561,18 @@ internal sealed class Lang
 
 	public static string ItemPrefix(int PrefixType)
 	{
+		// The prefix arrays hold 84 names, and PrefixType is a byte on the wire and in a save -
+		// so 84..255 are representable and name nothing. This was an unchecked index, and the
+		// reachable path is a *remote* one: MSG_SYNC_ITEM carries the prefix as a byte, and the
+		// receiving host reads it straight into Item.SetPrefix. A modified client could therefore
+		// crash the host with one packet, and a save from a build with a larger prefix table would
+		// do the same on load. No name is the honest answer for a prefix that has none.
+		if (PrefixType < 0 || PrefixType >= ItemPrefixEN.Length)
+		{
+			Program.LogWarn("Lang", "item prefix " + PrefixType + " has no name in this build ("
+				+ ItemPrefixEN.Length + " prefixes)");
+			return "";
+		}
 		int langOption = LangOption;
 		if (1 == 0)
 		{
