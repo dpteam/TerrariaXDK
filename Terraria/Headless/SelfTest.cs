@@ -14962,6 +14962,39 @@ internal static class SelfTest
 			{
 				return Fail("light=0,8 was stored as " + bow.Light);
 			}
+			// --- two spellings of one field, and which one wins -------------------
+			// `stack` is `maxStack` and `material` is `isMaterial`. Both spellings are supported
+			// (packs use both), but storing them under their own keys left two entries writing the
+			// same item field, and the winner depended on dictionary enumeration order. The later
+			// line must win, because that is what a reader of the file can predict.
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "stack", "1");
+			Terraria.Mods.ItemOverrides.Set(bowId, "maxStack", "250");
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.MaxStack != 250)
+			{
+				return Fail("stack=1 then maxStack=250 gave " + bow.MaxStack);
+			}
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "maxStack", "250");
+			Terraria.Mods.ItemOverrides.Set(bowId, "stack", "7");
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.MaxStack != 7)
+			{
+				return Fail("maxStack=250 then stack=7 gave " + bow.MaxStack
+					+ " - the last line must win");
+			}
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "material", "true");
+			Terraria.Mods.ItemOverrides.Set(bowId, "isMaterial", "false");
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.IsMaterial)
+			{
+				return Fail("material=true then isMaterial=false left the item a material");
+			}
 			// --- and the ordinary values still work ---
 			Terraria.Mods.ItemOverrides.Clear();
 			Terraria.Mods.ItemOverrides.Set(bowId, "damage", "17");

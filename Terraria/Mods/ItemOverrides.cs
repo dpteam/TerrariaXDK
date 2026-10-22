@@ -155,6 +155,33 @@ internal static class ItemOverrides
 		}
 	}
 
+	/// <summary>
+	/// The field name that actually stores the value, so two spellings of one field cannot both be
+	/// kept.
+	///
+	/// tConfig has synonyms: <c>stack</c> is <c>maxStack</c>, and <c>material</c> is
+	/// <c>isMaterial</c>. Both names are supported, which is right - packs use both. But they were
+	/// stored under their own keys, so a pack that wrote both ended up with two entries writing the
+	/// same item field, and which one won depended on the enumeration order of a
+	/// <c>Dictionary</c> - insertion order today, and not a guarantee. A pack writing
+	/// <c>stack=1</c> then <c>maxStack=250</c> gets 250; reverse the lines and it would get 1, and
+	/// an item whose MaxStack is 1 cannot be stacked. With one canonical key the later line wins,
+	/// which is the only rule a reader of the file can predict.
+	/// </summary>
+	internal static string CanonicalField(string field)
+	{
+		string text = (field ?? string.Empty).Trim();
+		if (text.Equals("stack", StringComparison.OrdinalIgnoreCase))
+		{
+			return "maxStack";
+		}
+		if (text.Equals("material", StringComparison.OrdinalIgnoreCase))
+		{
+			return "isMaterial";
+		}
+		return text;
+	}
+
 	/// <summary>Registers an override for an existing item type.</summary>
 	public static void Set(int itemType, string field, string value)
 	{
@@ -168,7 +195,7 @@ internal static class ItemOverrides
 			};
 			ByType[itemType] = result;
 		}
-		result.Fields[field] = value;
+		result.Fields[CanonicalField(field)] = value;
 	}
 
 	public static void Clear()

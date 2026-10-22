@@ -631,7 +631,14 @@ internal static class TConfigConverter
 						+ line.Value + "', which " + valueProblem + " - dropped");
 					continue;
 				}
-				list.Add(line);
+				// One assignment per item field: `stack` and `maxStack` are the same field, and a
+				// project with both assignments compiles but reads as two different numbers.
+				if (SupersededByLaterLine(lines, i))
+				{
+					continue;
+				}
+				list.Add(new KeyValuePair<string, string>(
+					ItemOverrides.CanonicalField(sectionLine.Key), sectionLine.Value));
 			}
 		}
 		catch (Exception ex2)
@@ -1196,6 +1203,12 @@ internal static class TConfigConverter
 					+ keyValuePair.Value + "' " + (valueProblem2 ?? "has no equivalent") + " - dropped");
 				continue;
 			}
+			// One assignment per item field: `stack` and `maxStack` are the same field, and two
+			// assignments to one property read as two different numbers.
+			if (SupersededByLaterLine(lines, i))
+			{
+				continue;
+			}
 			if (IsEscapedField(keyValuePair.Key))
 			{
 				body.Append("\t\t\t").Append(text4).Append(".Set(")
@@ -1249,6 +1262,34 @@ internal static class TConfigConverter
 			if (int.TryParse(list[i].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result))
 			{
 				return result < 0;
+			}
+		}
+		return false;
+	}
+
+	/// <summary>
+	/// True when a later line sets the same item field, so this line's value never reaches the
+	/// item.
+	///
+	/// <c>stack</c> and <c>maxStack</c> are one field, and so are <c>material</c> and
+	/// <c>isMaterial</c>. The game applies a pack's fields in file order, so the last line wins;
+	/// writing both into a converted mod or a generated project would leave two assignments to one
+	/// field and a reader wondering which one counts. 117 items in the packs on this machine
+	/// declare both spellings, 11 of them with different values.
+	/// </summary>
+	private static bool SupersededByLaterLine(List<TConfigImporter.SectionLine> lines, int index)
+	{
+		string canonical = Terraria.Mods.ItemOverrides.CanonicalField(lines[index].Key);
+		for (int j = index + 1; j < lines.Count; j++)
+		{
+			if (IsRecipeSection(lines[j].Section))
+			{
+				continue;
+			}
+			if (string.Equals(Terraria.Mods.ItemOverrides.CanonicalField(lines[j].Key), canonical,
+				StringComparison.OrdinalIgnoreCase))
+			{
+				return true;
 			}
 		}
 		return false;
@@ -1340,6 +1381,14 @@ internal static class TConfigConverter
 			stringBuilder.Append("type=-1\n");
 		}
 		int num = 0;
+		// One line per item field, under the name the game actually uses.
+		//
+		// tConfig has synonyms - `stack` is `maxStack`, `material` is `isMaterial` - and packs
+		// write both: 117 items in the packs on this machine declare `stack` *and* `maxStack`, and
+		// 11 of those give them different values (`stack=1`, `maxStack=250`). Writing both into a
+		// converted mod makes the file's meaning depend on which line comes last, which is a rule
+		// nobody reads out of a data file. The last line wins, as it does when the game reads the
+		// pack, and the earlier spelling is dropped.
 		for (int i = 0; i < lines.Count; i++)
 		{
 			TConfigImporter.SectionLine sectionLine = lines[i];
@@ -1365,7 +1414,12 @@ internal static class TConfigConverter
 					+ sectionLine.Value + "', which " + valueProblem3 + " - dropped");
 				continue;
 			}
-			stringBuilder.Append(sectionLine.Key).Append('=').Append(sectionLine.Value).Append('\n');
+			if (SupersededByLaterLine(lines, i))
+			{
+				continue;
+			}
+			stringBuilder.Append(Terraria.Mods.ItemOverrides.CanonicalField(sectionLine.Key))
+				.Append('=').Append(sectionLine.Value).Append('\n');
 			num++;
 		}
 		List<KeyValuePair<string, int>> list;

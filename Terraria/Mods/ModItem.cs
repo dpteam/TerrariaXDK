@@ -288,16 +288,18 @@ public sealed class ModItem
 		{
 			return;
 		}
-		Fields[field] = value ?? string.Empty;
+		// One key per item field, so `stack` and `maxStack` cannot both be stored and fight over
+		// which one applies (see ItemOverrides.CanonicalField).
+		Fields[ItemOverrides.CanonicalField(field)] = value ?? string.Empty;
 	}
 
 	private void Set(string field, int value)
 	{
-		Fields[field] = value.ToString(CultureInfo.InvariantCulture);
+		Fields[ItemOverrides.CanonicalField(field)] = value.ToString(CultureInfo.InvariantCulture);
 	}
 
 	private void Set(string field, float value)
 	{
-		Fields[field] = value.ToString("0.###", CultureInfo.InvariantCulture);
+		Fields[ItemOverrides.CanonicalField(field)] = value.ToString("0.###", CultureInfo.InvariantCulture);
 	}
 }
