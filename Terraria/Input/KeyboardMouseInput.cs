@@ -626,9 +626,26 @@ internal static class KeyboardMouseInput
 				buttons |= Buttons.RightShoulder;
 			}
 		}
-		else if (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.Throw)) || keys.IsKeyDown(Keys.R))
+		else
 		{
-			buttons |= Buttons.X; // throw item
+			// Q is the throw key, and throw is X - except inside the inventory, where Q means Y
+			// (see below). Without this exclusion one press of Q would set both, and in crafting
+			// that is "show all" *and* "ingredients" at once.
+			bool flag3 = inventoryContext && keys.IsKeyDown(Keys.Q);
+			if ((keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.Throw)) && !flag3) || keys.IsKeyDown(Keys.R))
+			{
+				buttons |= Buttons.X; // throw item
+			}
+		}
+		// Q is Y inside the inventory. Y means "the second action on this screen" and had no
+		// keyboard binding at all: hide/show residents in the housing list, and the
+		// ingredients/recipes toggle in crafting. Both screens are reachable with a keyboard, so
+		// the one action that was gamepad-only is the one thing a keyboard player could not do.
+		// Q is free here - it only means "cycle category" in character creation, which is the
+		// branch above and never runs with the inventory open.
+		if (inventoryContext && keys.IsKeyDown(Keys.Q))
+		{
+			buttons |= Buttons.Y;
 		}
 		if (keys.IsKeyDown(KeyBindings.Get(KeyBindings.Action.SmartCursor)))
 		{

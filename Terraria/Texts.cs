@@ -227,6 +227,24 @@ internal static class Texts
 		Add(dictionary, "ui.common.yes", "Yes");
 		Add(dictionary, "ui.common.no", "No");
 		Add(dictionary, "ui.common.change.back", "LMB / Left-Right - change    Esc - back");
+		// --- Control hints -------------------------------------------------
+		// One table for every hint the port shows, so a screen cannot invent its own wording and
+		// so a translator has one place to look. They used to be English literals in UI.cs: on a
+		// German client the inventory said "LMB - pick / place" in English while everything else
+		// was translated.
+		Add(dictionary, "ui.hint.inv", "LMB - pick / place    Esc or Tab - close");
+		Add(dictionary, "ui.hint.inv.split", "    RMB - split stack");
+		Add(dictionary, "ui.hint.craft", "LMB - craft    Wheel - scroll    Q - ingredients    R - show all    Esc or Tab - close");
+		Add(dictionary, "ui.hint.housing", "LMB - assign to room    Q - show residents    R - check housing    Esc or Tab - close");
+		Add(dictionary, "ui.hint.map", "WASD - move    Tab / Esc - close");
+		Add(dictionary, "ui.hint.character", "LMB - select    Enter - confirm    Esc - back    Q / R - category");
+		Add(dictionary, "ui.hint.select", "LMB - select    Esc - back");
+		Add(dictionary, "ui.hint.back", "Esc - back");
+		Add(dictionary, "ui.hint.cheats", "LMB - toggle    Esc - back");
+		Add(dictionary, "ui.hint.keybinds", "LMB / Space - rebind    R - reset    Esc - back");
+		Add(dictionary, "ui.hint.mods", "LMB / Space - enable or disable    R - rescan    Esc - back");
+		Add(dictionary, "ui.hint.pause", "LMB - select    Esc - resume");
+		Add(dictionary, "ui.hint.start", "Enter - start");
 
 		// --- Cheat screen ---------------------------------------------------
 		Add(dictionary, "ui.cheats.title", "Cheats");

@@ -3507,6 +3507,10 @@ public sealed class Main : Game
 		}
 		if (text != null)
 		{
+			// The console build's tutorial talks in button glyphs. With keyboard and mouse the same
+			// steps are different keys, so the sentences are rewritten before they are wrapped -
+			// see TutorialHints for why it is phrases rather than glyphs.
+			text = TutorialHints.Translate(text);
 			int wrapWidth = 470;
 			switch (ScreenHeightPtr)
 			{

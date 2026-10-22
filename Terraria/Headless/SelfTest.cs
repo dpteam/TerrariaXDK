@@ -131,6 +131,7 @@ internal static class SelfTest
 		RunCheck("every text key used", CheckTextKeysUsed);
 		RunCheck("cheat menu layout", CheckCheatMenuLayout);
 		RunCheck("npc names", CheckNpcNames);
+		RunCheck("tutorial hints", CheckTutorialHints);
 		RunCheck("raw mod", CheckRawMod);
 		RunCheck("mod download", CheckModDownload);
 #if DEBUG
@@ -1067,6 +1068,32 @@ internal static class SelfTest
 		if (inventoryRight.IsButtonDown(Buttons.B))
 		{
 			return Fail("right click cancels the inventory instead of splitting");
+		}
+		// Q is Y inside the inventory: "the second action on this screen", which had no keyboard
+		// binding at all - hide/show residents in housing, ingredients in crafting. Both screens
+		// are reachable with a keyboard, so that one action was gamepad-only.
+		KeyboardState q = new KeyboardState(new Keys[1] { Keys.Q });
+		GamePadState inventoryY = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], q, true, false, true, false, true);
+		if (!inventoryY.IsButtonDown(Buttons.Y))
+		{
+			return Fail("Q does not act as Y in the inventory");
+		}
+		// Q is also the default throw key, which is X. In the inventory it must mean one thing:
+		// both at once would toggle "show all" and "ingredients" with one press.
+		if (inventoryY.IsButtonDown(Buttons.X))
+		{
+			return Fail("Q acts as X and Y at the same time in the inventory");
+		}
+		// ... and it must not leak into gameplay, where Q is nothing and Y is the inventory.
+		GamePadState gameplayQ = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(array[0], array[0], q, false, false);
+		if (gameplayQ.IsButtonDown(Buttons.Y))
+		{
+			return Fail("Q acts as Y during gameplay");
+		}
+		// Outside the inventory Q is still the throw key, as on the PC version.
+		if (!gameplayQ.IsButtonDown(Buttons.X))
+		{
+			return Fail("Q no longer throws outside the inventory");
 		}
 		// ... but in a menu (not the inventory) it still cancels.
 		GamePadState menuRight = Terraria.Input.KeyboardMouseInput.BuildSyntheticState(rightDown, array[0], empty, true, false, true, false, false);
@@ -13951,6 +13978,85 @@ internal static class SelfTest
 	}
 #endif
 
+	// --- Tutorial hints -----------------------------------------------------
+
+	/// <summary>
+	/// The tutorial must not teach buttons a keyboard player does not have.
+	///
+	/// The text comes from the console build and is full of button glyphs. The rewrite is a phrase
+	/// table (see <see cref="TutorialHints"/>), so the risk is a step nobody wrote a rule for -
+	/// which is exactly what this check finds, by walking every step instead of trusting the table.
+	/// </summary>
+	private static bool CheckTutorialHints()
+	{
+		bool savedEnabled = Terraria.Input.KeyboardMouseInput.Enabled;
+		int savedLang = Terraria.Lang.LangOption;
+		try
+		{
+			Terraria.Input.KeyboardMouseInput.Enabled = true;
+			Terraria.Lang.LangOption = 1;
+			if (Terraria.TutorialHints.RuleCount < 10)
+			{
+				return Fail("the tutorial hint table lost its rules");
+			}
+			int num = 0;
+			for (int i = 0; i < (int)Terraria.Tutorial.NUM_TUTORIALS; i++)
+			{
+				string raw = Terraria.Lang.TutorialLocale((Terraria.Tutorial)i);
+				if (raw == null)
+				{
+					continue;
+				}
+				num++;
+				string desktop = Terraria.TutorialHints.Translate(raw);
+				if (Terraria.TutorialHints.HasGlyph(desktop))
+				{
+					return Fail("tutorial step " + (Terraria.Tutorial)i
+						+ " still shows a gamepad glyph: '" + desktop + "'");
+				}
+				if (Environment.GetEnvironmentVariable("TXDK_DUMP_TUTORIAL") != null)
+				{
+					Console.WriteLine("    " + (Terraria.Tutorial)i + ": " + desktop.Replace("\n", " "));
+				}
+			}
+			if (num < 70)
+			{
+				return Fail("only " + num + " tutorial steps have text");
+			}
+			// The commonest sentence must have become a key that actually does the job: the
+			// tutorial's "continue" listens for B, and the right button is B's desktop binding.
+			string cont = Terraria.TutorialHints.Translate("<c>Press \u008d to continue.");
+			if (cont.IndexOf("RMB", StringComparison.Ordinal) < 0)
+			{
+				return Fail("the 'continue' line was not rewritten: '" + cont + "'");
+			}
+			// The glyph table's other languages are untouched: no rules, no rewriting, no risk of
+			// a half-matched German sentence.
+			Terraria.Lang.LangOption = 2;
+			string german = Terraria.Lang.TutorialLocale(Terraria.Tutorial.INTRO_2);
+			if (german != null && Terraria.TutorialHints.Translate(german) != german)
+			{
+				return Fail("a non-English tutorial string was rewritten");
+			}
+			// With keyboard and mouse support off the console text is correct as it stands.
+			Terraria.Input.KeyboardMouseInput.Enabled = false;
+			if (Terraria.TutorialHints.Translate("<c>Press \u008d to continue.") != "<c>Press \u008d to continue.")
+			{
+				return Fail("the tutorial was rewritten with keyboard support off");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("tutorial hints check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Input.KeyboardMouseInput.Enabled = savedEnabled;
+			Terraria.Lang.LangOption = savedLang;
+		}
+	}
+
 	// --- Cheat menu ---------------------------------------------------------
 
 	/// <summary>
@@ -14063,6 +14169,10 @@ internal static class SelfTest
 			string[] array = new string[]
 			{
 				"ui.common.on", "ui.common.off", "ui.common.change.back",
+				"ui.hint.inv", "ui.hint.inv.split", "ui.hint.craft", "ui.hint.housing",
+				"ui.hint.map", "ui.hint.character", "ui.hint.select", "ui.hint.back",
+				"ui.hint.cheats", "ui.hint.keybinds", "ui.hint.mods", "ui.hint.pause",
+				"ui.hint.start",
 				"ui.display.title", "ui.display.profile", "ui.display.window", "ui.display.fullscreen",
 				"ui.display.render", "ui.display.fps", "ui.display.vsync", "ui.display.fpslimit",
 				"ui.display.language", "ui.display.hint.restart", "ui.display.status.window",
@@ -14110,6 +14220,36 @@ internal static class SelfTest
 			if (Texts.Get("ui.definitely.missing") != "<ui.definitely.missing>")
 			{
 				return Fail("an unknown key did not stand out");
+			}
+			// A hint that exists but is empty is the same as a missing one to the player, and it
+			// passes a "does this key exist" check. The control hints are the one family where an
+			// empty string is a bug rather than a deliberate blank.
+			string[] hints = new string[13]
+			{
+				"ui.hint.inv", "ui.hint.inv.split", "ui.hint.craft", "ui.hint.housing",
+				"ui.hint.map", "ui.hint.character", "ui.hint.select", "ui.hint.back",
+				"ui.hint.cheats", "ui.hint.keybinds", "ui.hint.mods", "ui.hint.pause",
+				"ui.hint.start"
+			};
+			for (int j = 0; j < hints.Length; j++)
+			{
+				if (string.IsNullOrWhiteSpace(Texts.Get(hints[j])) || Texts.Get(hints[j])[0] == '<')
+				{
+					return Fail("the control hint '" + hints[j] + "' is empty or unresolved");
+				}
+			}
+			// A desktop hint must not name a gamepad button: that is the bug the hints exist to
+			// avoid, and a copy-paste from the glyph table is exactly how it comes back.
+			for (int k = 0; k < hints.Length; k++)
+			{
+				string hint = Texts.Get(hints[k]);
+				for (int m = 0; m < hint.Length; m++)
+				{
+					if (hint[m] >= '\u0080' && hint[m] <= '\u008f')
+					{
+						return Fail("the desktop hint '" + hints[k] + "' contains a gamepad glyph");
+					}
+				}
 			}
 			return true;
 		}

@@ -4901,37 +4901,39 @@ public sealed class UI
 	/// </summary>
 	private void AppendPointerHints()
 	{
+		// One key per hint, in Texts: these used to be English literals, which meant a German
+		// client read its own control hints in English while every other string was translated.
 		if (InventoryMode > 0)
 		{
-			Main.StrBuilder.Append("LMB - move item    Esc / Tab - close inventory");
+			Main.StrBuilder.Append(Texts.Get("ui.hint.inv"));
 			return;
 		}
 		switch (CurMenuMode)
 		{
 		case MenuMode.MAP:
-			Main.StrBuilder.Append("WASD - move    Tab / Esc - close");
+			Main.StrBuilder.Append(Texts.Get("ui.hint.map"));
 			break;
 		case MenuMode.CREATE_CHARACTER:
-			Main.StrBuilder.Append("LMB - select    Enter - confirm    Esc - back    Q / R - category");
+			Main.StrBuilder.Append(Texts.Get("ui.hint.character"));
 			break;
 		case MenuMode.WORLD_SELECT:
 		case MenuMode.GAME_MODE:
-			Main.StrBuilder.Append("LMB - select    Esc - back");
+			Main.StrBuilder.Append(Texts.Get("ui.hint.select"));
 			break;
 		case MenuMode.CHEATS:
-			Main.StrBuilder.Append("LMB - toggle    Esc - back");
+			Main.StrBuilder.Append(Texts.Get("ui.hint.cheats"));
 			break;
 		case MenuMode.KEYBINDS:
-			Main.StrBuilder.Append("LMB / Space - rebind    R - reset    Esc - back");
+			Main.StrBuilder.Append(Texts.Get("ui.hint.keybinds"));
 			break;
 		case MenuMode.MODS:
-			Main.StrBuilder.Append("LMB / Space - enable or disable    R - rescan    Esc - back");
+			Main.StrBuilder.Append(Texts.Get("ui.hint.mods"));
 			break;
 		case MenuMode.PAUSE:
-			Main.StrBuilder.Append("LMB - select    Esc - resume");
+			Main.StrBuilder.Append(Texts.Get("ui.hint.pause"));
 			break;
 		case MenuMode.WELCOME:
-			Main.StrBuilder.Append("Enter - start");
+			Main.StrBuilder.Append(Texts.Get("ui.hint.start"));
 			break;
 		case MenuMode.WAITING_SCREEN:
 		case MenuMode.NETPLAY:
@@ -4941,10 +4943,10 @@ public sealed class UI
 		case MenuMode.ACHIEVEMENTS:
 		case MenuMode.LEADERBOARDS:
 		case MenuMode.HOW_TO_PLAY:
-			Main.StrBuilder.Append("Esc - back");
+			Main.StrBuilder.Append(Texts.Get("ui.hint.back"));
 			break;
 		default:
-			Main.StrBuilder.Append("LMB - select    Esc - back");
+			Main.StrBuilder.Append(Texts.Get("ui.hint.select"));
 			break;
 		}
 	}
@@ -7851,10 +7853,10 @@ public sealed class UI
 		{
 			// Desktop hint set: the gamepad glyphs below are meaningless with a mouse.
 			Main.StrBuilder.Length = 0;
-			Main.StrBuilder.Append("LMB - pick / place    Esc or Tab - close");
+			Main.StrBuilder.Append(Texts.Get("ui.hint.inv"));
 			if (toolTip.Type > 0 && !reforge && !CraftGuide && toolTip.Stack > 1)
 			{
-				Main.StrBuilder.Append("    RMB - split stack");
+				Main.StrBuilder.Append(Texts.Get("ui.hint.inv.split"));
 			}
 			DrawStringLB(BoldSmallFont, CurrentView.SafeAreaOffsetLeft, CurrentView.SafeAreaOffsetBottom);
 			return;
@@ -8058,6 +8060,16 @@ public sealed class UI
 	{
 		if (CurMenuType == MenuType.NONE)
 		{
+			if (PointerActive)
+			{
+				// The glyph hints below are gamepad only. Without this branch a mouse player in
+				// the crafting screen was told to press buttons that are not on a keyboard - the
+				// same bug the inventory had, in a screen nobody had looked at since.
+				Main.StrBuilder.Length = 0;
+				Main.StrBuilder.Append(Texts.Get("ui.hint.craft"));
+				DrawStringLB(BoldSmallFont, CurrentView.SafeAreaOffsetLeft, CurrentView.SafeAreaOffsetBottom);
+				return;
+			}
 			Main.StrBuilder.Length = 0;
 			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CHANGE_MENU));
 			Main.StrBuilder.Append(' ');
@@ -8090,6 +8102,13 @@ public sealed class UI
 	{
 		if (CurMenuType == MenuType.NONE)
 		{
+			if (PointerActive)
+			{
+				Main.StrBuilder.Length = 0;
+				Main.StrBuilder.Append(Texts.Get("ui.hint.housing"));
+				DrawStringLB(BoldSmallFont, CurrentView.SafeAreaOffsetLeft, CurrentView.SafeAreaOffsetBottom);
+				return;
+			}
 			Main.StrBuilder.Length = 0;
 			Main.StrBuilder.Append(Lang.Controls(Lang.CONTROLS.CHANGE_MENU));
 			Main.StrBuilder.Append(' ');
