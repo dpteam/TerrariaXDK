@@ -2895,6 +2895,16 @@ public sealed class NetMessage
 					}
 				}
 			}
+			if (num112 >= Main.ProjectileSet.Length)
+			{
+				// Every slot is busy: 512 projectiles is the limit, and a busy fight reaches it.
+				// The two loops above leave num112 at 512 when they find nothing, so the very next
+				// line used to index past the end - a crash on the *receiving* side, caused by a
+				// packet that arrived at a bad moment rather than by anything wrong in the packet.
+				RefuseIndex(sender, "message 27 projectile slot", num112, Main.ProjectileSet.Length,
+					"projectile");
+				break;
+			}
 			if (Main.ProjectileSet[num112].active == 0 || Main.ProjectileSet[num112].type != num110)
 			{
 				Main.ProjectileSet[num112].SetDefaults(num110);

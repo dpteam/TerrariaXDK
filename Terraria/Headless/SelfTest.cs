@@ -6450,6 +6450,36 @@ internal static class SelfTest
 							{
 								Main.NetMode = savedMode2;
 							}
+							// --- and a full projectile table does not index past its end ----------
+						// Message 27 looks for a free slot, and the search leaves the index at 512
+						// when every slot is busy - 512 is the limit and a busy fight reaches it.
+						// The next line indexed `ProjectileSet[512]`: a crash on the receiving side,
+						// caused by the packet arriving at a bad moment rather than by its contents.
+						Projectile[] savedProjectiles = Main.ProjectileSet;
+						try
+						{
+							Main.ProjectileSet = new Projectile[512];
+							for (int i = 0; i < Main.ProjectileSet.Length; i++)
+							{
+								Main.ProjectileSet[i].active = 1;
+								// A different owner and identity, so neither search finds a match and
+								// both fall through to "no free slot".
+								Main.ProjectileSet[i].owner = 8;
+								Main.ProjectileSet[i].identity = 30000;
+							}
+							SendProjectileSync(itemClient, 1, 1, 1);
+						}
+						catch (Exception ex)
+						{
+							return Fail("a projectile sync with a full table threw " + ex.GetType().Name
+								+ ": " + ex.Message);
+						}
+						finally
+						{
+							// Restored even on failure: later checks use the real table, and a
+							// test that leaves 512 busy projectiles behind would fail them instead.
+							Main.ProjectileSet = savedProjectiles;
+						}
 							// --- and a hair style this build does not have is clamped -----------
 							// `hair` is six bits on the wire and a byte in the save, and the draw path
 							// indexes the sheet as `1269 + hair` / `1305 + hair`. MaxNumHairs was
@@ -6770,6 +6800,31 @@ internal static class SelfTest
 					binaryWriter.Write(style);
 				}
 			}
+			binaryWriter.Flush();
+		}
+		byte[] buffer = stream.ToArray();
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.PacketIn.BaseStream.Write(buffer, 0, buffer.Length);
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.GetData(client);
+	}
+
+	/// <summary>
+	/// Feeds one projectile sync packet (message 27) into the host: the packed owner/flags byte,
+	/// the projectile type, the identity, the position and the velocity.
+	/// </summary>
+	private static void SendProjectileSync(NetClient client, int owner, int type, int identity)
+	{
+		System.IO.MemoryStream stream = new System.IO.MemoryStream();
+		using (System.IO.BinaryWriter binaryWriter = new System.IO.BinaryWriter(stream, Encoding.UTF8))
+		{
+			binaryWriter.Write((byte)27);
+			binaryWriter.Write((byte)(owner & 0xF));
+			binaryWriter.Write((byte)type);
+			binaryWriter.Write((byte)identity);
+			binaryWriter.Write(100f);
+			binaryWriter.Write(100f);
+			binaryWriter.Write(0u);
 			binaryWriter.Flush();
 		}
 		byte[] buffer = stream.ToArray();
