@@ -133,6 +133,7 @@ internal static class SelfTest
 		RunCheck("npc names", CheckNpcNames);
 		RunCheck("tutorial hints", CheckTutorialHints);
 		RunCheck("crafting tables", CheckCraftingTables);
+		RunCheck("mod sheets", CheckModSheets);
 		RunCheck("raw mod", CheckRawMod);
 		RunCheck("mod download", CheckModDownload);
 #if DEBUG
@@ -14364,6 +14365,96 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("crafting tables check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	// --- Mod sprite sheets ------------------------------------------------
+
+	/// <summary>
+	/// A mod's sprites are packed into one texture, and the packer must never place a sprite
+	/// outside it.
+	///
+	/// The bug this guards: the sheet height was clamped to the 4096 limit while the sprites kept
+	/// being laid out below that line, so the copy loop wrote past the end of the pixel array and
+	/// the game failed to start with an <c>IndexOutOfRangeException</c> - from a mod's pictures,
+	/// at load, with nothing in the message saying so. A pack that does not fit is now refused
+	/// with a reason, and that mod's items are undrawable while everything else loads.
+	/// </summary>
+	private static bool CheckModSheets()
+	{
+		try
+		{
+			int width;
+			int height;
+			string problem;
+			bool inside;
+			// The normal case: a hundred small sprites.
+			int[] smallW = new int[100];
+			int[] smallH = new int[100];
+			for (int i = 0; i < 100; i++)
+			{
+				smallW[i] = 18;
+				smallH[i] = 18;
+			}
+			if (!Terraria.Mods.ModSheets.PackForTests(smallW, smallH, out width, out height, out problem, out inside))
+			{
+				return Fail("a hundred 18x18 sprites were refused: " + problem);
+			}
+			if (!inside)
+			{
+				return Fail("a hundred 18x18 sprites were placed outside the " + width + "x" + height + " sheet");
+			}
+			if (width > 4096 || height > 4096)
+			{
+				return Fail("the sheet exceeds the texture limit: " + width + "x" + height);
+			}
+			// Very tall sprites: the case that used to be silently clamped.
+			int[] tallW = new int[40];
+			int[] tallH = new int[40];
+			for (int j = 0; j < 40; j++)
+			{
+				tallW[j] = 200;
+				tallH[j] = 200;
+			}
+			if (!Terraria.Mods.ModSheets.PackForTests(tallW, tallH, out width, out height, out problem, out inside))
+			{
+				return Fail("forty 200x200 sprites were refused: " + problem);
+			}
+			if (!inside)
+			{
+				return Fail("forty 200x200 sprites were placed outside the " + width + "x" + height + " sheet");
+			}
+			// One sprite larger than the limit: refused, with a reason that names the size.
+			if (Terraria.Mods.ModSheets.PackForTests(new int[1] { 5000 }, new int[1] { 16 },
+				out width, out height, out problem, out inside))
+			{
+				return Fail("a 5000 px wide sprite was accepted");
+			}
+			if (string.IsNullOrEmpty(problem))
+			{
+				return Fail("a sprite too large for the sheet was refused without a reason");
+			}
+			// Too much content for one sheet: also refused, and also with a reason.
+			int[] manyW = new int[600];
+			int[] manyH = new int[600];
+			for (int k = 0; k < 600; k++)
+			{
+				manyW[k] = 256;
+				manyH[k] = 256;
+			}
+			if (Terraria.Mods.ModSheets.PackForTests(manyW, manyH, out width, out height, out problem, out inside))
+			{
+				return Fail("600 256x256 sprites were accepted into one sheet");
+			}
+			if (string.IsNullOrEmpty(problem))
+			{
+				return Fail("content too large for one sheet was refused without a reason");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("mod sheet check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 

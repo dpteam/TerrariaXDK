@@ -157,7 +157,15 @@ internal static class ModSheets
 		}
 		int width;
 		int height;
-		Pack(entries, out width, out height);
+		string packProblem;
+		if (!Pack(entries, out width, out height, out packProblem))
+		{
+			// Refused, not clamped: the items of this mod stay undrawable and everything else
+			// loads, which is the difference between one broken mod and a game that will not start.
+			sheet.Problem = packProblem;
+			ModLoader.Log("[ModSheets] " + sheet.ModName + ": " + packProblem);
+			return;
+		}
 		Color[] pixels = new Color[width * height];
 		for (int j = 0; j < entries.Count; j++)
 		{
@@ -189,15 +197,63 @@ internal static class ModSheets
 	}
 
 	/// <summary>
+	/// Runs the packer on sprite sizes and checks that every sprite lands inside the sheet.
+	///
+	/// A test hook because the failure it guards against is silent arithmetic, not a visible
+	/// symptom: the sheet used to clamp its height to the limit while the sprites kept being
+	/// placed below it, so the copy loop wrote past the pixel array. There is no graphics device
+	/// here, and none is needed - the question is only where the rectangles end up.
+	/// </summary>
+	internal static bool PackForTests(int[] widths, int[] heights, out int Width, out int Height,
+		out string Problem, out bool AllInside)
+	{
+		List<Entry> list = new List<Entry>();
+		int num = Math.Min(widths.Length, heights.Length);
+		for (int i = 0; i < num; i++)
+		{
+			Entry entry = new Entry();
+			entry.Name = "sprite" + i;
+			entry.Image = new ImageData(Math.Max(1, widths[i]), Math.Max(1, heights[i]));
+			list.Add(entry);
+		}
+		AllInside = false;
+		if (!Pack(list, out Width, out Height, out Problem))
+		{
+			return false;
+		}
+		AllInside = true;
+		for (int j = 0; j < list.Count; j++)
+		{
+			Entry entry2 = list[j];
+			if (entry2.X < 0 || entry2.Y < 0
+				|| entry2.X + entry2.Image.Width > Width
+				|| entry2.Y + entry2.Image.Height > Height)
+			{
+				AllInside = false;
+				break;
+			}
+		}
+		return true;
+	}
+
+	/// <summary>
 	/// Shelf packing: sort by height, fill a row until it is full, start the next. Not optimal,
 	/// but the sheet is built once and the waste is a few percent on sprite art, which is what
 	/// this has to pack.
+	///
+	/// Returns false when the sprites do not fit in <see cref="MaxSide"/> squared. That case used
+	/// to be silent: the height was clamped to the limit while the sprites kept being placed
+	/// below it, so the copy loop wrote past the end of the pixel array and the game failed to
+	/// start with an <c>IndexOutOfRangeException</c> from a mod's sprites. Refusing with a reason
+	/// means that mod's items are undrawable and everything else still loads.
 	/// </summary>
-	private static void Pack(List<Entry> entries, out int width, out int height)
+	private static bool Pack(List<Entry> entries, out int width, out int height, out string problem)
 	{
+		problem = null;
 		entries.Sort((a, b) => b.Image.Height.CompareTo(a.Image.Height));
 		long area = 0L;
 		int widest = 1;
+		int tallest = 1;
 		for (int i = 0; i < entries.Count; i++)
 		{
 			area += (long)entries[i].Image.Width * entries[i].Image.Height;
@@ -205,6 +261,19 @@ internal static class ModSheets
 			{
 				widest = entries[i].Image.Width;
 			}
+			if (entries[i].Image.Height > tallest)
+			{
+				tallest = entries[i].Image.Height;
+			}
+		}
+		// A single sprite larger than the limit can never fit, whatever the packing does.
+		if (widest > MaxSide || tallest > MaxSide)
+		{
+			width = 0;
+			height = 0;
+			problem = "a sprite is " + widest + "x" + tallest + ", larger than the " + MaxSide
+				+ " limit";
+			return false;
 		}
 		// Aim for a square, rounded up to a power of two: friendlier to old GPUs than an odd size.
 		int num = 256;
@@ -238,13 +307,24 @@ internal static class ModSheets
 			}
 		}
 		height = num4 + num2;
+		// The packed height is what the sprites actually need; clamping it would place the last
+		// rows outside the texture, which is the silent version of "does not fit".
+		if (height > MaxSide)
+		{
+			width = 0;
+			height = 0;
+			problem = "the sprites need " + height + " px of height, more than the " + MaxSide
+				+ " limit - split the mod or use smaller sprites";
+			return false;
+		}
 		// Round the height up as well; a texture of an arbitrary height is legal but wasteful.
 		int num5 = 1;
 		while (num5 < height)
 		{
 			num5 <<= 1;
 		}
-		height = Math.Min(num5, MaxSide);
+		height = num5;
+		return true;
 	}
 
 	private static bool TryDecode(string modDirectory, string relative, out ImageData image, out string error)
