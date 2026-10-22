@@ -6132,7 +6132,13 @@ public sealed class UI
 				// slot action was dead to the mouse while the tabs, which read the pointer
 				// directly, still worked.
 				pointerActivate = Terraria.Input.KeyboardMouseInput.LeftClicked;
-				if (UpdateInventoryMouseHover(out overGrid) && overGrid)
+				if (ActiveInvSection == InventorySection.CRAFTING)
+				{
+					// The recipe grid has its own hit-test: rows are subcategories and each row
+					// scrolls on its own, so it cannot go through the inventory's grid mapping.
+					UpdateCraftingPointer();
+				}
+				else if (UpdateInventoryMouseHover(out overGrid) && overGrid)
 				{
 					inventoryAction.TryBegin();
 					// Each section has its own action handler, and the pointer has to call the
@@ -8645,6 +8651,29 @@ public sealed class UI
 			}
 		}
 		ActivePlayer.releaseUseItem = false;
+		// The chat options are drawn as three words in a row, and until now only the stick and A
+		// could reach them: the pointer was ignored, and a left click fell through to "use item".
+		// The rectangles come from the draw pass, so a click lands on the word it is over.
+		bool pointerActivate = false;
+		if (UI.PointerActive)
+		{
+			int hovered = NpcChatOptionUnderPointer();
+			if (hovered >= 0)
+			{
+				if (npcChatSelectedItem != hovered)
+				{
+					npcChatSelectedItem = (sbyte)hovered;
+					Main.PlaySound(12);
+				}
+				if (Terraria.Input.KeyboardMouseInput.LeftClicked)
+				{
+					pointerActivate = true;
+				}
+			}
+		}
+		// Right click closes the dialog, the way Escape does: in this screen there is nothing else
+		// for the right button to mean, and reaching for Escape to leave a conversation is worse.
+		bool pointerCancel = UI.PointerActive && Terraria.Input.KeyboardMouseInput.RightClicked;
 		if (focusText == null && focusText3 == null)
 		{
 			npcChatSelectedItem = 1;
@@ -8666,7 +8695,7 @@ public sealed class UI
 				npcChatSelectedItem = 0;
 			}
 		}
-		if (IsButtonTriggered(Buttons.B))
+		if (IsButtonTriggered(Buttons.B) || pointerCancel)
 		{
 			ActivePlayer.TalkNPC = -1;
 			ActivePlayer.sign = -1;
@@ -8677,7 +8706,7 @@ public sealed class UI
 		}
 		else
 		{
-			if (!IsButtonTriggered(Buttons.A))
+			if (!IsButtonTriggered(Buttons.A) && !pointerActivate)
 			{
 				return;
 			}
@@ -8881,6 +8910,49 @@ public sealed class UI
 		}
 	}
 
+	/// <summary>Chat option rectangles, recorded while drawing so a click lands on the word.</summary>
+	private readonly Rectangle[] npcChatOptionRects = new Rectangle[3];
+
+	private readonly bool[] npcChatOptionValid = new bool[3];
+
+	/// <summary>
+	/// Crafting recipe cells, recorded while drawing.
+	///
+	/// The recipe grid is not a plain grid: rows are subcategories, each row scrolls horizontally
+	/// on its own, and the whole list animates when the cursor moves. So the cell a click lands on
+	/// cannot be computed from the pointer - it is recorded where the cell was actually drawn, and
+	/// only while no animation is in flight.
+	/// </summary>
+	private readonly Rectangle[] craftSlotRects = new Rectangle[48];
+
+	private readonly sbyte[] craftSlotRow = new sbyte[48];
+
+	private readonly sbyte[] craftSlotIndex = new sbyte[48];
+
+	private readonly bool[] craftSlotValid = new bool[48];
+
+	/// <summary>How many cells were recorded this draw.</summary>
+	private int craftSlotCount;
+
+	/// <summary>Which chat option the pointer is over, or -1.</summary>
+	private int NpcChatOptionUnderPointer()
+	{
+		if (!Terraria.Input.KeyboardMouseInput.Enabled || !Terraria.Input.KeyboardMouseInput.CursorOverride)
+		{
+			return -1;
+		}
+		int num = Terraria.Input.KeyboardMouseInput.MouseX;
+		int num2 = Terraria.Input.KeyboardMouseInput.MouseY;
+		for (int i = 0; i < npcChatOptionRects.Length; i++)
+		{
+			if (npcChatOptionValid[i] && npcChatOptionRects[i].Contains(num, num2))
+			{
+				return i;
+			}
+		}
+		return -1;
+	}
+
 	private void DrawNpcChat()
 	{
 		string text = npcChatText.GetString();
@@ -8919,12 +8991,20 @@ public sealed class UI
 			break;
 		}
 		Vector2 pivot = default;
+		// Reset first: the option count changes with the NPC, and a stale rectangle would let a
+		// click hit a word that is no longer on screen.
+		for (int i = 0; i < npcChatOptionValid.Length; i++)
+		{
+			npcChatOptionValid[i] = false;
+		}
 		if (focusText != null)
 		{
 			pivot = MeasureString(BoldSmallFont, focusText);
 			pivot.X *= 0.5f;
 			pivot.Y *= 0.5f;
 			DrawStringScaled(BoldSmallFont, focusText, new Vector2((float)num4 + pivot.X, (float)num5 + pivot.Y), focusColor, pivot, (npcChatSelectedItem == 0) ? 1.1f : 0.9f);
+			npcChatOptionRects[0] = new Rectangle(num4, num5, (int)(pivot.X * 2f), (int)(pivot.Y * 2f));
+			npcChatOptionValid[0] = true;
 		}
 		string text2 = Lang.InterfaceText[52];
 		Color c = new Color(num2, (int)((double)num2 * 0.9090909361839294), num2 >> 1, num2);
@@ -8943,6 +9023,8 @@ public sealed class UI
 		pivot2.X *= 0.5f;
 		pivot2.Y *= 0.5f;
 		DrawStringScaled(BoldSmallFont, text2, new Vector2((float)num4 + pivot2.X, (float)num5 + pivot2.Y), c, pivot2, (npcChatSelectedItem == 1) ? 1.1f : 0.9f);
+		npcChatOptionRects[1] = new Rectangle(num4, num5, (int)(pivot2.X * 2f), (int)(pivot2.Y * 2f));
+		npcChatOptionValid[1] = true;
 		if (focusText3 != null)
 		{
 			num4 = num4 + (int)(pivot2.X * 2f) + 30;
@@ -8950,6 +9032,8 @@ public sealed class UI
 			pivot3.X *= 0.5f;
 			pivot3.Y *= 0.5f;
 			DrawStringScaled(BoldSmallFont, focusText3, new Vector2((float)num4 + pivot3.X, (float)num5 + pivot3.Y), c, pivot3, (npcChatSelectedItem == 2) ? 1.1f : 0.9f);
+			npcChatOptionRects[2] = new Rectangle(num4, num5, (int)(pivot3.X * 2f), (int)(pivot3.Y * 2f));
+			npcChatOptionValid[2] = true;
 		}
 	}
 
@@ -10282,8 +10366,11 @@ public sealed class UI
 			Main.PlaySound(12);
 			showNPCs = !showNPCs;
 		}
-		else if (IsButtonTriggered(Buttons.A) && inventoryHousingNpc >= 0)
+		else if (ActivatePressed() && inventoryHousingNpc >= 0)
 		{
+			// ActivatePressed, not Buttons.A: the pointer selects the resident (the rectangles come
+			// from the draw pass) but a click synthesises no A inside the inventory, so the action
+			// was unreachable by mouse.
 			Main.PlaySound(12);
 			if (WorldGen.MoveNPC(x, y, inventoryHousingNpc))
 			{
@@ -10637,6 +10724,12 @@ public sealed class UI
 		}
 		int num3 = (int)((float)CRAFTING_X + 20f * Main.ScreenMultiplier);
 		int num4 = (int)((float)CRAFTING_Y + 60f * Main.ScreenMultiplier);
+		// Reset the recorded cells: the list changes with the category and with what is craftable.
+		for (int i = 0; i < craftSlotValid.Length; i++)
+		{
+			craftSlotValid[i] = false;
+		}
+		craftSlotCount = 0;
 		int count = CurrentRecipeCategory.Count;
 		int num5 = (int)(56f * Main.ScreenMultiplier);
 		byte b = 8;
@@ -10741,6 +10834,18 @@ public sealed class UI
 							Recipe recipe = Main.ActiveRecipe[num17];
 							bool flag = ActivePlayer.CanCraftRecipe(recipe);
 							bool flag2 = num11 == CraftingRecipeY && num16 == CraftingRecipeX;
+							// Remember where the cell was drawn. Only on the first pass and only with
+							// no animation in flight: a cell sliding into place is not where a click
+							// should land, and the pointer is read a frame later.
+							if (j == 0 && num13 == 0 && craftingRecipeScrollX == 0f && craftingRecipeScrollY == 0f
+								&& craftSlotCount < craftSlotRects.Length)
+							{
+								craftSlotRects[craftSlotCount] = new Rectangle(num14, num9, num5, num5);
+								craftSlotRow[craftSlotCount] = (sbyte)num11;
+								craftSlotIndex[craftSlotCount] = (sbyte)num16;
+								craftSlotValid[craftSlotCount] = true;
+								craftSlotCount++;
+							}
 							if (flag2)
 							{
 								CraftingRecipe = recipe;
@@ -12147,6 +12252,19 @@ public sealed class UI
 	{
 		if (stackSplit <= 1 && PadState.IsButtonDown(Buttons.A) && ActivePlayer.CanCraftRecipe(r))
 		{
+			CraftOnce(r);
+			return true;
+		}
+		return false;
+	}
+
+	/// <summary>
+	/// Performs one craft. Split from the button check because the pointer reaches the same action
+	/// and must not have to fake a gamepad button to do it.
+	/// </summary>
+	private void CraftOnce(Recipe r)
+	{
+		{
 			short type = mouseItem.Type;
 			short stack = mouseItem.Stack;
 			mouseItem = r.CraftedItem;
@@ -12174,7 +12292,74 @@ public sealed class UI
 				}
 				ActivePlayer.GetItem(ref mouseItem);
 			}
-			return true;
+		}
+	}
+
+	/// <summary>
+	/// Pointer handling for the crafting grid: hover selects the recipe, click crafts it.
+	///
+	/// The recipe grid was the one inventory section still unreachable by mouse, because its cells
+	/// are drawn with two independent scroll animations and the index-to-pixel mapping is not a
+	/// division. The cells are recorded where they were drawn instead.
+	/// </summary>
+	private void UpdateCraftingPointer()
+	{
+		int row;
+		int index;
+		if (!TryCraftingRecipeUnderPointer(out row, out index))
+		{
+			return;
+		}
+		if (row != CraftingRecipeY || index != CraftingRecipeX)
+		{
+			CraftingRecipeY = (sbyte)row;
+			CraftingRecipeX = (sbyte)index;
+			craftingRecipeScrollX = 0f;
+			craftingRecipeScrollY = 0f;
+			Main.PlaySound(12);
+		}
+		if (!pointerActivate)
+		{
+			return;
+		}
+		// The recipe is read from the list rather than from CraftingRecipe: that field is only
+		// updated while drawing, so on the frame of the click it still holds the previous one.
+		if (row < 0 || row >= CurrentRecipeCategory.Count)
+		{
+			return;
+		}
+		System.Collections.Generic.List<short> list = CurrentRecipeCategory[row].RecipeList;
+		if (index < 0 || index >= list.Count)
+		{
+			return;
+		}
+		Recipe recipe = Main.ActiveRecipe[list[index]];
+		CraftingRecipe = recipe;
+		if (ActivePlayer.CanCraftRecipe(recipe))
+		{
+			CraftOnce(recipe);
+		}
+	}
+
+	/// <summary>Which recipe cell the pointer is over, as (row, index within that row).</summary>
+	private bool TryCraftingRecipeUnderPointer(out int Row, out int Index)
+	{
+		Row = -1;
+		Index = -1;
+		if (!Terraria.Input.KeyboardMouseInput.Enabled || !Terraria.Input.KeyboardMouseInput.CursorOverride)
+		{
+			return false;
+		}
+		int num = Terraria.Input.KeyboardMouseInput.MouseX;
+		int num2 = Terraria.Input.KeyboardMouseInput.MouseY;
+		for (int i = 0; i < craftSlotValid.Length; i++)
+		{
+			if (craftSlotValid[i] && craftSlotRects[i].Contains(num, num2))
+			{
+				Row = craftSlotRow[i];
+				Index = craftSlotIndex[i];
+				return true;
+			}
 		}
 		return false;
 	}

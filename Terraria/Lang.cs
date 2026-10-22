@@ -4921,6 +4921,12 @@ internal sealed class Lang
 
 	public static string ToolTip(int l)
 	{
+		// A mod item, or a vanilla item a pack described: the text lives in the override table.
+		string overrideText = Terraria.ItemToolTips.GetFirst(l);
+		if (overrideText != null)
+		{
+			return overrideText;
+		}
 		if (LangOption <= 1)
 		{
 			switch ((EntityID.ItemID)l)
@@ -7199,6 +7205,11 @@ internal sealed class Lang
 
 	public static string ToolTip2(int l)
 	{
+		string overrideText = Terraria.ItemToolTips.GetSecond(l);
+		if (overrideText != null)
+		{
+			return overrideText;
+		}
 		if (LangOption <= 1)
 		{
 			switch ((EntityID.ItemID)l)

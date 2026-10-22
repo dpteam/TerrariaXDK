@@ -1631,11 +1631,13 @@ internal static class SelfTest
 			}
 			// Every field the importer accepts must have a property on ItemOverride, or the
 			// generated project will not compile.
-			string[] array = new string[28]
+			string[] array = new string[41]
 			{
 				"damage", "defense", "pick", "axe", "hammer", "useAnimation", "useTime", "useSound", "shoot", "shootSpeed",
 				"knockBack", "mana", "healLife", "healMana", "buffType", "buffTime", "rare", "value", "maxStack", "autoReuse",
-				"melee", "magic", "ranged", "consumable", "potion", "accessory", "noMelee", "crit"
+				"melee", "magic", "ranged", "consumable", "potion", "accessory", "noMelee", "crit",
+				"width", "height", "useStyle", "holdStyle", "scale", "isMaterial", "material", "ammo", "useAmmo",
+				"useTurn", "toolTip", "toolTip2", "createTileName"
 			};
 			for (int i = 0; i < array.Length; i++)
 			{
@@ -1644,13 +1646,14 @@ internal static class SelfTest
 					return Fail("the supported field list lost '" + array[i] + "'");
 				}
 				string text7 = Terraria.Mods.TConfigConverter.PropertyName(array[i]);
-				if (array[i] == "consumable")
+				if (array[i] == "consumable" || array[i] == "createTileName")
 				{
-					// Accepted by the importer (as a recorded error) but deliberately absent
-					// from the mod API, so the converter must drop it rather than emit it.
+					// Accepted by the importer but deliberately absent from the mod API: the first
+					// is implied by stack/heal values, the second needs mod tiles. The converter
+					// must drop them rather than emit a property that does not exist.
 					if (text7 != null)
 					{
-						return Fail("the converter claims 'consumable' has a property");
+						return Fail("the converter claims '" + array[i] + "' has a property");
 					}
 					continue;
 				}
@@ -1662,6 +1665,14 @@ internal static class SelfTest
 				if (property == null || property.GetSetMethod() == null)
 				{
 					return Fail("ItemOverride has no settable '" + text7 + "' for field '" + array[i] + "'");
+				}
+				// The same check for the new-item API: a converted pack emits ModItem.Property, so a
+				// mismatch there produces a project that does not compile. That is exactly how
+				// "CanUseTurn" was found - by a real pack failing to build.
+				System.Reflection.PropertyInfo modProperty = typeof(Terraria.Mods.ModItem).GetProperty(text7);
+				if (modProperty == null || modProperty.GetSetMethod() == null)
+				{
+					return Fail("ModItem has no settable '" + text7 + "' for field '" + array[i] + "'");
 				}
 			}
 			// And the API itself: an override set through a mod context must reach the item.
@@ -1947,17 +1958,20 @@ internal static class SelfTest
 			int before = Recipe.NumRecipes;
 			List<string> problems;
 			int added = Terraria.Mods.ModRecipes.Apply(out problems);
-			if (added != 1)
+			// Two recipes are usable: the good one, and the one whose station is a mod tile this
+			// build does not have - that one keeps its ingredients and loses the station, because
+			// an item with no recipe at all cannot be obtained.
+			if (added != 2)
 			{
-				return Fail("expected exactly 1 usable recipe, got " + added);
+				return Fail("expected 2 usable recipes, got " + added);
 			}
-			if (Recipe.NumRecipes != before + 1)
+			if (Recipe.NumRecipes != before + 2)
 			{
 				return Fail("the recipe count went from " + before + " to " + Recipe.NumRecipes);
 			}
 			if (problems.Count != 3)
 			{
-				return Fail("expected 3 refused recipes to be reported, got " + problems.Count
+				return Fail("expected 3 reported problems, got " + problems.Count
 					+ ": " + string.Join("; ", problems.ToArray()));
 			}
 			// The refusals must name the reason, or the author cannot fix them.
@@ -1982,6 +1996,26 @@ internal static class SelfTest
 			if (!namedItem || !namedStation || !namedEmpty)
 			{
 				return Fail("a refusal did not say why: " + string.Join("; ", problems.ToArray()));
+			}
+			// The recipe with the mod-tile station exists and has no station requirement: the item
+			// is obtainable, which is the point.
+			bool foundStationless = false;
+			for (int i = before; i < Recipe.NumRecipes; i++)
+			{
+				Recipe candidate = Main.ActiveRecipe[i];
+				if (candidate.CraftedItem.Type == Terraria.ItemLookup.Find("Copper Axe"))
+				{
+					foundStationless = true;
+					if (candidate.NumRequiredTiles != 0)
+					{
+						return Fail("a recipe with a mod-tile station still requires "
+							+ candidate.NumRequiredTiles + " station(s)");
+					}
+				}
+			}
+			if (!foundStationless)
+			{
+				return Fail("the recipe whose station is a mod tile was not converted at all");
 			}
 			// --- what landed in the array -------------------------------------
 			Recipe recipe = Main.ActiveRecipe[Recipe.NumRecipes - 1];
@@ -2111,6 +2145,8 @@ internal static class SelfTest
 			sword.Knockback = 4.5f;
 			sword.Melee = true;
 			sword.Material = true;
+			sword.ToolTip = "A test blade";
+			sword.ToolTip2 = "It is only a test";
 			// Ids are assigned only now, in sorted order.
 			Terraria.Mods.ModItems.Finalize(null);
 			if (sword.Type < Terraria.Mods.ModItems.IdBase)
@@ -2175,6 +2211,23 @@ internal static class SelfTest
 			if (string.IsNullOrEmpty(item.AffixName()))
 			{
 				return Fail("a mod item has no affix name");
+			}
+			// Descriptions: a mod item has no entry in Lang.ToolTip's compiled switch, so the text
+			// comes from the override table. Without it every converted item is a picture with no
+			// explanation - and packs carry a description for almost every item.
+			if (Lang.ToolTip(sword.Type) != "A test blade")
+			{
+				return Fail("the item tooltip is '" + Lang.ToolTip(sword.Type) + "'");
+			}
+			if (Lang.ToolTip2(sword.Type) != "It is only a test")
+			{
+				return Fail("the second tooltip line is '" + Lang.ToolTip2(sword.Type) + "'");
+			}
+			// The override table does not leak into vanilla: an id with no override answers from
+			// the compiled table, which is what keeps this from changing existing items by accident.
+			if (Terraria.ItemToolTips.GetFirst(1) != null)
+			{
+				return Fail("a vanilla item gained an override tooltip");
 			}
 			// --- the mod is gone ----------------------------------------------
 			// A save written with a mod, opened without it: the id is in the mod range but has no

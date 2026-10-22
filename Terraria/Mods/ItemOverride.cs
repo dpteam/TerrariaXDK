@@ -197,6 +197,76 @@ public sealed class ItemOverride
 		set { Set("crit", value); }
 	}
 
+	// The remaining fields exist on both APIs. They are settable on an existing item as well as on
+	// a new one: a pack that changes a sword's swing style is the same operation as a pack that
+	// defines one, and two different field tables would drift apart.
+
+	/// <summary>Sprite width in pixels.</summary>
+	public int Width
+	{
+		set { Set("width", value); }
+	}
+
+	/// <summary>Sprite height in pixels.</summary>
+	public int Height
+	{
+		set { Set("height", value); }
+	}
+
+	/// <summary>Use style: 1 swing, 2 eat/drink, 3 stab, 4 hold up, 5 shoot.</summary>
+	public int UseStyle
+	{
+		set { Set("useStyle", value); }
+	}
+
+	/// <summary>How the item is held when idle.</summary>
+	public int HoldStyle
+	{
+		set { Set("holdStyle", value); }
+	}
+
+	/// <summary>Sprite scale.</summary>
+	public float Scale
+	{
+		set { Set("scale", value); }
+	}
+
+	/// <summary>Counts as a crafting material.</summary>
+	public bool Material
+	{
+		set { Set("material", value ? "true" : "false"); }
+	}
+
+	/// <summary>Whether the sprite turns to follow the swing.</summary>
+	public bool CanUseTurn
+	{
+		set { Set("useTurn", value ? "true" : "false"); }
+	}
+
+	/// <summary>Ammo type this item consumes, 0 for none.</summary>
+	public int UseAmmo
+	{
+		set { Set("useAmmo", value); }
+	}
+
+	/// <summary>Ammo type this item is, 0 for not ammo.</summary>
+	public int Ammo
+	{
+		set { Set("ammo", value); }
+	}
+
+	/// <summary>The line shown when the item is hovered.</summary>
+	public string ToolTip
+	{
+		set { Set("toolTip", value); }
+	}
+
+	/// <summary>The second hovered line.</summary>
+	public string ToolTip2
+	{
+		set { Set("toolTip2", value); }
+	}
+
 	/// <summary>
 	/// Escape hatch for a field added to the supported list later, so a mod written today keeps
 	/// working. Unknown names are logged by <see cref="ItemOverrides"/> instead of vanishing.

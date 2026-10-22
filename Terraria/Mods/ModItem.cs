@@ -203,6 +203,15 @@ public sealed class ModItem
 		set { Set("isMaterial", value ? "true" : "false"); }
 	}
 
+	/// <summary>
+	/// Whether the sprite turns to follow the swing. tConfig writes this as <c>useTurn</c>; the
+	/// item field is <c>CanUseTurn</c>, so the property is named after the field.
+	/// </summary>
+	public bool CanUseTurn
+	{
+		set { Set("useTurn", value ? "true" : "false"); }
+	}
+
 	/// <summary>Ammo type this item consumes, 0 for none.</summary>
 	public int UseAmmo
 	{
@@ -219,6 +228,28 @@ public sealed class ModItem
 	{
 		set { Set("crit", value); }
 	}
+
+	/// <summary>
+	/// The line shown when the item is hovered in the inventory.
+	///
+	/// Stored as text rather than as a field of the item: descriptions are not part of
+	/// <see cref="Item"/>, they are <see cref="Lang.ToolTip"/>'s switch over ids. The registry
+	/// copies them into <see cref="ItemToolTips"/> once ids are assigned.
+	/// </summary>
+	public string ToolTip
+	{
+		set { ToolTipText = value ?? string.Empty; }
+	}
+
+	/// <summary>The second tooltip line: what the item does, as opposed to what it is.</summary>
+	public string ToolTip2
+	{
+		set { ToolTip2Text = value ?? string.Empty; }
+	}
+
+	internal string ToolTipText = "";
+
+	internal string ToolTip2Text = "";
 
 	/// <summary>Escape hatch for a field added later, so a mod written today keeps working.</summary>
 	public void Set(string field, string value)

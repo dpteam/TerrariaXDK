@@ -39,12 +39,13 @@ internal static class ItemOverrides
 	/// tConfig pack's <c>width</c> means the same thing whether it is changing a sword or defining
 	/// one, and two tables would drift apart.
 	/// </summary>
-	private static readonly string[] SupportedFields = new string[36]
+	private static readonly string[] SupportedFields = new string[41]
 	{
 		"damage", "defense", "pick", "axe", "hammer", "useAnimation", "useTime", "useSound", "shoot", "shootSpeed",
 		"knockBack", "mana", "healLife", "healMana", "buffType", "buffTime", "rare", "value", "maxStack", "autoReuse",
 		"melee", "magic", "ranged", "consumable", "potion", "accessory", "noMelee", "crit",
-		"width", "height", "useStyle", "holdStyle", "scale", "isMaterial", "ammo", "useAmmo"
+		"width", "height", "useStyle", "holdStyle", "scale", "isMaterial", "material", "ammo", "useAmmo",
+		"useTurn", "toolTip", "toolTip2", "createTileName"
 	};
 
 	public static bool IsSupportedField(string field)
@@ -270,9 +271,34 @@ internal static class ItemOverrides
 			}
 			break;
 		case "consumable":
-			// "consumable" has no single backing field in this build; it is implied by the
-			// stack/heal values. Recorded as unsupported rather than guessed at.
-			Errors.Add("item " + item.Type + ": 'consumable' is not directly supported");
+			// This build has the field, so the value can be applied rather than guessed at.
+			if (bool.TryParse(value, out flag))
+			{
+				item.IsConsumable = flag;
+			}
+			break;
+		case "useturn":
+			if (bool.TryParse(value, out flag))
+			{
+				item.CanUseTurn = flag;
+			}
+			break;
+		case "tooltip":
+			// Descriptions are not fields of Item: they are Lang.ToolTip's switch over ids. The
+			// text goes into the override table, which Lang asks first.
+			Terraria.ItemToolTips.Set(item.Type, value, null);
+			break;
+		case "tooltip2":
+			Terraria.ItemToolTips.Set(item.Type, null, value);
+			break;
+		case "createtilename":
+			// Placing a new tile needs mod tiles, which this build does not have. Reported rather
+			// than mapped onto some vanilla tile, which would look like it worked and place the
+			// wrong thing.
+			Errors.Add("item " + item.Type + ": 'createTileName' needs mod tiles, which this build does not have");
+			break;
+		case "light":
+			Errors.Add("item " + item.Type + ": 'light' has no equivalent field in this build");
 			break;
 		case "width":
 			if (int.TryParse(value, out result))
@@ -305,6 +331,13 @@ internal static class ItemOverrides
 			}
 			break;
 		case "ismaterial":
+			if (bool.TryParse(value, out flag))
+			{
+				item.IsMaterial = flag;
+			}
+			break;
+		case "material":
+			// tConfig writes this name as well as "isMaterial"; same meaning.
 			if (bool.TryParse(value, out flag))
 			{
 				item.IsMaterial = flag;

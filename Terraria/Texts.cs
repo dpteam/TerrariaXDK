@@ -296,6 +296,9 @@ internal static class Texts
 		Add(dictionary, "ui.mods.convert.deleted", "{0}: original folder deleted");
 		Add(dictionary, "ui.mods.convert.kept", "{0}: original folder kept");
 		Add(dictionary, "ui.mods.convert.delete.failed", "{0}: could not delete the folder - {1}");
+		Add(dictionary, "ui.mods.convert.running", "Converting {0}");
+		Add(dictionary, "ui.mods.convert.file", "{0}   ({1}/{2})");
+		Add(dictionary, "ui.mods.convert.finishing", "writing the project...");
 
 		// --- Network screen -------------------------------------------------
 		Add(dictionary, "ui.net.title", "Network");

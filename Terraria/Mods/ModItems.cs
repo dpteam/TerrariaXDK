@@ -217,6 +217,12 @@ internal static class ModItems
 					ModLoader.Log("[Mods] " + pending2.ModName + "/" + pending2.Name
 						+ ": sprite '" + pending2.SpritePath + "' is not in the sheet");
 				}
+				// Descriptions go into the shared table now that the id exists: Lang.ToolTip asks
+				// there for both mod items and overridden vanilla ones.
+				if (pending2.Item.ToolTipText.Length > 0 || pending2.Item.ToolTip2Text.Length > 0)
+				{
+					ItemToolTips.Set(pending2.Item.Type, pending2.Item.ToolTipText, pending2.Item.ToolTip2Text);
+				}
 			}
 			int count = ById.Count;
 			Unassigned.Clear();

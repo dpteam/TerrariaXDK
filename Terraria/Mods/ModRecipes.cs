@@ -272,10 +272,13 @@ internal static class ModRecipes
 					int num5 = StationId(modRecipe.StationNames[k]);
 					if (num5 < 0)
 					{
-						problems.Add("'" + modRecipe.Result + "': unknown crafting station '"
-							+ modRecipe.StationNames[k] + "'");
-						flag = true;
-						break;
+						// The station is usually a tile the pack itself adds, and this build has no
+						// mod tiles. Refusing the whole recipe would make the item unobtainable,
+						// which is worse than making it craftable without its station - so the
+						// station is dropped and the caveat is reported.
+						problems.Add("'" + modRecipe.Result + "': station '"
+							+ modRecipe.StationNames[k] + "' is a mod tile this build does not have - the recipe is craftable without it");
+						continue;
 					}
 					recipe.RequiredTile[num4] = (short)num5;
 					num4++;

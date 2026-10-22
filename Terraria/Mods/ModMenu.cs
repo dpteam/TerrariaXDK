@@ -194,6 +194,49 @@ internal static class ModMenu
 		}
 	}
 
+	/// <summary>The conversion in progress, or null.</summary>
+	private static TConfigConverter.Job _job;
+
+	/// <summary>
+	/// How many files one frame may convert. Small on purpose: a pack of two hundred items takes a
+	/// few seconds, and the screen has to keep drawing for the bar to mean anything.
+	/// </summary>
+	private const int FilesPerFrame = 4;
+
+	/// <summary>Advances the running conversion, and finishes it when the last file is done.</summary>
+	private static void UpdateJob()
+	{
+		_job.Step(FilesPerFrame);
+		if (!_job.Done)
+		{
+			return;
+		}
+		TConfigConverter.Job job = _job;
+		_job = null;
+		string error;
+		if (!job.Finish(out error))
+		{
+			_status = Texts.Format("ui.mods.convert.failed", job.ModName, error);
+			_statusTime = 600;
+			Main.PlaySound(14);
+			return;
+		}
+		Main.PlaySound(12);
+		// One line has room for one sentence, so it says the two things that matter: it worked,
+		// and whether anything was lost. The detail is in the log and in the generated README.
+		_status = job.Result.HasProblems
+			? Texts.Format("ui.mods.convert.partial", job.ModName,
+				(job.Result.Errors.Count + job.Result.Warnings.Count).ToString(),
+				string.IsNullOrEmpty(job.Result.LogFile) ? job.Result.OutputDirectory : job.Result.LogFile)
+			: Texts.Format("ui.mods.convert.done", job.ModName, job.Result.OutputDirectory);
+		_statusTime = 900;
+		_pending = new PendingDelete();
+		_pending.Folder = job.ModName;
+		_pending.PackPath = job.PackDirectory;
+		_pending.ProjectDirectory = job.Result.OutputDirectory;
+		_confirmLayoutValid = false;
+	}
+
 	/// <summary>Returns true when the screen should close.</summary>
 	public static bool Update()
 	{
@@ -206,6 +249,13 @@ internal static class ModMenu
 		if (_pending != null)
 		{
 			return UpdateConfirm();
+		}
+		// A conversion in progress owns the frame: it advances a few files and comes back next
+		// frame, so the screen keeps drawing and the bar keeps moving.
+		if (_job != null)
+		{
+			UpdateJob();
+			return false;
 		}
 		if (KeyboardMouseInput.KeyPressed(Keys.Down))
 		{
@@ -291,22 +341,74 @@ internal static class ModMenu
 			Finish(true);
 			return false;
 		}
-		if (UI.PointerActive && _confirmLayoutValid && KeyboardMouseInput.LeftClicked)
+		// Gamepad: left/right picks a button, A presses it. The keyboard had Y/N and the pointer
+		// had the two rectangles, but a controller had nothing - and this screen is reachable with
+		// one, so the question could not be answered at all.
+		if (KeyboardMouseInput.KeyPressed(Keys.Left) || PadPressed(Buttons.DPadLeft))
+		{
+			_confirmChoice = 0;
+			Main.PlaySound(12);
+		}
+		else if (KeyboardMouseInput.KeyPressed(Keys.Right) || PadPressed(Buttons.DPadRight))
+		{
+			_confirmChoice = 1;
+			Main.PlaySound(12);
+		}
+		if (PadPressed(Buttons.A))
+		{
+			Finish(_confirmChoice == 0);
+			return false;
+		}
+		if (PadPressed(Buttons.B))
+		{
+			Finish(false);
+			return false;
+		}
+		if (UI.PointerActive && _confirmLayoutValid)
 		{
 			int num = KeyboardMouseInput.MouseX;
 			int num2 = KeyboardMouseInput.MouseY;
+			// Hover moves the highlight, so the pointer and the controller agree about which
+			// button is about to be pressed.
 			if (_yesRect.Contains(num, num2))
 			{
-				Finish(true);
-				return false;
+				_confirmChoice = 0;
 			}
-			if (_noRect.Contains(num, num2))
+			else if (_noRect.Contains(num, num2))
 			{
-				Finish(false);
-				return false;
+				_confirmChoice = 1;
+			}
+			if (KeyboardMouseInput.LeftClicked)
+			{
+				if (_yesRect.Contains(num, num2))
+				{
+					Finish(true);
+					return false;
+				}
+				if (_noRect.Contains(num, num2))
+				{
+					Finish(false);
+					return false;
+				}
 			}
 		}
 		return false;
+	}
+
+	/// <summary>0 = Delete, 1 = Keep. Keep is the default: it is the answer that destroys nothing.</summary>
+	private static int _confirmChoice = 1;
+
+	/// <summary>
+	/// Edge-detected pad button, through the same UI instance the rest of the game uses.
+	///
+	/// Not a raw <c>GamePad.GetState</c> comparison: <see cref="UI.IsButtonTriggered"/> already
+	/// handles the touchpad swap and the merged keyboard state, and a second edge detector here
+	/// would disagree with it.
+	/// </summary>
+	private static bool PadPressed(Buttons button)
+	{
+		UI ui = UI.MainUI;
+		return ui != null && ui.IsButtonTriggered(button);
 	}
 
 	private static void ConvertSelected()
@@ -321,31 +423,19 @@ internal static class ModMenu
 			return;
 		}
 		string output = Path.Combine(ModSourcesRootOverride ?? Terraria.Storage.AppPaths.ModSources, entry.Folder);
+		// Started here and advanced in Update: the conversion runs a few files per frame so the
+		// progress bar can move and the screen stays alive.
+		TConfigConverter.Job job = new TConfigConverter.Job();
 		string error;
-		TConfigConverter.Result result = TConfigConverter.Convert(entry.PackPath, output, entry.Folder, out error);
-		if (result == null)
+		if (!job.Begin(entry.PackPath, output, entry.Folder, out error))
 		{
 			_status = Texts.Format("ui.mods.convert.failed", entry.Folder, error);
 			_statusTime = 600;
 			Main.PlaySound(14);
 			return;
 		}
+		_job = job;
 		Main.PlaySound(12);
-		// One line has room for one sentence, so it says the two things that matter: it worked,
-		// and whether anything was lost. The detail is in the log and in the generated README.
-		_status = result.HasProblems
-			? Texts.Format("ui.mods.convert.partial", entry.Folder,
-				(result.Errors.Count + result.Warnings.Count).ToString(),
-				string.IsNullOrEmpty(result.LogFile) ? result.OutputDirectory : result.LogFile)
-			: Texts.Format("ui.mods.convert.done", entry.Folder, result.OutputDirectory);
-		_statusTime = 900;
-		_pending = new PendingDelete
-		{
-			Folder = entry.Folder,
-			PackPath = entry.PackPath,
-			ProjectDirectory = result.OutputDirectory
-		};
-		_confirmLayoutValid = false;
 	}
 
 	/// <summary>
@@ -621,6 +711,41 @@ internal static class ModMenu
 		{
 			DrawConfirm(rectangle, num);
 		}
+		if (_job != null)
+		{
+			DrawProgress(rectangle, num);
+		}
+	}
+
+	/// <summary>
+	/// The conversion progress bar. Drawn over the list, with the pack name, the file being
+	/// converted and a filled bar: a conversion of a few hundred items takes seconds, and a screen
+	/// that simply freezes for that long looks broken.
+	/// </summary>
+	private static void DrawProgress(Rectangle rows, float scale)
+	{
+		int width = (int)(420f * scale);
+		int height = (int)(92f * scale);
+		Rectangle rectangle = new Rectangle(rows.Center.X - width / 2, rows.Center.Y - height / 2, width, height);
+		Main.DrawSolidRect(rectangle, new Color(20, 24, 34, 245));
+		Main.DrawRect(451, rectangle, 255);
+		UI.DrawStringCC(UI.SmallFont, Texts.Format("ui.mods.convert.running", _job.ModName),
+			rectangle.Center.X, rectangle.Y + (int)(14f * scale), Color.White);
+		// The bar itself: a track and a fill, so the fraction is visible even at zero.
+		int num = (int)(12f * scale);
+		Rectangle track = new Rectangle(rectangle.X + num, rectangle.Y + (int)(40f * scale),
+			width - num * 2, (int)(12f * scale));
+		Main.DrawSolidRect(track, new Color(45, 52, 68));
+		int num2 = (int)((float)track.Width * _job.Progress);
+		if (num2 > 0)
+		{
+			Main.DrawSolidRect(new Rectangle(track.X, track.Y, num2, track.Height), new Color(90, 160, 230));
+		}
+		string text = (_job.CurrentFile.Length == 0)
+			? Texts.Get("ui.mods.convert.finishing")
+			: Texts.Format("ui.mods.convert.file", _job.CurrentFile, _job.DoneFiles, _job.TotalFiles);
+		UI.DrawStringCC(UI.SmallFont, text, rectangle.Center.X, track.Y + track.Height + (int)(10f * scale),
+			new Color(150, 160, 180));
 	}
 
 	/// <summary>
@@ -645,8 +770,12 @@ internal static class ModMenu
 		_yesRect = new Rectangle(rectangle.Center.X - num - (int)(8f * scale), num3, num, num2);
 		_noRect = new Rectangle(rectangle.Center.X + (int)(8f * scale), num3, num, num2);
 		_confirmLayoutValid = true;
-		DrawButton(_yesRect, Texts.Get("ui.mods.convert.yes"), new Color(180, 90, 90));
-		DrawButton(_noRect, Texts.Get("ui.mods.convert.no"), new Color(70, 100, 150));
+		// The chosen button is highlighted, so the pointer, the keys and the pad all show which
+		// answer Enter or A will give.
+		DrawButton(_yesRect, Texts.Get("ui.mods.convert.yes"),
+			(_confirmChoice == 0) ? new Color(180, 90, 90) : new Color(120, 70, 70));
+		DrawButton(_noRect, Texts.Get("ui.mods.convert.no"),
+			(_confirmChoice == 1) ? new Color(70, 100, 150) : new Color(55, 70, 100));
 	}
 
 	private static void DrawButton(Rectangle rect, string label, Color color)
@@ -681,10 +810,16 @@ internal static class ModMenu
 		ClampScroll();
 	}
 
-	/// <summary>Test hook: runs the conversion action on the selected row.</summary>
+	/// <summary>Test hook: runs the conversion action on the selected row, to completion.</summary>
 	internal static void ConvertSelectedForTests()
 	{
 		ConvertSelected();
+		// The menu converts a few files per frame; a test has no frames, so it pumps instead.
+		// The real code path is unchanged - this only drives it.
+		while (_job != null)
+		{
+			UpdateJob();
+		}
 	}
 
 	/// <summary>Test hook: true while the delete confirmation is up.</summary>

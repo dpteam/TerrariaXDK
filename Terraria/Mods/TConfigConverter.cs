@@ -101,123 +101,198 @@ internal static class TConfigConverter
 	internal static Result Convert(string packDirectory, string outputDirectory, string modName, out string error)
 	{
 		error = null;
-		Result result = new Result();
+		Job job = new Job();
 		try
 		{
-			return ConvertCore(packDirectory, outputDirectory, modName, result, out error);
+			if (!job.Begin(packDirectory, outputDirectory, modName, out error))
+			{
+				WriteLog(packDirectory, job.Result, error);
+				return null;
+			}
+			// All at once: the caller is a command line or a test, and nobody is watching a bar.
+			while (!job.Done)
+			{
+				job.Step(int.MaxValue);
+			}
+			if (!job.Finish(out error))
+			{
+				WriteLog(packDirectory, job.Result, error);
+				return null;
+			}
+			return job.Result;
 		}
 		catch (Exception ex)
 		{
 			// The last line of defence. Everything below is wrapped per file, so reaching here
 			// means something unexpected - and it is still better to say so than to crash.
 			error = "unexpected failure: " + ex.GetType().Name + ": " + ex.Message;
-			result.Errors.Add(error);
-			WriteLog(packDirectory, result, error);
+			job.Result.Errors.Add(error);
+			WriteLog(packDirectory, job.Result, error);
 			return null;
 		}
 	}
 
-	private static Result ConvertCore(string packDirectory, string outputDirectory, string modName, Result result, out string error)
+	/// <summary>
+	/// A conversion in progress: one pack, one file at a time.
+	///
+	/// The split exists so the menu can show a progress bar without a background thread. Running
+	/// the converter on another thread would be simpler, but it calls <c>Item.SetDefaults</c> and
+	/// reads the shared language tables - and "simple until it races with the game loop" is not
+	/// simple. A file takes well under a frame, so a few per frame keeps the screen alive.
+	/// </summary>
+	internal sealed class Job
 	{
-		error = null;
-		if (string.IsNullOrEmpty(packDirectory) || !Directory.Exists(packDirectory))
+		internal readonly Result Result = new Result();
+
+		internal string PackDirectory;
+
+		internal string OutputDirectory;
+
+		internal string ModName;
+
+		private readonly List<string> _files = new List<string>();
+
+		private readonly StringBuilder _body = new StringBuilder();
+
+		private readonly HashSet<string> _used = new HashSet<string>(StringComparer.Ordinal);
+
+		private int _index;
+
+		/// <summary>Files converted so far.</summary>
+		internal int DoneFiles => _index;
+
+		/// <summary>Total files in the pack.</summary>
+		internal int TotalFiles => _files.Count;
+
+		/// <summary>Name of the file being converted, for the progress line.</summary>
+		internal string CurrentFile { get; private set; } = "";
+
+		/// <summary>True when every file has been processed.</summary>
+		internal bool Done => _index >= _files.Count;
+
+		/// <summary>0..1, for a progress bar.</summary>
+		internal float Progress => (_files.Count == 0) ? 0f : ((float)_index / (float)_files.Count);
+
+		/// <summary>Validates the pack and lists its files. False with a reason when unusable.</summary>
+		internal bool Begin(string packDirectory, string outputDirectory, string modName, out string error)
 		{
-			error = "no such pack folder: " + packDirectory;
-			WriteLog(packDirectory, result, error);
-			return null;
+			error = null;
+			PackDirectory = packDirectory;
+			OutputDirectory = outputDirectory;
+			if (string.IsNullOrEmpty(packDirectory) || !Directory.Exists(packDirectory))
+			{
+				error = "no such pack folder: " + packDirectory;
+				return false;
+			}
+			if (string.IsNullOrEmpty(modName))
+			{
+				// The folder name is the pack's name everywhere else, so it is the honest default.
+				modName = new DirectoryInfo(Path.GetFullPath(packDirectory)).Name;
+			}
+			modName = Identifier(modName, upperFirst: true);
+			if (modName.Length == 0)
+			{
+				error = "the pack folder name has no usable characters for a mod name";
+				return false;
+			}
+			ModName = modName;
+			string text = Path.Combine(packDirectory, "Item");
+			if (Directory.Exists(text))
+			{
+				try
+				{
+					string[] files = Directory.GetFiles(text, "*.ini", SearchOption.TopDirectoryOnly);
+					Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+					_files.AddRange(files);
+				}
+				catch (Exception ex)
+				{
+					error = "cannot list " + text + ": " + ex.Message;
+					Result.Errors.Add(error);
+					return false;
+				}
+			}
+			if (_files.Count == 0)
+			{
+				error = "no Item/*.ini files in " + packDirectory;
+				return false;
+			}
+			return true;
 		}
-		if (string.IsNullOrEmpty(modName))
+
+		/// <summary>Converts up to <paramref name="maxFiles"/> files. Returns how many it did.</summary>
+		internal int Step(int maxFiles)
 		{
-			// The folder name is the pack's name everywhere else, so it is the honest default.
-			modName = new DirectoryInfo(Path.GetFullPath(packDirectory)).Name;
+			int num = 0;
+			while (_index < _files.Count && num < maxFiles)
+			{
+				string text = _files[_index];
+				CurrentFile = Path.GetFileNameWithoutExtension(text);
+				try
+				{
+					AppendItem(_body, text, PackDirectory, OutputDirectory, _used, Result);
+				}
+				catch (Exception ex)
+				{
+					// One file, one failure, and the rest of the pack still converts.
+					Result.FailedFiles++;
+					Result.Errors.Add(Path.GetFileName(text) + ": " + ex.GetType().Name + ": " + ex.Message);
+				}
+				_index++;
+				num++;
+			}
+			if (Done)
+			{
+				CurrentFile = "";
+			}
+			return num;
 		}
-		modName = Identifier(modName, upperFirst: true);
-		if (modName.Length == 0)
+
+		/// <summary>Writes the project. False with a reason when there is nothing to write.</summary>
+		internal bool Finish(out string error)
 		{
-			error = "the pack folder name has no usable characters for a mod name";
-			WriteLog(packDirectory, result, error);
-			return null;
-		}
-		string text = Path.Combine(packDirectory, "Item");
-		List<string> list = new List<string>();
-		if (Directory.Exists(text))
-		{
+			error = null;
+			if (Result.Items == 0)
+			{
+				if (Result.NewItemsSkipped > 0)
+				{
+					error = "this pack defines " + Result.NewItemsSkipped.ToString(CultureInfo.InvariantCulture)
+						+ " new item(s) but ships no sprite for them, and an item that cannot be drawn is not converted";
+				}
+				else
+				{
+					error = "the pack names no item this build knows ("
+						+ Result.UnknownItems.ToString(CultureInfo.InvariantCulture) + " unknown"
+						+ (Result.FailedFiles == 0 ? "" : ", " + Result.FailedFiles.ToString(CultureInfo.InvariantCulture) + " failed")
+						+ ")";
+				}
+				return false;
+			}
+			string text = Path.Combine(OutputDirectory, ModName + ".cs");
+			string text2 = Path.Combine(OutputDirectory, ModName + ".csproj");
+			string text3 = Path.Combine(OutputDirectory, "README.md");
 			try
 			{
-				string[] files = Directory.GetFiles(text, "*.ini", SearchOption.TopDirectoryOnly);
-				Array.Sort(files, StringComparer.OrdinalIgnoreCase);
-				list.AddRange(files);
+				Directory.CreateDirectory(OutputDirectory);
+				File.WriteAllText(text, Source(ModName, PackDirectory, _body.ToString()), new UTF8Encoding(false));
+				File.WriteAllText(text2, Project(ModName, GameAssemblyPath()), new UTF8Encoding(false));
+				File.WriteAllText(text3, Readme(ModName, PackDirectory, Result), new UTF8Encoding(false));
 			}
-			catch (Exception ex2)
+			catch (Exception ex)
 			{
-				error = "cannot list " + text + ": " + ex2.Message;
-				result.Errors.Add(error);
-				WriteLog(packDirectory, result, error);
-				return null;
+				error = "cannot write to " + OutputDirectory + ": " + ex.Message;
+				Result.Errors.Add(error);
+				return false;
 			}
+			Result.OutputDirectory = OutputDirectory;
+			Result.ProjectFile = text2;
+			Result.SourceFile = text;
+			Result.LogFile = WriteLog(PackDirectory, Result, null);
+			return true;
 		}
-		if (list.Count == 0)
-		{
-			error = "no Item/*.ini files in " + packDirectory;
-			WriteLog(packDirectory, result, error);
-			return null;
-		}
-		StringBuilder stringBuilder = new StringBuilder();
-		HashSet<string> used = new HashSet<string>(StringComparer.Ordinal);
-		foreach (string item in list)
-		{
-			try
-			{
-				AppendItem(stringBuilder, item, packDirectory, outputDirectory, used, result);
-			}
-			catch (Exception ex3)
-			{
-				// One file, one failure, and the rest of the pack still converts.
-				result.FailedFiles++;
-				string text2 = Path.GetFileName(item) + ": " + ex3.GetType().Name + ": " + ex3.Message;
-				result.Errors.Add(text2);
-			}
-		}
-		if (result.Items == 0)
-		{
-			if (result.NewItemsSkipped > 0)
-			{
-				error = "this pack defines " + result.NewItemsSkipped.ToString(CultureInfo.InvariantCulture)
-					+ " new item(s) but ships no sprite for them, and an item that cannot be drawn is not converted";
-			}
-			else
-			{
-				error = "the pack names no item this build knows ("
-					+ result.UnknownItems.ToString(CultureInfo.InvariantCulture) + " unknown"
-					+ (result.FailedFiles == 0 ? "" : ", " + result.FailedFiles.ToString(CultureInfo.InvariantCulture) + " failed")
-					+ ")";
-			}
-			WriteLog(packDirectory, result, error);
-			return null;
-		}
-		string text3 = Path.Combine(outputDirectory, modName + ".cs");
-		string text4 = Path.Combine(outputDirectory, modName + ".csproj");
-		string text5 = Path.Combine(outputDirectory, "README.md");
-		try
-		{
-			Directory.CreateDirectory(outputDirectory);
-			File.WriteAllText(text3, Source(modName, packDirectory, stringBuilder.ToString()), new UTF8Encoding(false));
-			File.WriteAllText(text4, Project(modName, GameAssemblyPath()), new UTF8Encoding(false));
-			File.WriteAllText(text5, Readme(modName, packDirectory, result), new UTF8Encoding(false));
-		}
-		catch (Exception ex4)
-		{
-			error = "cannot write to " + outputDirectory + ": " + ex4.Message;
-			result.Errors.Add(error);
-			WriteLog(packDirectory, result, error);
-			return null;
-		}
-		result.OutputDirectory = outputDirectory;
-		result.ProjectFile = text4;
-		result.SourceFile = text3;
-		result.LogFile = WriteLog(packDirectory, result, null);
-		return result;
 	}
+
+
 
 	/// <summary>
 	/// Appends one run to the conversion log and returns its path (empty when even that failed).
@@ -346,8 +421,8 @@ internal static class TConfigConverter
 			{
 				TConfigImporter.SectionLine sectionLine = lines[i];
 				// Recipe sections are not item fields: they describe how the item is made. Without
-				// this check every ingredient was reported as "no equivalent field", which is what
-				// produced 450 warnings on one pack and hid the real ones.
+			// this check every ingredient was reported as "no equivalent field", which is what
+			// produced 450 warnings on one pack and hid the real ones.
 				if (IsRecipeSection(sectionLine.Section))
 				{
 					continue;
@@ -485,10 +560,12 @@ internal static class TConfigConverter
 				}
 				if (Terraria.Mods.ModRecipes.StationId(sectionLine.Key) < 0)
 				{
-					result.RecipesSkipped++;
-					result.Warnings.Add("'" + itemName + "': crafting station '" + sectionLine.Key
-						+ "' does not exist in this build - recipe not converted");
-					return;
+					// The station is usually a tile the pack adds itself, and this build has no mod
+					// tiles. Dropping the whole recipe would leave the item unobtainable, which is
+					// worse than dropping the station - so the station goes and the caveat stays.
+					result.Warnings.Add("'" + itemName + "': station '" + sectionLine.Key
+						+ "' is a mod tile this build does not have - the recipe is converted without it");
+					continue;
 				}
 				stations.Add(sectionLine.Key);
 			}
@@ -799,6 +876,11 @@ internal static class TConfigConverter
 		{
 			return false;
 		}
+		if (IsText(field))
+		{
+			// Any non-empty text is a valid tooltip.
+			return true;
+		}
 		if (IsBoolean(field))
 		{
 			bool result;
@@ -871,6 +953,14 @@ internal static class TConfigConverter
 			return "NoMelee";
 		case "crit":
 			return "Crit";
+		case "material":
+			return "Material";
+		case "useturn":
+			return "CanUseTurn";
+		case "tooltip":
+			return "ToolTip";
+		case "tooltip2":
+			return "ToolTip2";
 		case "width":
 			return "Width";
 		case "height":
@@ -933,7 +1023,18 @@ internal static class TConfigConverter
 	{
 		string text = PropertyName(field);
 		return text == "AutoReuse" || text == "Melee" || text == "Magic" || text == "Ranged"
-			|| text == "Potion" || text == "Accessory" || text == "NoMelee" || text == "Material";
+			|| text == "Potion" || text == "Accessory" || text == "NoMelee" || text == "Material"
+			|| text == "CanUseTurn";
+	}
+
+	/// <summary>
+	/// Fields whose value is text, not a number. A tooltip is a sentence; treating it as a number
+	/// would drop every description in the pack.
+	/// </summary>
+	private static bool IsText(string field)
+	{
+		string text = PropertyName(field);
+		return text == "ToolTip" || text == "ToolTip2";
 	}
 
 	internal static string Identifier(string name, bool upperFirst)
