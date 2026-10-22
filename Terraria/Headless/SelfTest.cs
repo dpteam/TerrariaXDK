@@ -14611,6 +14611,36 @@ internal static class SelfTest
 			{
 				return Fail("a scale of 0 was accepted, which draws nothing");
 			}
+			// --- a projectile type past this build's table is refused ---
+			// `Shoot` is a byte, so 120..255 fit the field and name nothing. Such a projectile is
+			// created with no definition, and its type reaches the death message's name table.
+			Terraria.Mods.ItemOverrides.Clear();
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			int vanillaShoot = bow.Shoot;
+			Terraria.Mods.ItemOverrides.Set(bowId, "shoot", (Terraria.Projectile.MaxNumProjTypes + 100).ToString());
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.Shoot != vanillaShoot)
+			{
+				return Fail("a projectile type past the table was accepted: " + bow.Shoot);
+			}
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "shoot", (Terraria.Projectile.MaxNumProjTypes - 1).ToString());
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.Shoot != Terraria.Projectile.MaxNumProjTypes - 1)
+			{
+				return Fail("the highest real projectile type was refused: " + bow.Shoot);
+			}
+			// The death message clamps a projectile type to 0 when it is past this build's table.
+			// That is only sound while the name table is at least as long as the table of types.
+			if (Terraria.Lang.ProjectileNames.Length < Terraria.Projectile.MaxNumProjTypes)
+			{
+				return Fail("the projectile name table is shorter than the projectile table: "
+					+ Terraria.Lang.ProjectileNames.Length + " names for "
+					+ Terraria.Projectile.MaxNumProjTypes + " types");
+			}
 			// --- `light` is a brightness from 0 to 1, and it is applied ---
 			Terraria.Mods.ItemOverrides.Clear();
 			Terraria.Mods.ItemOverrides.Set(bowId, "light", "0.5");

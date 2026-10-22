@@ -338,7 +338,12 @@ internal static class ItemOverrides
 		case "shoot":
 			if (int.TryParse(value, out result))
 			{
-				item.Shoot = (byte)Fit(item.Type, field, result, item.Shoot);
+				// A projectile type, and this build names MaxNumProjTypes of them. A value past
+				// that is a byte and nothing else: the projectile would be created with no
+				// definition, and its type would reach the death message's name table.
+				item.Shoot = (byte)Fit(item.Type, field, result, item.Shoot,
+					Terraria.Projectile.MaxNumProjTypes - 1,
+					" (this build has " + Terraria.Projectile.MaxNumProjTypes + " projectile types)");
 			}
 			break;
 		case "shootspeed":

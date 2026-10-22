@@ -16691,6 +16691,17 @@ internal sealed class Lang
 		uint num2 = Pointer & 0xFF;
 		int num3 = (int)(Pointer << 14) >> 22;
 		uint num4 = (Pointer >> 18) & 0xFF;
+		// The field is 8 bits, but this build names only MaxNumProjTypes of them. Vanilla
+		// projectiles stop at 119, so a value above that comes from a mod item whose `shoot`
+		// points at nothing - and ProjectileNames[num4] would have thrown on a *death message*,
+		// which is the worst place to lose a game. "By a projectile" is dropped rather than
+		// guessed, and the message still says who died.
+		if (num4 >= Projectile.MaxNumProjTypes)
+		{
+			Program.LogWarn("Lang", "death message names projectile type " + num4
+				+ ", but this build has " + Projectile.MaxNumProjTypes + " - the cause is not shown");
+			num4 = 0;
+		}
 		string result = null;
 		if (LangOption <= 1)
 		{
