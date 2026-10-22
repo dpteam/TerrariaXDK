@@ -151,9 +151,23 @@ public struct Item
 
 	public sbyte Rarity;
 
-	public byte Ammo;
+	/// <summary>
+	/// The ammo category this item belongs to, or the category it consumes.
+	///
+	/// A <c>short</c> rather than a <c>byte</c>, unlike <c>Shoot</c> below, because these two hold
+	/// an <b>item id</b> and mod items start at 20000. The console protocol fixes the width of the
+	/// fields it carries, and it does not carry these: they are derived from the item's own
+	/// definition by <c>SetDefaults</c> on both sides, never saved and never sent. So widening them
+	/// costs nothing and removes a real limit - a mod weapon can consume a mod's ammo, instead of
+	/// the name being refused because the id would not fit.
+	///
+	/// <c>Shoot</c> stays a byte: it holds a projectile type, there are 120 of them, and a pack
+	/// naming a projectile is refused for a different reason (no projectile table to resolve it).
+	/// </summary>
+	public short Ammo;
 
-	public byte UseAmmo;
+	/// <inheritdoc cref="Ammo"/>
+	public short UseAmmo;
 
 	public byte Shoot;
 

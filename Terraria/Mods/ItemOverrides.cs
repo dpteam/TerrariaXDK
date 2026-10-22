@@ -493,13 +493,13 @@ internal static class ItemOverrides
 		case "ammo":
 			if (int.TryParse(value, out result))
 			{
-				item.Ammo = (byte)Fit(item.Type, field, result, item.Ammo, 255, " (an item id lives in one byte here, so a mod item cannot be an ammo type)");
+				item.Ammo = (short)Fit(item.Type, field, result, item.Ammo, 32767);
 			}
 			break;
 		case "useammo":
 			if (int.TryParse(value, out result))
 			{
-				item.UseAmmo = (byte)Fit(item.Type, field, result, item.UseAmmo, 255, " (an item id lives in one byte here, so a mod item cannot be an ammo type)");
+				item.UseAmmo = (short)Fit(item.Type, field, result, item.UseAmmo, 32767);
 			}
 			break;
 		case "stack":
@@ -536,23 +536,16 @@ internal static class ItemOverrides
 				Refuse(item.Type, field, value, "does not name an item in this build");
 				break;
 			}
-			if (num5 > 255)
-			{
-				// A mod item id (20000+) cannot be stored in this field: it is one byte, fixed by
-				// the console protocol. (byte)20043 is 75 - a different item - so this is refused
-				// rather than truncated. Naming the id makes the limit visible instead of looking
-				// like the pack's mistake.
-				Refuse(item.Type, field, value, "names item id " + num5
-					+ ", and this build holds an ammo type in one byte, so a mod item cannot be used");
-				break;
-			}
+			// A mod item is fine here: Ammo/UseAmmo are shorts precisely so that an id above 255
+			// fits. They are derived from the definition on both sides of the connection, never
+			// saved and never sent, so nothing about the console protocol constrains them.
 			if (field.Equals("useAmmoName", StringComparison.OrdinalIgnoreCase))
 			{
-				item.UseAmmo = (byte)num5;
+				item.UseAmmo = (short)num5;
 			}
 			else
 			{
-				item.Ammo = (byte)num5;
+				item.Ammo = (short)num5;
 			}
 			break;
 		}

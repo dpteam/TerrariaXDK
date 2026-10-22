@@ -781,6 +781,7 @@ internal static class SelfTest
 		{
 			IList<Terraria.Mods.ModItem> all = Terraria.Mods.ModItems.All();
 			int described = 0;
+			int ammoItems = 0;
 			for (int i = 0; i < all.Count; i++)
 			{
 				int id = all[i].Type;
@@ -799,9 +800,26 @@ internal static class SelfTest
 				{
 					return Fail("mod item " + id + " (" + all[i].Name + ") has no name to show");
 				}
+				// A mod item that declares an ammo type has to keep the whole id. The field used to
+				// be a byte, so 20043 became 75: an existing, wrong item - which is why this counts
+				// rather than only bounds-checks.
+				if (probe.Ammo != 0)
+				{
+					if (probe.Ammo < 0 || probe.Ammo >= Terraria.Mods.ModItems.IdLimit
+						|| string.IsNullOrEmpty(Terraria.Lang.ItemName(probe.Ammo)))
+					{
+						return Fail("mod item " + id + " (" + all[i].Name + ") has ammo type "
+							+ probe.Ammo + ", which is not an item");
+					}
+					ammoItems++;
+				}
 				described++;
 			}
 			Console.WriteLine("       mod items created and named: " + described);
+			if (ammoItems > 0)
+			{
+				Console.WriteLine("       mod items that are ammo: " + ammoItems);
+			}
 		}
 		if (!Terraria.Mods.ModLoader.IsInitialized)
 		{
@@ -14475,10 +14493,10 @@ internal static class SelfTest
 				return Fail("a damage value too large for a short was not refused: " + bow.Damage
 					+ " (vanilla " + vanillaDamage + ")");
 			}
-			// --- an ammo type whose id does not fit the one-byte field is refused ---
-			// A vanilla id above 255 is the real case: this build has 632 items, and the field
-			// holds one byte. (byte)500 is 244 - a different item - which is exactly the silent
-			// truncation that made this worth fixing.
+			// --- an ammo type whose id is above 255 is applied, not truncated ---
+			// This build has 632 items, so an id above 255 is ordinary vanilla - and a mod item id
+			// is the same problem one step further. (byte)500 is 244: a different item, silently.
+			// Ammo/UseAmmo are shorts now, so the whole id fits.
 			Terraria.Mods.ItemOverrides.Clear();
 			string highName = Terraria.Lang.ItemName(500);
 			if (string.IsNullOrEmpty(highName))
@@ -14493,27 +14511,46 @@ internal static class SelfTest
 			Terraria.Mods.ItemOverrides.Set(bowId, "useAmmoName", highName);
 			bow = default(Item);
 			bow.SetDefaults(bowId);
+			if (bow.UseAmmo != highId)
+			{
+				return Fail("an ammo id of " + highId + " was stored as " + bow.UseAmmo);
+			}
 			if (bow.UseAmmo == (byte)highId)
 			{
-				return Fail("an item id above 255 was truncated into the one-byte ammo field");
+				return Fail("an item id above 255 was truncated into the ammo field");
 			}
+			// A mod-range id too, through the same field: this is what makes a mod weapon able to
+			// consume a mod's ammo. The id is only registered when mods are installed, so the
+			// numeric field is exercised instead - it is the same short.
+			Terraria.Mods.ItemOverrides.Clear();
+			int modRange = Terraria.Mods.ModItems.IdBase + 43;
+			Terraria.Mods.ItemOverrides.Set(bowId, "useAmmo", modRange.ToString());
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.UseAmmo != modRange)
+			{
+				return Fail("a mod-range ammo id " + modRange + " was stored as " + bow.UseAmmo);
+			}
+			// A name that names nothing is still refused, and says so.
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "useAmmoName", "No Such Ammo At All");
+			bow = default(Item);
+			bow.SetDefaults(bowId);
 			if (bow.UseAmmo != vanillaAmmo)
 			{
-				return Fail("a refused ammo name still changed the field: " + bow.UseAmmo);
+				return Fail("an unknown ammo name still changed the field: " + bow.UseAmmo);
 			}
-			// And the refusal is *reported*: a silent one leaves the player with a field that
-			// "just does not work". ItemOverrides.Errors used to be collected and never read.
 			bool saidWhy = false;
 			for (int i = 0; i < Terraria.Mods.ItemOverrides.LoadErrors.Count; i++)
 			{
-				if (Terraria.Mods.ItemOverrides.LoadErrors[i].IndexOf("one byte", StringComparison.Ordinal) >= 0)
+				if (Terraria.Mods.ItemOverrides.LoadErrors[i].IndexOf("does not name an item", StringComparison.Ordinal) >= 0)
 				{
 					saidWhy = true;
 				}
 			}
 			if (!saidWhy)
 			{
-				return Fail("an ammo type that does not fit the field was refused without a reason");
+				return Fail("an unknown ammo name was refused without a reason");
 			}
 			// --- a buff type past this build's table is refused ---
 			Terraria.Mods.ItemOverrides.Clear();
