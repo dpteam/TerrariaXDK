@@ -85,7 +85,8 @@ internal static class Texts
 		Add(dictionary, "chat.debugkit.usage", "Usage: !allitems [page 0-{0}]");
 		Add(dictionary, "chat.debugkit.items", "gave {0} item(s) from page {1} of 0-{2}");
 		Add(dictionary, "chat.debugworld.help", "build a room of chests sorted by category next to you");
-		Add(dictionary, "chat.debugworld.done", "debug room built: chests are behind the crafting stations");
+		Add(dictionary, "chat.debugworld.done", "debug room built: {0} items in chests behind the crafting stations");
+		Add(dictionary, "chat.debugworld.partial", "debug room built, but only {0} of {1} items fit - move away from the edge of the world and run it again");
 		Add(dictionary, "chat.debugworld.failed", "could not build the debug room: {0}");
 		Add(dictionary, "chat.debugnpc.help", "spawn an NPC by id or name, e.g. !spawnnpc Green Slime 3");
 		Add(dictionary, "chat.debugnpc.usage", "Usage: !spawnnpc <id|name> [count]");

@@ -109,6 +109,14 @@ internal static class DebugWorld
 	/// skipped: <c>SetDefaults</c> leaves them at type 0, and a chest full of nothing looks like
 	/// the command failed.
 	/// </summary>
+	/// <summary>
+	/// Item ids per category, from the live item table - <b>including the items mods define</b>.
+	///
+	/// The loop used to stop at <c>EntityID.ItemID.NUM_TYPES</c>, so with mods installed the room
+	/// held the vanilla 631 items and none of the mods' - which is the opposite of what a debug
+	/// room is for. Mod items start at <c>ModItems.IdBase</c> (20000) and are only reachable
+	/// through the registry, so they have to be appended rather than found by counting.
+	/// </summary>
 	internal static Dictionary<Category, List<int>> Collect()
 	{
 		Dictionary<Category, List<int>> dictionary = new Dictionary<Category, List<int>>();
@@ -126,7 +134,39 @@ internal static class DebugWorld
 			}
 			dictionary[Classify(item)].Add(j);
 		}
+		List<Terraria.Mods.ModItem> all = Terraria.Mods.ModItems.All();
+		for (int k = 0; k < all.Count; k++)
+		{
+			int id = all[k].Type;
+			Item item;
+			if (id <= 0 || !TryCreate(id, out item))
+			{
+				continue;
+			}
+			dictionary[Classify(item)].Add(id);
+		}
 		return dictionary;
+	}
+
+	/// <summary>
+	/// How many chests the collected items need, at <see cref="ChestSlots"/> per chest.
+	///
+	/// The room used to place exactly one chest per category, so with 631 vanilla items it held
+	/// 180 of them and silently dropped the other 451 - "all the items" that was not all the
+	/// items. The count comes from the table, so it stays right as the table grows.
+	/// </summary>
+	internal static int ChestsNeeded(Dictionary<Category, List<int>> collected)
+	{
+		int num = 0;
+		for (int i = 0; i < Categories.Length; i++)
+		{
+			List<int> list;
+			if (collected.TryGetValue(Categories[i], out list) && list.Count > 0)
+			{
+				num += (list.Count + ChestSlots - 1) / ChestSlots;
+			}
+		}
+		return num;
 	}
 
 	/// <summary>
@@ -172,12 +212,26 @@ internal static class DebugWorld
 			error = "too close to the edge of the world";
 			return false;
 		}
-		// A 44x14 room: enough for nine chests in a row with a gap, the stations, and headroom
-		// to walk in without hitting anything.
-		int num3 = num - 22;
+		// A room sized by what it has to hold: three stations, then one chest per 20 items with a
+		// tile between them. The old fixed 44x14 room held nine chests, which is 180 items - a
+		// third of the vanilla table and none of the mods'.
+		Dictionary<Category, List<int>> collected = Collect();
+		int chests = ChestsNeeded(collected);
+		int width = 12 + chests * 3 + 2;
+		if (width < 44)
+		{
+			width = 44;
+		}
+		int num3 = num - (width >> 1);
+		int num5 = num3 + width - 1;
 		int num4 = num2 - 9;
-		int num5 = num + 21;
 		int num6 = num2 + 4;
+		if (num3 < 60 || num5 >= Main.MaxTilesX - 60)
+		{
+			error = "not enough room here for " + chests + " chests (" + width
+				+ " tiles wide) - move away from the edge of the world";
+			return false;
+		}
 		for (int i = num3; i <= num5; i++)
 		{
 			for (int j = num4; j <= num6; j++)
@@ -212,38 +266,71 @@ internal static class DebugWorld
 		SetTile(num3 + 2, num6, EntityID.TileID.WORK_BENCH);
 		SetTile(num3 + 5, num6, EntityID.TileID.FURNACE);
 		SetTile(num3 + 8, num6, EntityID.TileID.ANVIL);
+		int num7 = num3 + 12;
+		int placed = 0;
 		for (int m = 0; m < Categories.Length; m++)
 		{
-			int num7 = num3 + 12 + m * 3;
-			if (num7 + 1 > num5 - 1)
+			List<int> list = collected[Categories[m]];
+			// As many chests as the category needs, not one: 194 blocks do not fit in 20 slots,
+			// and the ones that did not fit were dropped without a word.
+			for (int n = 0; n < list.Count; n += ChestSlots)
 			{
-				// Out of room: the chest count follows the room size rather than the other way
-				// round, and the message says how many were placed.
-				break;
+				if (num7 + 1 > num5 - 1)
+				{
+					break;
+				}
+				placed += FillOne(num7, num6, list, n);
+				num7 += 3;
 			}
-			FillOne(num7, num6, Categories[m]);
 		}
 		// Two torches near the middle so the room is visible at night.
 		SetTile(num3 + 3, num4 + 1, EntityID.TileID.TORCH);
 		SetTile(num5 - 3, num4 + 1, EntityID.TileID.TORCH);
+		// Logged rather than silent: if a chest could not be placed (an obstructed spot, a world
+		// with a hole in the floor), the room is smaller than the table and the player should be
+		// able to tell without counting.
+		int wanted = 0;
+		for (int i = 0; i < Categories.Length; i++)
+		{
+			wanted += collected[Categories[i]].Count;
+		}
+		LastPlacedItems = placed;
+		LastWantedItems = wanted;
+		if (placed < wanted)
+		{
+			Terraria.Program.LogWarn("Cheats", "debug room: " + placed + " of " + wanted
+				+ " items placed (" + chests + " chests planned)");
+		}
 		return true;
 	}
 
-	/// <summary>Places one chest on the floor row and fills it with one category.</summary>
-	private static void FillOne(int X, int FloorY, Category Category)
+	/// <summary>Items actually put into chests by the last <see cref="Build"/>, and how many the table has.</summary>
+	internal static int LastPlacedItems;
+
+	/// <summary>See <see cref="LastPlacedItems"/>.</summary>
+	internal static int LastWantedItems;
+
+	/// <summary>
+	/// Places one chest on the floor row and fills it with 20 items from <paramref name="ids"/>,
+	/// starting at <paramref name="From"/>.
+	///
+	/// Returns the number of items actually placed, so the caller can report the total instead of
+	/// guessing. A chest that could not be placed returns 0 rather than throwing: one bad spot in
+	/// a debugging tool must not cost the player the rest of the room.
+	/// </summary>
+	private static int FillOne(int X, int FloorY, List<int> Ids, int From)
 	{
 		int num = WorldGen.PlaceChest(X, FloorY);
 		if (num < 0 || num >= Main.ChestSet.Length || Main.ChestSet[num] == null)
 		{
-			return;
+			return 0;
 		}
-		List<int> list = Collect()[Category];
 		Chest chest = Main.ChestSet[num];
 		int num2 = 0;
-		for (int i = 0; i < list.Count && num2 < ChestSlots; i++)
+		for (int i = From; i < Ids.Count && num2 < ChestSlots; i++)
 		{
 			Item item;
-			if (!TryCreate(list[i], out item))
+			if (!TryCreate(Ids[i], out item))
 			{
 				continue;
 			}
@@ -251,6 +338,7 @@ internal static class DebugWorld
 			chest.ItemSet[num2] = item;
 			num2++;
 		}
+		return num2;
 	}
 
 	/// <summary>Sets one tile, ignoring coordinates outside the world.</summary>
@@ -267,12 +355,20 @@ internal static class DebugWorld
 		reference.FrameY = 0;
 	}
 
-	/// <summary>One line for the chat, including how many chests were filled.</summary>
+	/// <summary>One line for the chat, including what the room will hold.</summary>
 	public static string Describe()
 	{
+		// The chest count is read from the table rather than stated: it is 70 with the mods on
+		// this machine and 32 on a vanilla install, and a hardcoded number would be wrong in both.
+		Dictionary<Category, List<int>> collected = Collect();
+		int num = 0;
+		for (int i = 0; i < Categories.Length; i++)
+		{
+			num += collected[Categories[i]].Count;
+		}
 		return "!debugworld builds a room next to you: workbench, furnace, anvil, and "
-			+ Categories.Length + " chests sorted by category (" + Label(Categories[0]) + " .. "
-			+ Label(Categories[Categories.Length - 1]) + ").";
+			+ ChestsNeeded(collected) + " chests (" + num + " items) sorted by category ("
+			+ Label(Categories[0]) + " .. " + Label(Categories[Categories.Length - 1]) + ").";
 	}
 }
 #endif

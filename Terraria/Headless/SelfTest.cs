@@ -15963,7 +15963,50 @@ internal static class SelfTest
 				// table resolution is broken, not the classification.
 				return Fail("only " + num7 + " item ids were collected for the chests");
 			}
-			Console.WriteLine("    debug world: " + num7 + " items into " + num8 + " chests ("
+			// --- and they all fit ---------------------------------------------------
+			// The room used to place exactly one chest per category: 180 items of 631, with the
+			// other 451 dropped without a word, and none of the mods' items collected at all.
+			// The chest count has to come from the table, and this is the arithmetic that says so.
+			int chestsNeeded = Terraria.Cheats.DebugWorld.ChestsNeeded(collected);
+			int chestsForCount = (num7 + Terraria.Cheats.DebugWorld.ChestSlots - 1)
+				/ Terraria.Cheats.DebugWorld.ChestSlots;
+			if (chestsNeeded < chestsForCount)
+			{
+				return Fail("only " + chestsNeeded + " chests are planned for " + num7
+					+ " items, which need " + chestsForCount);
+			}
+			// Every item a mod defines has to be reachable in the room, or the debug room is a
+			// debug room for the vanilla game only.
+			int modItems = 0;
+			System.Collections.Generic.List<Terraria.Mods.ModItem> definitions = Terraria.Mods.ModItems.All();
+			for (int i = 0; i < definitions.Count; i++)
+			{
+				if (definitions[i].Type > 0)
+				{
+					modItems++;
+				}
+			}
+			if (modItems > 0)
+			{
+				bool foundModItem = false;
+				foreach (KeyValuePair<Terraria.Cheats.DebugWorld.Category, List<int>> entry in collected)
+				{
+					for (int i = 0; i < entry.Value.Count; i++)
+					{
+						if (entry.Value[i] >= Terraria.Mods.ModItems.IdBase)
+						{
+							foundModItem = true;
+							break;
+						}
+					}
+				}
+				if (!foundModItem)
+				{
+					return Fail(modItems + " mod items are loaded but none of them are in the debug room");
+				}
+			}
+			Console.WriteLine("    debug world: " + num7 + " items into " + chestsNeeded
+				+ " chests across " + num8 + " categories ("
 				+ Terraria.Cheats.DebugWorld.Label(Terraria.Cheats.DebugWorld.Category.Weapons) + " " + collected[Terraria.Cheats.DebugWorld.Category.Weapons].Count + ", "
 				+ Terraria.Cheats.DebugWorld.Label(Terraria.Cheats.DebugWorld.Category.Blocks) + " " + collected[Terraria.Cheats.DebugWorld.Category.Blocks].Count + ", "
 				+ Terraria.Cheats.DebugWorld.Label(Terraria.Cheats.DebugWorld.Category.Materials) + " " + collected[Terraria.Cheats.DebugWorld.Category.Materials].Count + ")");

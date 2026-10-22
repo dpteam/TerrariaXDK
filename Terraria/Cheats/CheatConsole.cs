@@ -140,7 +140,16 @@ internal static class CheatConsole
 					Main.NewText(Texts.Format("chat.debugworld.failed", error), 255, 130, 120);
 					return;
 				}
-				Echo(Texts.Get("chat.debugworld.done"), value: true);
+				// The count is reported because the room is sized from the item table: with mods
+				// it is 70 chests, and a partial room (an obstructed spot, a hole in the floor) has
+				// to be visible rather than something the player discovers by searching.
+				if (DebugWorld.LastPlacedItems < DebugWorld.LastWantedItems)
+				{
+					Main.NewText(Texts.Format("chat.debugworld.partial",
+						DebugWorld.LastPlacedItems, DebugWorld.LastWantedItems), 255, 200, 120);
+					return;
+				}
+				Echo(Texts.Format("chat.debugworld.done", DebugWorld.LastPlacedItems), value: true);
 			}),
 			// Spawning by name: the ids are what the wiki and the debug world use, and nobody
 			// remembers that the Eye of Cthulhu is 4. Accepts either, so an existing habit and a
