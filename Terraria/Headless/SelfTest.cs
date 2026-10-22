@@ -14570,6 +14570,26 @@ internal static class SelfTest
 			{
 				return Fail("a maxStack of 0 was accepted, which deletes the item when it is picked up");
 			}
+			// --- a zero-sized item has no hitbox, so it cannot be picked up at all ---
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "width", "0");
+			Terraria.Mods.ItemOverrides.Set(bowId, "height", "0");
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.Width < 1 || bow.Height < 1)
+			{
+				return Fail("a zero-sized item was accepted (width " + bow.Width + ", height " + bow.Height
+					+ "), which can never be picked up");
+			}
+			// --- and a zero scale is an invisible item ---
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "scale", "0");
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.Scale <= 0f)
+			{
+				return Fail("a scale of 0 was accepted, which draws nothing");
+			}
 			// --- and the ordinary values still work ---
 			Terraria.Mods.ItemOverrides.Clear();
 			Terraria.Mods.ItemOverrides.Set(bowId, "damage", "17");

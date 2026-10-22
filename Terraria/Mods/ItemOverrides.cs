@@ -233,12 +233,12 @@ internal static class ItemOverrides
 	/// throws or draws nothing, and it reads as a rendering bug in the game rather than a bad line
 	/// in a pack.
 	/// </summary>
-	private static float FitFloat(int itemType, string field, float value, float current, float max)
+	private static float FitFloat(int itemType, string field, float value, float current, float max, float min = -1000f)
 	{
-		if (float.IsNaN(value) || float.IsInfinity(value) || value < -max || value > max)
+		if (float.IsNaN(value) || float.IsInfinity(value) || value < min || value > max)
 		{
 			Refuse(itemType, field, value.ToString(CultureInfo.InvariantCulture),
-				"does not fit -" + max.ToString(CultureInfo.InvariantCulture) + ".." + max.ToString(CultureInfo.InvariantCulture));
+				"does not fit " + min.ToString(CultureInfo.InvariantCulture) + ".." + max.ToString(CultureInfo.InvariantCulture));
 			return current;
 		}
 		return value;
@@ -450,13 +450,15 @@ internal static class ItemOverrides
 		case "width":
 			if (int.TryParse(value, out result))
 			{
-				item.Width = (ushort)Fit(item.Type, field, result, item.Width, 65535);
+				// A zero-width item has no hitbox: it cannot be picked up and draws nothing, so it
+				// silently does not exist for the player. Same for height below.
+				item.Width = (ushort)Fit(item.Type, field, result, item.Width, 65535, null, 1);
 			}
 			break;
 		case "height":
 			if (int.TryParse(value, out result))
 			{
-				item.Height = (ushort)Fit(item.Type, field, result, item.Height, 65535);
+				item.Height = (ushort)Fit(item.Type, field, result, item.Height, 65535, null, 1);
 			}
 			break;
 		case "usestyle":
@@ -474,7 +476,9 @@ internal static class ItemOverrides
 		case "scale":
 			if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result2))
 			{
-				item.Scale = FitFloat(item.Type, field, result2, item.Scale, 1000f);
+				// A scale of zero draws nothing: the item exists, is pickable, and is invisible -
+				// which reads as a missing sprite rather than as a bad number.
+				item.Scale = FitFloat(item.Type, field, result2, item.Scale, 1000f, 0.01f);
 			}
 			break;
 		case "ismaterial":
