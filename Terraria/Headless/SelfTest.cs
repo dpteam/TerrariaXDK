@@ -141,6 +141,7 @@ internal static class SelfTest
 		RunCheck("item prefixes", CheckItemPrefixes);
 		RunCheck("converter field coverage", CheckConverterFieldCoverage);
 		RunCheck("mod content hash", CheckModContentHash);
+		RunCheck("crafting cursor", CheckCraftingCursor);
 		RunCheck("raw mod", CheckRawMod);
 		RunCheck("mod download", CheckModDownload);
 #if DEBUG
@@ -15191,6 +15192,100 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("item type wire check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	// --- Crafting must not eat what the cursor holds ------------------------
+
+	/// <summary>
+	/// Crafting puts the result on the cursor, so what is already there decides whether the craft
+	/// is allowed at all.
+	///
+	/// The reference build has the guard (<c>T1061C Main.cs</c>): the cursor must be empty, or
+	/// hold the same item with room for the result. It did not survive the extraction of
+	/// <c>UI.CraftOnce</c>, and the consequence is both halves of the same bug: holding 250 wood
+	/// and clicking a wood recipe gave 500 wood out of 250 (duplication), and holding a sword and
+	/// clicking any recipe destroyed the sword (loss). This is checked as a pure function because
+	/// the bug is in the decision, not in the crafting.
+	/// </summary>
+	private static bool CheckCraftingCursor()
+	{
+		try
+		{
+			int wood = Terraria.ItemLookup.Find("Wood");
+			int stone = Terraria.ItemLookup.Find("Stone Block");
+			if (wood <= 0 || stone <= 0)
+			{
+				return Fail("the test cannot find Wood and Stone Block");
+			}
+			Item crafted = default(Item);
+			crafted.SetDefaults(wood, 1);
+			int woodMax = crafted.MaxStack;
+			if (woodMax < 2)
+			{
+				return Fail("Wood does not stack, so this check proves nothing");
+			}
+			// An empty cursor always accepts the result: the normal case.
+			Item empty = default(Item);
+			if (!Terraria.UI.CraftFitsCursor(empty, crafted))
+			{
+				return Fail("an empty cursor was refused");
+			}
+			// A different item on the cursor is never overwritten.
+			Item other = default(Item);
+			other.SetDefaults(stone, 1);
+			if (Terraria.UI.CraftFitsCursor(other, crafted))
+			{
+				return Fail("crafting over a different item was allowed, which destroys it");
+			}
+			// The same item with room is fine, and adds up.
+			Item same = default(Item);
+			same.SetDefaults(wood, woodMax - 1);
+			if (!Terraria.UI.CraftFitsCursor(same, crafted))
+			{
+				return Fail("a same-item cursor with room was refused");
+			}
+			// The same item at the limit is not: 250 + 1 does not fit 250.
+			Item full = default(Item);
+			full.SetDefaults(wood, woodMax);
+			if (Terraria.UI.CraftFitsCursor(full, crafted))
+			{
+				return Fail("crafting onto a full stack was allowed, which over-stacks the item");
+			}
+			// A recipe producing more than the remaining room is refused as a whole, not clamped:
+			// half a craft would consume the ingredients for half the result.
+			Item almostFull = default(Item);
+			almostFull.SetDefaults(wood, woodMax - 1);
+			Item batch = default(Item);
+			batch.SetDefaults(wood, 2);
+			if (Terraria.UI.CraftFitsCursor(almostFull, batch))
+			{
+				return Fail("a batch that does not fit was allowed");
+			}
+			// Mod ids go through the same rule: the comparison is NetID, not a range.
+			Item modCursor = default(Item);
+			modCursor.Type = (short)(Terraria.Mods.ModItems.IdBase + 7);
+			modCursor.NetID = modCursor.Type;
+			modCursor.Stack = 1;
+			modCursor.MaxStack = 5;
+			Item modCrafted = default(Item);
+			modCrafted.Type = modCursor.Type;
+			modCrafted.NetID = modCursor.Type;
+			modCrafted.Stack = 1;
+			if (!Terraria.UI.CraftFitsCursor(modCursor, modCrafted))
+			{
+				return Fail("a mod item with room on the cursor was refused");
+			}
+			modCrafted.Stack = 5;
+			if (Terraria.UI.CraftFitsCursor(modCursor, modCrafted))
+			{
+				return Fail("a mod batch that does not fit was allowed");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("the crafting cursor check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 

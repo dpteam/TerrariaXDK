@@ -12469,18 +12469,55 @@ public sealed class UI
 	{
 		if (stackSplit <= 1 && PadState.IsButtonDown(Buttons.A) && ActivePlayer.CanCraftRecipe(r))
 		{
-			CraftOnce(r);
-			return true;
+			return CraftOnce(r);
 		}
 		return false;
 	}
 
 	/// <summary>
+	/// True when the crafted item can go onto the cursor without losing what is already there.
+	///
+	/// The reference build has this check in front of every craft - <c>T1061C Main.cs</c> and the
+	/// PC build both read
+	/// <c>if (mouseItem.type == 0 || (mouseItem.IsTheSameAs(createItem) &amp;&amp; mouseItem.stack
+	/// + createItem.stack &lt;= mouseItem.maxStack))</c> - and it did not survive the extraction of
+	/// this method. Without it, <c>mouseItem = r.CraftedItem; mouseItem.Stack += stack</c>
+	/// <b>replaces</b> whatever the player was holding and adds its stack to the result: holding
+	/// 250 wood and clicking a wood recipe produced 500 wood out of 250, and holding a sword and
+	/// clicking any recipe destroyed the sword. Item duplication in one direction and item
+	/// destruction in the other, from a guard that was simply missing.
+	///
+	/// Identity is <c>NetID</c>, which is what every other stacking path in this build compares
+	/// (inventory, chest, trash, shop): the port's <c>Item</c> has no <c>IsTheSameAs</c>, and
+	/// <c>Type</c> is the same number for a mod item.
+	/// </summary>
+	internal static bool CraftFitsCursor(Item cursor, Item crafted)
+	{
+		if (cursor.Type == 0 || cursor.Stack <= 0)
+		{
+			return true;
+		}
+		if (cursor.NetID != crafted.NetID)
+		{
+			return false;
+		}
+		return cursor.Stack + crafted.Stack <= cursor.MaxStack;
+	}
+
+	/// <summary>
 	/// Performs one craft. Split from the button check because the pointer reaches the same action
 	/// and must not have to fake a gamepad button to do it.
+	///
+	/// Returns false when the craft did not happen, so the caller does not consume the press.
 	/// </summary>
-	private void CraftOnce(Recipe r)
+	private bool CraftOnce(Recipe r)
 	{
+		if (!CraftFitsCursor(mouseItem, r.CraftedItem))
+		{
+			// Silent, like the reference build: the recipe simply does not craft, and the item
+			// still on the cursor is the explanation.
+			return false;
+		}
 		{
 			short type = mouseItem.Type;
 			short stack = mouseItem.Stack;
@@ -12510,6 +12547,7 @@ public sealed class UI
 				ActivePlayer.GetItem(ref mouseItem);
 			}
 		}
+		return true;
 	}
 
 	/// <summary>
