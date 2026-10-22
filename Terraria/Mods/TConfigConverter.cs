@@ -1668,7 +1668,7 @@ internal static class TConfigConverter
 	/// when mods are present; judging it here would call every mod item "not an item in this
 	/// build", and the load-time message already names it.
 	/// </summary>
-	private static string FieldProblem(string field, string value)
+	internal static string FieldProblem(string field, string value)
 	{
 		string text = ValueProblem(field, value);
 		if (text != null)
@@ -1819,6 +1819,11 @@ internal static class TConfigConverter
 			return "MaxStack";
 		case "nousegraphic":
 			return "NoUseGraphic";
+		case "consumable":
+			// The game has Item.IsConsumable and ApplyField sets it, so the project output must
+			// carry it too. It was missing here, and 107 items in the packs lost the flag when
+			// converted to a project (the raw-mod output kept it).
+			return "Consumable";
 		case "light":
 			return "Light";
 		default:
@@ -1881,19 +1886,25 @@ internal static class TConfigConverter
 	/// dropped it with "is not a number" - a field this build does support, lost for a wrong
 	/// reason, on 90+ items in one pack.
 	/// </summary>
+	/// <summary>
+	/// True when the field takes true/false rather than a number.
+	///
+	/// The list is by <b>field name</b>, not by property name, and that is the point: it used to
+	/// derive from <see cref="PropertyName"/> and match a whitelist of property names, which meant
+	/// a field whose property was renamed - or newly added, like <c>consumable</c> - silently fell
+	/// out of the boolean set and was dropped as "is not a number". The vocabulary here is the
+	/// pack's, the same one <c>ApplyField</c> switches on, so the two cannot disagree about a name.
+	///
+	/// It must match every <c>bool.TryParse</c> case in <c>ItemOverrides.ApplyField</c>; the
+	/// <c>converter field coverage</c> check enforces that by probing each field with "True".
+	/// </summary>
 	private static bool IsBoolean(string field)
 	{
-		string text = PropertyName(field);
-		if (text == null)
-		{
-			// Fields the raw form supports but ItemOverride has no property for: the value kind is
-			// still the one ApplyField expects, so the check has to know it.
-			string text2 = (field ?? string.Empty).Trim().ToLowerInvariant();
-			return text2 == "consumable" || text2 == "ismaterial" || text2 == "material";
-		}
-		return text == "AutoReuse" || text == "Melee" || text == "Magic" || text == "Ranged"
-			|| text == "Potion" || text == "Accessory" || text == "NoMelee" || text == "Material"
-			|| text == "CanUseTurn";
+		string text = (field ?? string.Empty).Trim().ToLowerInvariant();
+		return text == "autoreuse" || text == "melee" || text == "magic" || text == "ranged"
+			|| text == "potion" || text == "accessory" || text == "nomelee"
+			|| text == "consumable" || text == "useturn" || text == "ismaterial"
+			|| text == "material" || text == "nousegraphic";
 	}
 
 	/// <summary>

@@ -15,9 +15,11 @@ namespace Terraria.Mods;
 /// would only show the override, not the item, and that is a different question with a
 /// different answer per instance.
 ///
-/// Only fields that exist on this build are exposed. <c>consumable</c> is deliberately absent:
-/// tConfig had it as a standalone flag, this build derives it from stack and heal values, so
-/// pretending to set it would be a silent no-op.
+/// Only fields that exist on this build are exposed. A field with no property here is either
+/// applied through <c>Set(field, value)</c> (colours, the two ammo names) or refused with a reason
+/// (<c>createTileName</c>, which needs mod tiles) - and <c>--selftest</c> enforces that every
+/// supported field is one of those three, because "supported by the converter, missing from the
+/// project" is a loss nobody sees until the item behaves differently.
 /// </summary>
 public sealed class ItemOverride
 {
@@ -244,6 +246,19 @@ public sealed class ItemOverride
 	public bool Material
 	{
 		set { Set("material", value ? "true" : "false"); }
+	}
+
+	/// <summary>
+	/// Consumed on use: a potion, a thrown weapon, a placeable that disappears from the stack.
+	///
+	/// It is here because the game has the field (<c>Item.IsConsumable</c>) and the converter
+	/// applies it. It used to be missing, with a comment claiming this build derived it from stack
+	/// and heal values - which was not true, and made the C# project output drop the field on 107
+	/// items across the packs while the raw-mod output kept it.
+	/// </summary>
+	public bool Consumable
+	{
+		set { Set("consumable", value ? "true" : "false"); }
 	}
 
 	/// <summary>How brightly the item glows, 0 (not at all) to 1.</summary>

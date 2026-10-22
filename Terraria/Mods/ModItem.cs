@@ -209,6 +209,18 @@ public sealed class ModItem
 		set { Set("isMaterial", value ? "true" : "false"); }
 	}
 
+	/// <summary>Consumed on use: a potion, a thrown weapon, a placeable that leaves the stack.</summary>
+	public bool Consumable
+	{
+		set { Set("consumable", value ? "true" : "false"); }
+	}
+
+	/// <summary>How brightly the item glows, 0 (not at all) to 1.</summary>
+	public float Light
+	{
+		set { Set("light", value); }
+	}
+
 	/// <summary>
 	/// Whether the sprite turns to follow the swing. tConfig writes this as <c>useTurn</c>; the
 	/// item field is <c>CanUseTurn</c>, so the property is named after the field.

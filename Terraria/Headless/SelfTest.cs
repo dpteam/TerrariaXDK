@@ -139,6 +139,7 @@ internal static class SelfTest
 		RunCheck("item type on the wire", CheckItemTypeWire);
 		RunCheck("recipe capacity", CheckRecipeCapacity);
 		RunCheck("item prefixes", CheckItemPrefixes);
+		RunCheck("converter field coverage", CheckConverterFieldCoverage);
 		RunCheck("raw mod", CheckRawMod);
 		RunCheck("mod download", CheckModDownload);
 #if DEBUG
@@ -1825,65 +1826,21 @@ internal static class SelfTest
 			{
 				return Fail("the README does not say that the NPC folder was not converted");
 			}
-			// Every field the importer accepts must have a property on ItemOverride, or the
-			// generated project will not compile.
-			string[] array = new string[44]
+			// The field table is the contract between the converter and the mod API. The invariant
+			// that BOTH outputs keep every field is checked once, in "converter field coverage";
+			// here only the tripwire, so a field cannot quietly fall out of the table.
+			string[] mustStay = new string[10]
 			{
-				"damage", "defense", "pick", "axe", "hammer", "useAnimation", "useTime", "useSound", "shoot", "shootSpeed",
-				"knockBack", "mana", "healLife", "healMana", "buffType", "buffTime", "rare", "value", "maxStack", "autoReuse",
-				"melee", "magic", "ranged", "consumable", "potion", "accessory", "noMelee", "crit",
-				"width", "height", "useStyle", "holdStyle", "scale", "isMaterial", "material", "ammo", "useAmmo",
-				"useTurn", "toolTip", "toolTip2", "createTileName",
-				// tConfig spellings of a field above, plus the one field with no property at all.
-				"stack", "color", "noUseGraphic"
+				"consumable", "light", "useAmmoName", "ammoName", "stack",
+				"color", "noUseGraphic", "material", "isMaterial", "createTileName"
 			};
-			for (int i = 0; i < array.Length; i++)
+			for (int i = 0; i < mustStay.Length; i++)
 			{
-				if (!Terraria.Mods.ItemOverrides.IsSupportedField(array[i]))
+				if (!Terraria.Mods.ItemOverrides.IsSupportedField(mustStay[i]))
 				{
-					return Fail("the supported field list lost '" + array[i] + "'");
+					return Fail("the supported field list lost '" + mustStay[i] + "'");
 				}
-				string text7 = Terraria.Mods.TConfigConverter.PropertyName(array[i]);
-				if (array[i] == "consumable" || array[i] == "createTileName")
-				{
-					// Accepted by the importer but deliberately absent from the mod API: the first
-					// is implied by stack/heal values, the second needs mod tiles. The converter
-					// must drop them rather than emit a property that does not exist.
-					if (text7 != null)
-					{
-						return Fail("the converter claims '" + array[i] + "' has a property");
-					}
-					continue;
-				}
-				if (Terraria.Mods.TConfigConverter.IsEscapedField(array[i]))
-				{
-					// No property, applied through ItemOverride.Set: the project must emit the
-					// escape hatch instead of a property that does not exist.
-					if (text7 != null)
-					{
-						return Fail("'" + array[i] + "' is both a property and an escaped field");
-					}
-					continue;
-				}
-				if (text7 == null)
-				{
-					return Fail("field '" + array[i] + "' has no property name");
-				}
-				System.Reflection.PropertyInfo property = typeof(Terraria.Mods.ItemOverride).GetProperty(text7);
-				if (property == null || property.GetSetMethod() == null)
-				{
-					return Fail("ItemOverride has no settable '" + text7 + "' for field '" + array[i] + "'");
-				}
-				// The same check for the new-item API: a converted pack emits ModItem.Property, so a
-				// mismatch there produces a project that does not compile. That is exactly how
-				// "CanUseTurn" was found - by a real pack failing to build.
-				System.Reflection.PropertyInfo modProperty = typeof(Terraria.Mods.ModItem).GetProperty(text7);
-				if (modProperty == null || modProperty.GetSetMethod() == null)
-				{
-					return Fail("ModItem has no settable '" + text7 + "' for field '" + array[i] + "'");
-				}
-			}
-			// And the API itself: an override set through a mod context must reach the item.
+			}			// And the API itself: an override set through a mod context must reach the item.
 			Terraria.Mods.ItemOverrides.Clear();
 			Terraria.Mods.ModContext modContext = new Terraria.Mods.ModContext("Test", text3);
 			Terraria.Mods.ItemOverride itemOverride = modContext.Item("Copper Shortsword");
@@ -14801,6 +14758,98 @@ internal static class SelfTest
 		finally
 		{
 			Terraria.Mods.ItemOverrides.Clear();
+		}
+	}
+
+	// --- The two converter outputs must agree about every field -----------
+
+	/// <summary>
+	/// Every field the converter supports has to reach the C# project as well as the raw mod.
+	///
+	/// The two outputs share the reader, the field table and the value checks, but not the writer:
+	/// the raw mod writes the pack's line back out, while the project writes a property assignment
+	/// and needs a <c>PropertyName</c> for it. A field that is supported but has no property is
+	/// therefore dropped from the project alone - and dropped as "has no equivalent", which reads
+	/// as a limitation of the build rather than a gap in the converter.
+	///
+	/// <c>consumable</c> was exactly that: the game has <c>Item.IsConsumable</c>, the converter
+	/// applied it, and 107 items across the packs lost the flag in the project output while the raw
+	/// output kept it. This check is the invariant that would have caught it.
+	/// </summary>
+	private static bool CheckConverterFieldCoverage()
+	{
+		try
+		{
+			IList<string> fields = Terraria.Mods.ItemOverrides.FieldNames;
+			int applicable = 0;
+			int refused = 0;
+			int escaped = 0;
+			for (int i = 0; i < fields.Count; i++)
+			{
+				string field = fields[i];
+				// Escaped first: `color` is applied through Set(field, value) and its value never
+				// passes the number/boolean/text probes, so testing those first would file it as
+				// "refused with a reason" and hide that it is supported.
+				if (Terraria.Mods.TConfigConverter.IsEscapedField(field))
+				{
+					escaped++;
+					if (Terraria.Mods.TConfigConverter.PropertyName(field) != null)
+					{
+						return Fail("field '" + field + "' is both escaped and a property");
+					}
+					continue;
+				}
+				// A field is "applicable" when some value gets all the way through: the value checks
+				// and the ApplyField probe. The three probes cover the three kinds - a number, a
+				// boolean and text - and FieldProblem is used rather than ValueProblem so that the
+				// kind test and the game's own field handling are exercised together. `consumable`
+				// passed ValueProblem and still failed here, because IsBoolean was keyed on property
+				// names and its property had just been renamed.
+				bool ok = Terraria.Mods.TConfigConverter.FieldProblem(field, "1") == null
+					|| Terraria.Mods.TConfigConverter.FieldProblem(field, "True") == null
+					|| Terraria.Mods.TConfigConverter.FieldProblem(field, "a") == null;
+				if (!ok)
+				{
+					refused++;
+					continue;
+				}
+				applicable++;
+				string property = Terraria.Mods.TConfigConverter.PropertyName(field);
+				if (property == null)
+				{
+					return Fail("field '" + field + "' is applied by the game but has no property in the"
+						+ " generated project, so --tconfig-convert drops it while --tconfig-raw keeps it");
+				}
+				// A converted pack emits `ItemOverride.Property` for an override and
+				// `ModItem.Property` for a new item, so both types need a settable property of that
+				// name or the generated project does not compile. "CanUseTurn" was found this way,
+				// by a real pack failing to build; `consumable` and `light` were missing from
+				// ModItem while being present on ItemOverride, which the old check could not see
+				// because it walked a copy of the field list instead of the list itself.
+				System.Reflection.PropertyInfo onOverride = typeof(Terraria.Mods.ItemOverride).GetProperty(property);
+				if (onOverride == null || onOverride.GetSetMethod() == null)
+				{
+					return Fail("ItemOverride has no settable '" + property + "' for field '" + field + "'");
+				}
+				System.Reflection.PropertyInfo onDefinition = typeof(Terraria.Mods.ModItem).GetProperty(property);
+				if (onDefinition == null || onDefinition.GetSetMethod() == null)
+				{
+					return Fail("ModItem has no settable '" + property + "' for field '" + field
+						+ "', so a converted NEW item with that field will not compile");
+				}
+			}
+			if (applicable < 30)
+			{
+				return Fail("the field coverage check found only " + applicable
+					+ " applicable fields, so it is not looking at the real table");
+			}
+			Console.WriteLine("       fields reaching the project: " + applicable
+				+ ", escaped: " + escaped + ", refused with a reason: " + refused);
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("the converter field coverage check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 
