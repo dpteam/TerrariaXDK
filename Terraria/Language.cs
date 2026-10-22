@@ -29,11 +29,10 @@ internal static class Language
 	/// A language the build has no compiled tables for, described entirely by
 	/// <c>Storage/Lang/&lt;code&gt;.txt</c> and drawn with <c>Storage/Fonts/&lt;code&gt;.*</c>.
 	///
-	/// This is what makes "add a language without recompiling" real. The five shipped
-	/// translations are compiled into <see cref="Lang"/> with their glyphs baked into the content
-	/// atlases, so a sixth could only be added by editing a 17 000-line file and shipping new
-	/// artwork. A custom language instead starts from English (the fallback for any string its
-	/// file does not cover) and replaces what the file does cover.
+	/// This is a property of the <b>choice</b>, not a sixth language: <see cref="Lang.LangOption"/>
+	/// stays a real language (1, English) and the file goes on top. Making it a sixth
+	/// <c>LangOption</c> value looked tidier and broke every table in <c>Lang.cs</c>, which ends
+	/// with "otherwise return null" - see the note in <c>Lang.SetLang</c>.
 	/// </summary>
 	public const int Custom = 6;
 

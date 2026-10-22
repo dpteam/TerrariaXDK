@@ -4408,7 +4408,7 @@ public struct Item
 			Width = 20;
 			Height = 20;
 			Value = 10000;
-			if (UI.CurrentUI.ActivePlayer != null)
+			if (UI.CurrentUI != null && UI.CurrentUI.ActivePlayer != null)
 			{
 				Colour = UI.CurrentUI.ActivePlayer.shirtColor;
 			}
@@ -4418,7 +4418,7 @@ public struct Item
 			Width = 20;
 			Height = 20;
 			Value = 10000;
-			if (UI.CurrentUI.ActivePlayer != null)
+			if (UI.CurrentUI != null && UI.CurrentUI.ActivePlayer != null)
 			{
 				Colour = UI.CurrentUI.ActivePlayer.pantsColor;
 			}
@@ -4428,7 +4428,7 @@ public struct Item
 			Width = 20;
 			Height = 20;
 			Value = 10000;
-			if (UI.CurrentUI.ActivePlayer != null)
+			if (UI.CurrentUI != null && UI.CurrentUI.ActivePlayer != null)
 			{
 				Colour = UI.CurrentUI.ActivePlayer.hairColor;
 			}

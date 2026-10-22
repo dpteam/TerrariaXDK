@@ -149,6 +149,18 @@ internal static class LangOverrides
 	}
 
 	/// <summary>
+	/// Which language the override file belongs to.
+	///
+	/// <see cref="Lang.LangOption"/> is a real built-in language (1..5), never the custom option:
+	/// the custom language is English plus a file. So the file has to be chosen from the
+	/// <b>choice</b>, not from the effective option, or a custom language would load en.txt.
+	/// </summary>
+	private static int ChosenOption()
+	{
+		return (Language.Choice == Language.Custom) ? Language.Custom : Lang.LangOption;
+	}
+
+	/// <summary>
 	/// Applies the overrides for the language currently in use. Safe to call after every
 	/// <see cref="Lang.SetLang"/>: it resets its counters and only touches listed entries.
 	/// </summary>
@@ -159,7 +171,7 @@ internal static class LangOverrides
 		{
 			_problems.Clear();
 		}
-		string path = FileFor(Lang.LangOption);
+		string path = FileFor(ChosenOption());
 		// Translations of this port's own text start from a clean slate on every language
 		// change, exactly like the built-in tables SetLang refills. Without this, switching
 		// from German to French would leave the German chat replies in place.

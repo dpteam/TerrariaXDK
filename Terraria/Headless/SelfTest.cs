@@ -108,6 +108,8 @@ internal static class SelfTest
 		RunCheck("edit budget", CheckEditBudget);
 		RunCheck("server cards", CheckServerCards);
 		RunCheck("font atlas", CheckFontAtlas);
+		RunCheck("item names", CheckItemNames);
+		RunCheck("inventory grid", CheckInventoryGrid);
 		RunCheck("custom language", CheckCustomLanguage);
 		RunCheck("whitelist", CheckWhitelist);
 		RunCheck("relay session", CheckRelaySession);
@@ -1693,6 +1695,220 @@ internal static class SelfTest
 		}
 	}
 
+	// --- Inventory grid -----------------------------------------------------
+
+	/// <summary>
+	/// The inventory's cell arithmetic, at the resolutions the game actually runs at.
+	///
+	/// This is the regression guard for "the inventory picks the wrong item". Drawing used
+	/// <c>(int)(i * cell)</c> per column and the hit-test used <c>(int)(offset / cell)</c>; those
+	/// are not inverses when the cell is fractional, which it always is. At 1080p the cell is
+	/// 104.3 px, so column 4 starts at 417 and 417 / 104.3 truncates to 3: every column boundary
+	/// selected the slot to its left.
+	///
+	/// The check is exhaustive over every pixel of the grid at each resolution rather than
+	/// spot-checked at the boundaries, because "almost all pixels are right" is exactly what the
+	/// bug looked like.
+	/// </summary>
+	private static bool CheckInventoryGrid()
+	{
+		try
+		{
+			// The three console presets: 540p, 720p and 1080p.
+			float[] multipliers = new float[3] { 1f, 1.5f, 2f };
+			for (int m = 0; m < multipliers.Length; m++)
+			{
+				float cell = 52.15f * multipliers[m];
+				// Every pixel inside the grid maps back to the cell that owns it.
+				for (int column = 0; column < 10; column++)
+				{
+					int start = Terraria.InventoryGrid.CellStart(column, cell);
+					int end = Terraria.InventoryGrid.CellStart(column + 1, cell);
+					for (int offset = start; offset < end; offset++)
+					{
+						int got = Terraria.InventoryGrid.CellIndex(offset, cell, 10);
+						if (got != column)
+						{
+							return Fail("x" + multipliers[m] + ": pixel " + offset + " of column " + column
+								+ " (starts " + start + ") hit column " + got);
+						}
+					}
+				}
+				for (int row = 0; row < 4; row++)
+				{
+					int start2 = Terraria.InventoryGrid.CellStart(row, cell);
+					int end2 = Terraria.InventoryGrid.CellStart(row + 1, cell);
+					for (int offset2 = start2; offset2 < end2; offset2++)
+					{
+						int got2 = Terraria.InventoryGrid.CellIndex(offset2, cell, 4);
+						if (got2 != row)
+						{
+							return Fail("x" + multipliers[m] + ": pixel " + offset2 + " of row " + row + " hit row " + got2);
+						}
+					}
+				}
+				// Outside the grid: the last cell ends where the grid ends, and one pixel past it
+				// is not the last cell.
+				int gridWidth = Terraria.InventoryGrid.CellStart(10, cell);
+				if (Terraria.InventoryGrid.CellIndex(gridWidth, cell, 10) >= 0)
+				{
+					return Fail("x" + multipliers[m] + ": one pixel past the grid is still inside it");
+				}
+				if (Terraria.InventoryGrid.CellIndex(gridWidth - 1, cell, 10) != 9)
+				{
+					return Fail("x" + multipliers[m] + ": the last pixel of the grid is not in the last column");
+				}
+				// Negative offsets must not truncate towards cell 0.
+				if (Terraria.InventoryGrid.CellIndex(-1, cell, 10) >= 0)
+				{
+					return Fail("x" + multipliers[m] + ": a negative offset landed on a cell");
+				}
+				// The full point conversion, including the origin.
+				int column2;
+				int row2;
+				if (Terraria.InventoryGrid.TryCell(100 + Terraria.InventoryGrid.CellStart(3, cell),
+					200 + Terraria.InventoryGrid.CellStart(2, cell), 100, 200, cell, 10, 4, out column2, out row2))
+				{
+					if (column2 != 3 || row2 != 2)
+					{
+						return Fail("x" + multipliers[m] + ": the pointer landed on (" + column2 + ", " + row2 + ")");
+					}
+				}
+				else
+				{
+					return Fail("x" + multipliers[m] + ": a point inside the grid was rejected");
+				}
+				if (Terraria.InventoryGrid.TryCell(99, 200, 100, 200, cell, 10, 4, out column2, out row2))
+				{
+					return Fail("x" + multipliers[m] + ": a point left of the grid was accepted");
+				}
+				if (Terraria.InventoryGrid.TryCell(100, 199, 100, 200, cell, 10, 4, out column2, out row2))
+				{
+					return Fail("x" + multipliers[m] + ": a point above the grid was accepted");
+				}
+			}
+			// Degenerate inputs must not divide by zero or loop forever.
+			if (Terraria.InventoryGrid.CellIndex(5, 0f, 10) >= 0)
+			{
+				return Fail("a zero cell size produced a cell");
+			}
+			if (Terraria.InventoryGrid.CellIndex(5, 10f, 0) >= 0)
+			{
+				return Fail("a zero column count produced a cell");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("inventory grid check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	// --- Item names ---------------------------------------------------------
+
+	/// <summary>
+	/// Every item the game can create must have a name.
+	///
+	/// This is not cosmetic. Picking an item up builds a floating label from
+	/// <c>Item.AffixName()</c>, and a null there reaches <c>SpriteFont.MeasureString</c>, which
+	/// throws - the game dies on the pickup, not on the drop. That is exactly the crash the crash
+	/// log recorded, so the invariant is checked for every id rather than trusted.
+	///
+	/// The negative ids matter separately: they are the pre-1.0 gold/silver/phase items that the
+	/// debug kit hands out, and they are reached through <c>NetDefaults</c> rather than
+	/// <c>SetDefaults</c>, so they have their own table.
+	/// </summary>
+	private static bool CheckItemNames()
+	{
+		try
+		{
+			int max = (int)EntityID.ItemID.NUM_TYPES;
+			System.Collections.Generic.List<string> missing = new System.Collections.Generic.List<string>();
+			for (int i = 1; i < max; i++)
+			{
+				Item item = default(Item);
+				try
+				{
+					item.SetDefaults(i);
+				}
+				catch (Exception ex)
+				{
+					// SetDefaults throwing is worse than a missing name: it means the id exists in
+					// the enum but has no case, and the game dies the moment anything creates it.
+					missing.Add(i.ToString() + " (SetDefaults: " + ex.GetType().Name + ")");
+					continue;
+				}
+				// Type 0 means the id is not an item in this build (gaps in the enum), which is
+				// not a naming problem.
+				if (item.Type <= 0)
+				{
+					continue;
+				}
+				string text = Lang.ItemName(item.NetID);
+				if (string.IsNullOrEmpty(text))
+				{
+					missing.Add(i.ToString() + " (NetID " + item.NetID + ")");
+					continue;
+				}
+				if (string.IsNullOrEmpty(item.AffixName()))
+				{
+					missing.Add(i.ToString() + " affix");
+				}
+			}
+			// The negative (legacy) ids.
+			for (int j = -24; j <= -1; j++)
+			{
+				Item item2 = default(Item);
+				item2.NetDefaults(j);
+				if (item2.Type <= 0)
+				{
+					missing.Add(j.ToString() + " (NetDefaults gave no item)");
+					continue;
+				}
+				if (string.IsNullOrEmpty(item2.AffixName()))
+				{
+					missing.Add(j.ToString() + " affix");
+				}
+			}
+			if (missing.Count > 0)
+			{
+				string text2 = string.Empty;
+				for (int k = 0; k < missing.Count && k < 12; k++)
+				{
+					text2 += " " + missing[k] + ";";
+				}
+				return Fail(missing.Count + " item(s) have no name:" + text2);
+			}
+			// The label path itself must survive a name: this is the call that crashed.
+			Item item3 = default(Item);
+			item3.SetDefaults("Copper Shortsword");
+			string text3 = item3.AffixName() + (2).ToStackString();
+			if (string.IsNullOrEmpty(text3))
+			{
+				return Fail("a pickup label has no text");
+			}
+			// Measuring needs a font, and fonts need a graphics device: in headless mode there is
+			// none, so this part is skipped rather than faked. The name being non-empty above is
+			// what made MeasureString throw.
+			if (UI.BoldSmallFont != null && UI.MeasureString(UI.BoldSmallFont, text3).X <= 0f)
+			{
+				return Fail("a pickup label measured as zero width");
+			}
+			// ...and a prefixed item, which goes through a different branch of the affix name.
+			item3.SetPrefix(1);
+			if (string.IsNullOrEmpty(item3.AffixName()))
+			{
+				return Fail("a prefixed item has no name");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("item name check threw: " + ex.GetType().Name + ": " + ex.Message
+				+ " at " + (ex.StackTrace ?? "").Split('\n')[0].Trim());
+		}
+	}
+
 	// --- Font atlas ---------------------------------------------------------
 
 	/// <summary>
@@ -1867,9 +2083,21 @@ internal static class SelfTest
 			{
 				return Fail("the custom language was rejected: " + error);
 			}
-			if (Language.Effective != Language.Custom)
+			// The effective language stays a real one. Making it 6 broke every table in Lang.cs,
+			// which ends with "otherwise return null": ItemName returned null for every item and
+			// picking one up crashed the game. This is the regression guard for that.
+			if (Language.Effective == Language.Custom || Language.Effective < 1)
 			{
-				return Fail("the custom language did not become the effective one (got " + Language.Effective + ")");
+				return Fail("the custom language leaked into the built-in tables (effective "
+					+ Language.Effective + ")");
+			}
+			if (string.IsNullOrEmpty(Lang.ItemName(1)))
+			{
+				return Fail("item names are empty under the custom language");
+			}
+			if (string.IsNullOrEmpty(Lang.MenuText[6]))
+			{
+				return Fail("menu text is empty under the custom language");
 			}
 			// The tables are English, not empty: the custom language's file replaces what it
 			// covers and English fills the rest.
@@ -1913,6 +2141,49 @@ internal static class SelfTest
 			if (Language.Next(Language.Custom, -1) != 5)
 			{
 				return Fail("cycling back from the custom language does not reach Español");
+			}
+			// The path the player actually takes: Language=6 in Settings.ini at startup. This is
+			// the exact configuration that crashed the game, so it is read from a file rather than
+			// set by hand.
+			string text2 = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-custom-lang.ini");
+			try
+			{
+				Settings settings = new Settings(text2);
+				settings.Set("Display", "Language", "6", "");
+				settings.Set("Display", "CustomLanguage", "ru", "");
+				settings.Close();
+				Settings loaded = new Settings(text2);
+				Language.Load(loaded);
+				loaded.Discard();
+				if (Language.Choice != Language.Custom)
+				{
+					return Fail("Language=6 was not read back as the custom choice (got " + Language.Choice + ")");
+				}
+				if (Language.Effective == Language.Custom || Language.Effective < 1)
+				{
+					return Fail("Language=6 at startup left the built-in language at " + Language.Effective);
+				}
+				if (string.IsNullOrEmpty(Lang.ItemName(1)))
+				{
+					return Fail("Language=6 at startup made item names empty");
+				}
+				if (Language.CustomCode != "ru")
+				{
+					return Fail("the custom language code was not read: '" + Language.CustomCode + "'");
+				}
+			}
+			finally
+			{
+				try
+				{
+					if (System.IO.File.Exists(text2))
+					{
+						System.IO.File.Delete(text2);
+					}
+				}
+				catch
+				{
+				}
 			}
 			return true;
 		}

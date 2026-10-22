@@ -545,6 +545,19 @@ public sealed class UI
 
 	private bool invMouseLayoutValid;
 
+	/// <summary>Coin row, ammo row and trash slot, for the pointer hit-test.</summary>
+	private Rectangle invMouseCoin;
+
+	private bool invMouseCoinValid;
+
+	private Rectangle invMouseAmmo;
+
+	private bool invMouseAmmoValid;
+
+	private Rectangle invMouseTrash;
+
+	private bool invMouseTrashValid;
+
 	/// <summary>
 	/// On-screen rectangles of the five inventory tabs, recorded while drawing. Clicking a tab
 	/// is the most obvious thing a mouse user will try, and it was the one part of the inventory
@@ -1663,7 +1676,7 @@ public sealed class UI
 		{
 			return;
 		}
-		string code = Terraria.LangOverrides.Code(Lang.LangOption);
+		string code = Terraria.LangOverrides.Code(Terraria.Language.Choice);
 		SpriteFont spriteFont;
 		SpriteFont spriteFont2;
 		SpriteFont spriteFont3;
@@ -5795,20 +5808,46 @@ public sealed class UI
 		{
 			return false;
 		}
-		int num = MouseX - invMouseGrid.X;
-		int num2 = MouseY - invMouseGrid.Y;
-		if (num < 0 || num2 < 0)
+		// The secondary slots first: they sit outside the 10x4 grid, so a check against the grid
+		// cannot accidentally claim them, and before the grid so a point that is somehow in both
+		// resolves to the more specific one.
+		if (invMouseTrashValid && invMouseTrash.Contains(MouseX, MouseY))
+		{
+			inventoryItemX = 9;
+			inventoryItemY = 6;
+			OverGrid = true;
+			return true;
+		}
+		if (invMouseCoinValid && invMouseCoin.Contains(MouseX, MouseY))
+		{
+			int num5 = InventoryGrid.CellIndex(MouseX - invMouseCoin.X, invMouseCell, 4);
+			if (num5 >= 0)
+			{
+				inventoryItemX = (sbyte)(6 + num5);
+				inventoryItemY = 5;
+				OverGrid = true;
+				return true;
+			}
+		}
+		if (invMouseAmmoValid && invMouseAmmo.Contains(MouseX, MouseY))
+		{
+			int num6 = InventoryGrid.CellIndex(MouseX - invMouseAmmo.X, invMouseCell, 4);
+			if (num6 >= 0)
+			{
+				inventoryItemX = (sbyte)(6 + num6);
+				inventoryItemY = 4;
+				OverGrid = true;
+				return true;
+			}
+		}
+		int column;
+		int row;
+		if (!InventoryGrid.TryCell(MouseX, MouseY, invMouseGrid.X, invMouseGrid.Y, invMouseCell, 10, 4, out column, out row))
 		{
 			return false;
 		}
-		int num3 = (int)((float)num / invMouseCell);
-		int num4 = (int)((float)num2 / invMouseCell);
-		if (num3 < 0 || num3 >= 10 || num4 < 0 || num4 >= 4)
-		{
-			return false;
-		}
-		inventoryItemX = (sbyte)num3;
-		inventoryItemY = (sbyte)num4;
+		inventoryItemX = (sbyte)column;
+		inventoryItemY = (sbyte)row;
 		OverGrid = true;
 		return true;
 	}
@@ -9056,8 +9095,21 @@ public sealed class UI
 	{
 		// 10 columns by 4 rows of item slots; the ammo/coin rows and the trash slot sit below.
 		invMouseCell = 52.15f * Main.ScreenMultiplier;
-		invMouseGrid = new Rectangle(itemsSectionX, itemsSectionY, (int)invMouseCell * 10, (int)invMouseCell * 4);
+		invMouseGrid = new Rectangle(itemsSectionX, itemsSectionY,
+			InventoryGrid.CellStart(10, invMouseCell), InventoryGrid.CellStart(4, invMouseCell));
 		invMouseLayoutValid = true;
+		// The secondary slots are drawn from their own formulas; the rectangles are built from the
+		// same numbers here so the pointer can reach them at all. They were previously unreachable
+		// by mouse: only the 10x4 grid was hit-tested, so clicking a coin or the trash did nothing.
+		invMouseTrash = new Rectangle(itemsSectionX + (int)(469f * Main.ScreenMultiplier),
+			itemsSectionY + (int)(312f * Main.ScreenMultiplier), InventoryGrid.CellStart(1, invMouseCell), InventoryGrid.CellStart(1, invMouseCell));
+		invMouseTrashValid = true;
+		invMouseCoin = new Rectangle(itemsSectionX + InventoryGrid.CellStart(6, invMouseCell),
+			itemsSectionY + (int)(260f * Main.ScreenMultiplier), InventoryGrid.CellStart(4, invMouseCell), InventoryGrid.CellStart(1, invMouseCell));
+		invMouseCoinValid = true;
+		invMouseAmmo = new Rectangle(itemsSectionX + InventoryGrid.CellStart(6, invMouseCell),
+			itemsSectionY + (int)(208f * Main.ScreenMultiplier), InventoryGrid.CellStart(4, invMouseCell), InventoryGrid.CellStart(1, invMouseCell));
+		invMouseAmmoValid = true;
 		Vector2 pos = default;
 		Color color = new Color(invAlpha, invAlpha, invAlpha, invAlpha);
 		inventoryScale = 149f / 160f;
@@ -9089,8 +9141,8 @@ public sealed class UI
 		{
 			for (int j = 0; j < 4; j++)
 			{
-				int x = itemsSectionX + (int)((float)i * (52.15f * Main.ScreenMultiplier));
-				int y = itemsSectionY + (int)((float)j * (52.15f * Main.ScreenMultiplier));
+				int x = itemsSectionX + InventoryGrid.CellStart(i, invMouseCell);
+				int y = itemsSectionY + InventoryGrid.CellStart(j, invMouseCell);
 				int num4 = i + j * 10;
 				if (inventoryItemX == i && inventoryItemY == j)
 				{
@@ -9134,7 +9186,7 @@ public sealed class UI
 		DrawStringRC(SmallFont, Lang.InterfaceText[26], itemsSectionX + num5, (int)((float)itemsSectionY + 286f * Main.ScreenMultiplier), Color.White);
 		for (int k = 0; k < 4; k++)
 		{
-			int x2 = (int)((float)(6 + k) * (52.15f * Main.ScreenMultiplier)) + itemsSectionX;
+			int x2 = itemsSectionX + InventoryGrid.CellStart(6 + k, invMouseCell);
 			int y2 = (int)(260f * Main.ScreenMultiplier + (float)itemsSectionY);
 			int num6 = k + 40;
 			if (inventoryItemY == 5 && inventoryItemX - 6 == k)
@@ -9154,7 +9206,7 @@ public sealed class UI
 		DrawStringRC(SmallFont, Lang.InterfaceText[27], itemsSectionX + num5, (int)((float)itemsSectionY + 234f * Main.ScreenMultiplier), Color.White);
 		for (int l = 0; l < 4; l++)
 		{
-			int x3 = (int)((float)(6 + l) * (52.15f * Main.ScreenMultiplier)) + itemsSectionX;
+			int x3 = itemsSectionX + InventoryGrid.CellStart(6 + l, invMouseCell);
 			int y3 = (int)(208f * Main.ScreenMultiplier + (float)itemsSectionY);
 			int num7 = l + 40 + 4;
 			if (ActiveInvSection == InventorySection.ITEMS && inventoryItemY == 4 && inventoryItemX - 6 == l)

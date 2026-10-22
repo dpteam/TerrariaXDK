@@ -14360,21 +14360,17 @@ internal sealed class Lang
 
 	public static void SetLang(int LangSetting)
 	{
-		// A custom language (see <see cref="Language.Custom"/>) has no compiled tables: its whole
-		// text comes from Storage/Lang/<code>.txt, and the built-in English is the fallback for
-		// anything that file does not cover. Filling English is exactly what option 1 does, so the
-		// fill runs with 1 and the option is put back afterwards. Without this, every
-		// `LangOption == N` branch below would find no match and leave the tables empty - which is
-		// a blank UI, not a fallback.
+		// A custom language has no compiled tables: its text comes from Storage/Lang/<code>.txt on
+		// top of English. It is therefore NOT a sixth value here - it is English plus overrides,
+		// and LangOption stays 1.
+		//
+		// This used to set LangOption = 6, which looked tidier and broke the game: every table in
+		// this file ends with a chain of `if (LangOption <= 1) ... else if (LangOption == 2) ...`
+		// and a bare `return null` for anything else. LangOption 6 therefore made ItemName return
+		// null for every item, and picking one up crashed the game in MeasureString.
 		if (LangSetting == Language.Custom)
 		{
-			if (LangOption == Language.Custom)
-			{
-				return;
-			}
-			SetLang(1);
-			LangOption = Language.Custom;
-			return;
+			LangSetting = 1;
 		}
 		if (LangOption != LangSetting)
 		{
