@@ -557,7 +557,38 @@ public struct Item
 			}
 			if (num == -1 || num == -2 || num == -3)
 			{
-				if (Array.BinarySearch(EntityID.ToolItems, (EntityID.ItemID)Type) >= 0)
+				if (Terraria.Mods.ModItems.IsModItem(Type))
+				{
+					// A mod item is in none of the vanilla id lists below, so every reforge fell
+					// through to `return false`: the Goblin refused to touch any mod weapon, and the
+					// inventory greyed it out as unreforgeable. The item already says what it is -
+					// the definition sets IsMelee, IsRanged, IsMagic or IsAccessory - so the pool is
+					// chosen from that instead of from a list of ids this build ships.
+					//
+					// An item with none of those flags is not a weapon and not an accessory, so it is
+					// still refused: that is the same answer vanilla gives a block of dirt.
+					if (IsAccessory)
+					{
+						num = Main.Rand.Next(62, 81);
+					}
+					else if (IsMagic)
+					{
+						num = (int)MagicPrefixs[Main.Rand.Next(MagicPrefixs.Length)];
+					}
+					else if (IsRanged)
+					{
+						num = (int)GunPrefixs[Main.Rand.Next(GunPrefixs.Length)];
+					}
+					else if (IsMelee)
+					{
+						num = (int)ToolPrefixs[Main.Rand.Next(ToolPrefixs.Length)];
+					}
+					else
+					{
+						return false;
+					}
+				}
+				else if (Array.BinarySearch(EntityID.ToolItems, (EntityID.ItemID)Type) >= 0)
 				{
 					num = (int)ToolPrefixs[Main.Rand.Next(ToolPrefixs.Length)];
 				}

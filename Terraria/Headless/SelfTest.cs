@@ -15205,6 +15205,58 @@ internal static class SelfTest
 			{
 				return Fail("a real prefix was stored as " + sword.PrefixType);
 			}
+			// --- a mod item can be reforged, and a non-weapon still cannot ------------
+			// Every prefix pool is a fixed list of vanilla ids, so a mod weapon fell through all
+			// of them and `SetPrefix(-3)` returned false: the Goblin greyed it out and refused to
+			// touch it. The pool now comes from the item's own flags.
+			Item modWeapon = default(Item);
+			modWeapon.Type = (short)(Terraria.Mods.ModItems.IdBase + 11);
+			modWeapon.NetID = modWeapon.Type;
+			modWeapon.Stack = 1;
+			modWeapon.MaxStack = 1;
+			modWeapon.IsMelee = true;
+			if (!modWeapon.SetPrefix(-3))
+			{
+				return Fail("a mod melee weapon was reported as unreforgeable");
+			}
+			int before2 = modWeapon.PrefixType;
+			if (!modWeapon.SetPrefix(-2))
+			{
+				return Fail("a mod melee weapon could not be reforged");
+			}
+			// -2 must change the prefix, which is what the reforge loop relies on to terminate.
+			if (modWeapon.PrefixType == before2)
+			{
+				return Fail("a reforge left the same prefix " + before2 + " on a mod weapon");
+			}
+			if (modWeapon.PrefixType >= (int)EntityID.PrefixID.NUM_PREFIXES)
+			{
+				return Fail("a reforge produced prefix " + modWeapon.PrefixType + ", which has no name");
+			}
+			// A mod item that is neither weapon nor accessory is not reforged, like vanilla dirt.
+			Item modBlock = default(Item);
+			modBlock.Type = (short)(Terraria.Mods.ModItems.IdBase + 12);
+			modBlock.NetID = modBlock.Type;
+			modBlock.Stack = 1;
+			if (modBlock.SetPrefix(-3))
+			{
+				return Fail("a mod item that is not a weapon or accessory was reported as reforged");
+			}
+			// And an accessory takes the accessory pool, which is where a mod amulet belongs.
+			Item modAccessory = default(Item);
+			modAccessory.Type = (short)(Terraria.Mods.ModItems.IdBase + 13);
+			modAccessory.NetID = modAccessory.Type;
+			modAccessory.Stack = 1;
+			modAccessory.IsAccessory = true;
+			if (!modAccessory.SetPrefix(-2))
+			{
+				return Fail("a mod accessory could not be reforged");
+			}
+			if (modAccessory.PrefixType < 62 || modAccessory.PrefixType > 80)
+			{
+				return Fail("a mod accessory got prefix " + modAccessory.PrefixType
+					+ ", which is not in the accessory range 62..80");
+			}
 			return true;
 		}
 		catch (Exception ex)
