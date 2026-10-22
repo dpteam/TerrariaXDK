@@ -1418,6 +1418,12 @@ public struct Item
 		if (Terraria.Mods.ModItems.IsModItem(ItemType))
 		{
 			Terraria.Mods.ModItems.Apply(ref this, ItemType);
+			// Overrides apply here too, after the definition. The `return` that used to be here
+			// skipped them, so `Context.Item("Some Mod's Sword")` - which resolves through the
+			// same name table and returns a real handle - stored an override that was never read.
+			// A mod that adjusted another mod's item got a silent no-op, which is the worst kind
+			// of "it works": the handle was not null and nothing reported a problem.
+			this = Terraria.Mods.ItemOverrides.Apply(this);
 			return;
 		}
 		switch ((EntityID.ItemID)ItemType)

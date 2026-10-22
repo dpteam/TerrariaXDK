@@ -2415,6 +2415,26 @@ internal static class SelfTest
 			{
 				return Fail("a bool field did not apply");
 			}
+			// --- an override on a mod item applies too -----------------------------
+			// `Context.Item(name)` resolves through the same name table as everything else, so it
+			// happily returns a handle for a mod item. SetDefaults used to `return` right after the
+			// definition, skipping ItemOverrides.Apply, so every such override was stored and
+			// never read - a handle that is not null, no error, no effect.
+			Terraria.Mods.ItemOverrides.Set(sword.Type, "damage", "77");
+			item = default(Item);
+			item.SetDefaults(sword.Type);
+			if (item.Damage != 77)
+			{
+				return Fail("an override on a mod item was ignored: damage " + item.Damage
+					+ " (the definition says 33)");
+			}
+			Terraria.Mods.ItemOverrides.Clear();
+			item = default(Item);
+			item.SetDefaults(sword.Type);
+			if (item.Damage != 33)
+			{
+				return Fail("the definition did not come back after the override was cleared: " + item.Damage);
+			}
 			// The name path: never null, because it reaches MeasureString on pickup.
 			string name = Lang.ItemName(sword.Type);
 			if (name != "Test Sword")
