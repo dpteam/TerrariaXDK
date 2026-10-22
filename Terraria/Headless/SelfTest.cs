@@ -103,6 +103,7 @@ internal static class SelfTest
 		RunCheck("creation flow back", CheckCreateFlowBack);
 		RunCheck("typed characters", CheckTypedCharacters);
 		RunCheck("relay client", CheckRelayClient);
+		RunCheck("upnp", CheckUPnP);
 		RunCheck("whitelist", CheckWhitelist);
 		RunCheck("relay session", CheckRelaySession);
 		RunCheck("relay live", CheckRelayLive);
@@ -1684,6 +1685,190 @@ internal static class SelfTest
 			catch
 			{
 			}
+		}
+	}
+
+	// --- UPnP ---------------------------------------------------------------
+
+	/// <summary>
+	/// Port forwarding over UPnP, against a stub gateway.
+	///
+	/// A router is the one thing a test run cannot have, so the whole exchange is driven against
+	/// a stub that speaks the same three protocols: SSDP discovery, the device description and
+	/// SOAP control. That covers the parts that actually break in the wild - the field names
+	/// routers are strict about, relative control URLs, a router that answers with a fault, and
+	/// the case where the port is already forwarded to a different machine.
+	/// </summary>
+	private static bool CheckUPnP()
+	{
+		try
+		{
+			// --- pure parsing -------------------------------------------------
+			string text = "HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age=120\r\nlocation: http://10.0.0.1:5000/rootDesc.xml\r\nST: upnp:rootdevice\r\n\r\n";
+			if (Terraria.Net.UPnP.FindLocation(text) != "http://10.0.0.1:5000/rootDesc.xml")
+			{
+				return Fail("the SSDP reply's location was not found");
+			}
+			if (Terraria.Net.UPnP.FindLocation("HTTP/1.1 200 OK\r\n\r\n") != null)
+			{
+				return Fail("an SSDP reply without a location was accepted");
+			}
+			string text2 = "<root><device><deviceList><device><serviceList><service>"
+				+ "<serviceType>urn:schemas-upnp-org:service:WANIPConnection:1</serviceType>"
+				+ "<controlURL>/ctl/IPConn</controlURL>"
+				+ "</service></serviceList></device></deviceList></device></root>";
+			Terraria.Net.UPnP.Gateway gateway = Terraria.Net.UPnP.ParseDescription(text2, "http://10.0.0.1:5000/rootDesc.xml");
+			if (gateway == null)
+			{
+				return Fail("the device description was not understood");
+			}
+			if (gateway.ControlUrl != "http://10.0.0.1:5000/ctl/IPConn")
+			{
+				return Fail("a relative control URL was not resolved: " + gateway.ControlUrl);
+			}
+			// The PPP variant is the only service some routers expose.
+			string text3 = text2.Replace("WANIPConnection", "WANPPPConnection");
+			Terraria.Net.UPnP.Gateway gateway2 = Terraria.Net.UPnP.ParseDescription(text3, "http://10.0.0.1:5000/rootDesc.xml");
+			if (gateway2 == null || gateway2.ServiceType.IndexOf("WANPPPConnection", StringComparison.Ordinal) < 0)
+			{
+				return Fail("a WANPPPConnection gateway was not recognised");
+			}
+			// A description with no WAN service is "not a router", not a crash.
+			string text4 = "<root><device><serviceList><service><serviceType>urn:schemas-upnp-org:service:Layer3Forwarding:1</serviceType><controlURL>/x</controlURL></service></serviceList></device></root>";
+			if (Terraria.Net.UPnP.ParseDescription(text4, "http://10.0.0.1:5000/rootDesc.xml") != null)
+			{
+				return Fail("a description without a WAN service produced a gateway");
+			}
+			if (Terraria.Net.UPnP.ParseDescription("not xml at all", "http://10.0.0.1/") != null)
+			{
+				return Fail("garbage was accepted as a device description");
+			}
+			string text5 = Terraria.Net.UPnP.BuildAddPortMapping("urn:schemas-upnp-org:service:WANIPConnection:1", 7777, 7777, "192.168.1.5", "TerrariaXDK", 0);
+			string[] array = new string[9]
+			{
+				"AddPortMapping", "<NewExternalPort>7777</NewExternalPort>", "<NewProtocol>TCP</NewProtocol>",
+				"<NewInternalPort>7777</NewInternalPort>", "<NewInternalClient>192.168.1.5</NewInternalClient>",
+				"<NewEnabled>1</NewEnabled>", "<NewLeaseDuration>0</NewLeaseDuration>",
+				"<NewPortMappingDescription>TerrariaXDK</NewPortMappingDescription>", "<NewRemoteHost></NewRemoteHost>"
+			};
+			for (int i = 0; i < array.Length; i++)
+			{
+				if (!text5.Contains(array[i]))
+				{
+					return Fail("the AddPortMapping body is missing " + array[i]);
+				}
+			}
+			int num;
+			string text6;
+			if (!Terraria.Net.UPnP.IsFault("<s:Envelope><s:Body><s:Fault><detail><UPnPError><errorCode>718</errorCode><errorDescription>ConflictInMappingEntry</errorDescription></UPnPError></detail></s:Fault></s:Body></s:Envelope>", out num, out text6))
+			{
+				return Fail("a SOAP fault was not recognised");
+			}
+			if (num != 718 || text6 != "ConflictInMappingEntry")
+			{
+				return Fail("the fault code was misread: " + num + " " + text6);
+			}
+			if (Terraria.Net.UPnP.IsFault("<s:Envelope><s:Body><u:AddPortMappingResponse/></s:Body></s:Envelope>", out num, out text6))
+			{
+				return Fail("a success reply was read as a fault");
+			}
+			if (Terraria.Net.UPnP.ParseExternalAddress("<s:Envelope><s:Body><u:GetExternalIPAddressResponse><NewExternalIPAddress>203.0.113.7</NewExternalIPAddress></u:GetExternalIPAddressResponse></s:Body></s:Envelope>") != "203.0.113.7")
+			{
+				return Fail("the external address was not parsed");
+			}
+			if (Terraria.Net.UPnP.ParseExternalAddress("<NewExternalIPAddress>0.0.0.0</NewExternalIPAddress>") != null)
+			{
+				return Fail("0.0.0.0 was reported as a real external address");
+			}
+
+			// --- the whole exchange against a stub gateway --------------------
+			StubGateway stubGateway = new StubGateway();
+			try
+			{
+				string text7;
+				Terraria.Net.UPnP.Gateway gateway3 = Terraria.Net.UPnP.Discover(2000, out text7,
+					"127.0.0.1", stubGateway.SsdpPort);
+				if (gateway3 == null)
+				{
+					return Fail("discovery did not find the stub gateway: " + text7);
+				}
+				string text8;
+				bool flag2;
+				if (!Terraria.Net.UPnP.Map(gateway3, 7777, "192.168.1.5", out flag2, out text8))
+				{
+					return Fail("mapping through the stub gateway failed: " + text8);
+				}
+				if (!flag2)
+				{
+					return Fail("a mapping this call created was not reported as ours");
+				}
+				if (stubGateway.LastMapping == null || !stubGateway.LastMapping.Contains("<NewExternalPort>7777</NewExternalPort>"))
+				{
+					return Fail("the gateway did not receive the mapping");
+				}
+				if (Terraria.Net.UPnP.ExternalAddress(gateway3, out text8) != "203.0.113.7")
+				{
+					return Fail("the external address did not come back: " + text8);
+				}
+				if (!Terraria.Net.UPnP.Unmap(gateway3, 7777, out text8) || !stubGateway.SawDelete)
+				{
+					return Fail("the mapping was not removed: " + text8);
+				}
+				// A fault arrives as HTTP 500 with a body, which must not be mistaken for a
+				// transport failure - routers do this and it is the difference between "denied"
+				// and "unreachable".
+				stubGateway.FaultOnAdd = 501;
+				if (Terraria.Net.UPnP.Map(gateway3, 7777, "192.168.1.5", out flag2, out text8))
+				{
+					return Fail("a router that refused the mapping was reported as success");
+				}
+				if (text8 == null || text8.IndexOf("501", StringComparison.Ordinal) < 0)
+				{
+					return Fail("the refusal did not name the router's error code: " + text8);
+				}
+				// 718: the port is taken. It counts as open only if it points at this machine,
+				// and a mapping found there is not ours to delete later.
+				stubGateway.FaultOnAdd = 718;
+				stubGateway.ExistingClient = "192.168.1.5";
+				if (!Terraria.Net.UPnP.Map(gateway3, 7777, "192.168.1.5", out flag2, out text8))
+				{
+					return Fail("an existing mapping to this machine was not accepted: " + text8);
+				}
+				if (flag2)
+				{
+					return Fail("an existing mapping was reported as one this run created");
+				}
+				stubGateway.ExistingClient = "192.168.1.9";
+				if (Terraria.Net.UPnP.Map(gateway3, 7777, "192.168.1.5", out flag2, out text8))
+				{
+					return Fail("a port forwarded to another machine was reported as open");
+				}
+				if (text8 == null || text8.IndexOf("192.168.1.9", StringComparison.Ordinal) < 0)
+				{
+					return Fail("the conflict did not say where the port actually goes: " + text8);
+				}
+				stubGateway.FaultOnAdd = 0;
+				stubGateway.ExistingClient = null;
+			}
+			finally
+			{
+				stubGateway.Stop();
+			}
+			// Nothing listening: a clear "no gateway", not a hang or a crash.
+			string text9;
+			if (Terraria.Net.UPnP.Discover(200, out text9, "127.0.0.1", 9) != null)
+			{
+				return Fail("a gateway was found where nothing is listening");
+			}
+			if (text9 == null || text9.Length == 0)
+			{
+				return Fail("a failed discovery gave no reason");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("UPnP check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 
@@ -9378,6 +9563,293 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("relay client check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	/// <summary>
+	/// A stub internet gateway: answers SSDP, serves a device description and accepts SOAP.
+	///
+	/// Written against the protocol rather than against <see cref="Terraria.Net.UPnP"/>: it
+	/// reads the SOAP body it is sent and builds the reply from the action name, so a client that
+	/// sends the wrong field names fails here instead of passing because both sides agreed.
+	/// </summary>
+	private sealed class StubGateway
+	{
+		private readonly System.Net.Sockets.TcpListener _listener;
+
+		private readonly System.Net.Sockets.UdpClient _ssdp;
+
+		private readonly System.Threading.Thread _httpThread;
+
+		private readonly System.Threading.Thread _ssdpThread;
+
+		private volatile bool _stopping;
+
+		/// <summary>When non-zero, AddPortMapping answers with this UPnP error code.</summary>
+		public int FaultOnAdd;
+
+		/// <summary>Internal client reported by GetSpecificPortMappingEntry.</summary>
+		public string ExistingClient;
+
+		public bool SawDelete;
+
+		public string LastMapping;
+
+		public int SsdpPort => ((System.Net.IPEndPoint)_ssdp.Client.LocalEndPoint).Port;
+
+		public int HttpPort => ((System.Net.IPEndPoint)_listener.LocalEndpoint).Port;
+
+		public StubGateway()
+		{
+			_listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+			_listener.Start();
+			_ssdp = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
+			_ssdp.Client.ReceiveTimeout = 500;
+			_httpThread = new System.Threading.Thread(HttpLoop)
+			{
+				IsBackground = true
+			};
+			_httpThread.Start();
+			_ssdpThread = new System.Threading.Thread(SsdpLoop)
+			{
+				IsBackground = true
+			};
+			_ssdpThread.Start();
+		}
+
+		private void SsdpLoop()
+		{
+			while (!_stopping)
+			{
+				try
+				{
+					System.Net.IPEndPoint remote = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 0);
+					byte[] array = _ssdp.Receive(ref remote);
+					string text = Encoding.ASCII.GetString(array);
+					if (text.IndexOf("M-SEARCH", StringComparison.Ordinal) < 0)
+					{
+						continue;
+					}
+					string text2 = "HTTP/1.1 200 OK\r\n"
+						+ "CACHE-CONTROL: max-age=120\r\n"
+						+ "EXT:\r\n"
+						+ "LOCATION: http://127.0.0.1:" + HttpPort.ToString() + "/rootDesc.xml\r\n"
+						+ "SERVER: Stub/1.0 UPnP/1.1\r\n"
+						+ "ST: urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n"
+						+ "USN: uuid:stub::urn:schemas-upnp-org:device:InternetGatewayDevice:1\r\n"
+						+ "\r\n";
+					byte[] bytes = Encoding.ASCII.GetBytes(text2);
+					_ssdp.Send(bytes, bytes.Length, remote);
+				}
+				catch (Exception)
+				{
+					if (_stopping)
+					{
+						return;
+					}
+				}
+			}
+		}
+
+		private void HttpLoop()
+		{
+			while (!_stopping)
+			{
+				try
+				{
+					using System.Net.Sockets.TcpClient tcpClient = _listener.AcceptTcpClient();
+					tcpClient.ReceiveTimeout = 4000;
+					System.Net.Sockets.NetworkStream stream = tcpClient.GetStream();
+					string text = ReadRequest(stream, out int contentLength);
+					if (text.StartsWith("GET ", StringComparison.Ordinal))
+					{
+						Respond(stream, 200, Description());
+						continue;
+					}
+					byte[] array = new byte[contentLength];
+					int num = 0;
+					while (num < contentLength)
+					{
+						int num2 = stream.Read(array, num, contentLength - num);
+						if (num2 <= 0)
+						{
+							break;
+						}
+						num += num2;
+					}
+					Respond(stream, 0, Handle(text, Encoding.UTF8.GetString(array, 0, num)));
+				}
+				catch (Exception)
+				{
+					if (_stopping)
+					{
+						return;
+					}
+				}
+			}
+		}
+
+		/// <summary>Reads the request line and headers; returns the header block as one string.</summary>
+		private static string ReadRequest(System.Net.Sockets.NetworkStream Stream, out int ContentLength)
+		{
+			ContentLength = 0;
+			StringBuilder stringBuilder = new StringBuilder();
+			while (true)
+			{
+				int num = Stream.ReadByte();
+				if (num < 0)
+				{
+					break;
+				}
+				stringBuilder.Append((char)num);
+				if (stringBuilder.Length >= 4 && stringBuilder[stringBuilder.Length - 4] == '\r'
+					&& stringBuilder[stringBuilder.Length - 3] == '\n'
+					&& stringBuilder[stringBuilder.Length - 2] == '\r'
+					&& stringBuilder[stringBuilder.Length - 1] == '\n')
+				{
+					break;
+				}
+			}
+			string text = stringBuilder.ToString();
+			string[] array = text.Split('\n');
+			for (int i = 0; i < array.Length; i++)
+			{
+				string text2 = array[i].Trim();
+				if (text2.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
+				{
+					int.TryParse(text2.Substring(15).Trim(), out ContentLength);
+				}
+			}
+			return text;
+		}
+
+		private string Description()
+		{
+			return "<?xml version=\"1.0\"?><root xmlns=\"urn:schemas-upnp-org:device-1-0\">"
+				+ "<specVersion><major>1</major><minor>0</minor></specVersion>"
+				+ "<device><deviceType>urn:schemas-upnp-org:device:InternetGatewayDevice:1</deviceType>"
+				+ "<deviceList><device><deviceType>urn:schemas-upnp-org:device:WANDevice:1</deviceType>"
+				+ "<deviceList><device><deviceType>urn:schemas-upnp-org:device:WANConnectionDevice:1</deviceType>"
+				+ "<serviceList><service>"
+				+ "<serviceType>urn:schemas-upnp-org:service:WANIPConnection:1</serviceType>"
+				+ "<serviceId>urn:upnp-org:serviceId:WANIPConn1</serviceId>"
+				+ "<controlURL>/ctl/IPConn</controlURL>"
+				+ "<eventSubURL>/evt/IPConn</eventSubURL>"
+				+ "<SCPDURL>/WANIPCn.xml</SCPDURL>"
+				+ "</service></serviceList>"
+				+ "</device></deviceList></device></deviceList></device></root>";
+		}
+
+		/// <summary>Builds the reply from the SOAPAction header. Status 0 means "let the body decide".</summary>
+		private string Handle(string headers, string body)
+		{
+			string text = "AddPortMapping";
+			string[] array = headers.Split('\n');
+			for (int i = 0; i < array.Length; i++)
+			{
+				string text2 = array[i].Trim();
+				if (!text2.StartsWith("SOAPAction:", StringComparison.OrdinalIgnoreCase))
+				{
+					continue;
+				}
+				int num = text2.LastIndexOf('#');
+				if (num >= 0)
+				{
+					text = text2.Substring(num + 1).Trim().Trim('"');
+				}
+			}
+			if (text == "AddPortMapping")
+			{
+				LastMapping = body;
+				if (FaultOnAdd != 0)
+				{
+					return Fault(FaultOnAdd, (FaultOnAdd == 718) ? "ConflictInMappingEntry" : "ActionFailed");
+				}
+				return "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body>"
+					+ "<u:AddPortMappingResponse xmlns:u=\"urn:schemas-upnp-org:service:WANIPConnection:1\"/>"
+					+ "</s:Body></s:Envelope>";
+			}
+			if (text == "DeletePortMapping")
+			{
+				SawDelete = true;
+				return "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body>"
+					+ "<u:DeletePortMappingResponse xmlns:u=\"urn:schemas-upnp-org:service:WANIPConnection:1\"/>"
+					+ "</s:Body></s:Envelope>";
+			}
+			if (text == "GetSpecificPortMappingEntry")
+			{
+				if (ExistingClient == null)
+				{
+					return Fault(714, "NoSuchEntryInArray");
+				}
+				return "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body>"
+					+ "<u:GetSpecificPortMappingEntryResponse xmlns:u=\"urn:schemas-upnp-org:service:WANIPConnection:1\">"
+					+ "<NewInternalPort>7777</NewInternalPort>"
+					+ "<NewInternalClient>" + ExistingClient + "</NewInternalClient>"
+					+ "<NewEnabled>1</NewEnabled>"
+					+ "<NewPortMappingDescription>TerrariaXDK</NewPortMappingDescription>"
+					+ "<NewLeaseDuration>0</NewLeaseDuration>"
+					+ "</u:GetSpecificPortMappingEntryResponse></s:Body></s:Envelope>";
+			}
+			if (text == "GetExternalIPAddress")
+			{
+				return "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body>"
+					+ "<u:GetExternalIPAddressResponse xmlns:u=\"urn:schemas-upnp-org:service:WANIPConnection:1\">"
+					+ "<NewExternalIPAddress>203.0.113.7</NewExternalIPAddress>"
+					+ "</u:GetExternalIPAddressResponse></s:Body></s:Envelope>";
+			}
+			return Fault(401, "InvalidAction");
+		}
+
+		private static string Fault(int code, string description)
+		{
+			return "<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\"><s:Body><s:Fault>"
+				+ "<faultcode>s:Client</faultcode><faultstring>UPnPError</faultstring><detail>"
+				+ "<UPnPError xmlns=\"urn:schemas-upnp-org:control-1-0\">"
+				+ "<errorCode>" + code.ToString() + "</errorCode>"
+				+ "<errorDescription>" + description + "</errorDescription>"
+				+ "</UPnPError></detail></s:Fault></s:Body></s:Envelope>";
+		}
+
+		/// <summary>
+		/// Writes the reply. <paramref name="Status"/> 0 means "faults go out as 500, the rest as
+		/// 200", which is what real routers do.
+		/// </summary>
+		private static void Respond(System.Net.Sockets.NetworkStream Stream, int Status, string Body)
+		{
+			if (Status == 0)
+			{
+				Status = (Body.IndexOf("s:Fault", StringComparison.Ordinal) >= 0) ? 500 : 200;
+			}
+			byte[] bytes = Encoding.UTF8.GetBytes(Body);
+			string text = "HTTP/1.1 " + Status.ToString() + " " + ((Status == 200) ? "OK" : "Internal Server Error") + "\r\n"
+				+ "Content-Type: text/xml; charset=\"utf-8\"\r\n"
+				+ "Content-Length: " + bytes.Length.ToString() + "\r\n"
+				+ "Connection: close\r\n"
+				+ "\r\n";
+			byte[] bytes2 = Encoding.ASCII.GetBytes(text);
+			Stream.Write(bytes2, 0, bytes2.Length);
+			Stream.Write(bytes, 0, bytes.Length);
+			Stream.Flush();
+		}
+
+		public void Stop()
+		{
+			_stopping = true;
+			try
+			{
+				_listener.Stop();
+			}
+			catch
+			{
+			}
+			try
+			{
+				_ssdp.Close();
+			}
+			catch
+			{
+			}
 		}
 	}
 

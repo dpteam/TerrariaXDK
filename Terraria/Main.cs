@@ -749,6 +749,7 @@ public sealed class Main : Game
 		Terraria.Net.NetworkConfig.Password = settings.Get("Network", "Password");
 		Terraria.Net.NetworkConfig.PublicAddress = settings.Get("Network", "PublicAddress");
 		Terraria.Net.NetworkConfig.Whitelist = settings.Get("Network", "Whitelist").ToLower().Equals("true");
+		Terraria.Net.NetworkConfig.UseUPnP = settings.Get("Network", "UPnP").ToLower().Equals("true");
 		Terraria.Net.NetworkConfig.AllowRelay = settings.Get("Network", "AllowRelay").ToLower().Equals("true");
 		Terraria.Net.NetworkConfig.RelayServer = settings.Get("Network", "RelayServer");
 		int relayPort;
@@ -763,6 +764,7 @@ public sealed class Main : Game
 		settings.Set("Network", "PublishToMaster", Terraria.Net.MasterServerClient.Publish ? "True" : "False", "List this world on the master server while hosting.\n; Off by default: publishing your address is a choice.");
 		settings.Set("Network", "PublicAddress", Terraria.Net.NetworkConfig.PublicAddress, "Address advertised to the master server, e.g. 'myserver.example.com'.\n; Leave empty to let the master use the address it sees.");
 		settings.Set("Network", "Whitelist", Terraria.Net.NetworkConfig.Whitelist ? "True" : "False", "Only players listed in Storage/Config/whitelist.txt may join.\n; An empty list while enabled refuses everybody - that is what a whitelist is.");
+		settings.Set("Network", "UPnP", Terraria.Net.NetworkConfig.UseUPnP ? "True" : "False", "Ask the router to forward the game port over UPnP while hosting.\n; Without it, players outside your network can only join through the relay or a manual\n; port forward. Only the game's own port is touched, and the rule is removed when you stop.");
 		Terraria.Net.MasterServerClient.Save(settings);
 		settings.Set("Network", "Motd", "", "Message shown to every player who joins this host.");
 		settings.Set("Network", "Rules", "", "Rules shown to every player who joins this host.");

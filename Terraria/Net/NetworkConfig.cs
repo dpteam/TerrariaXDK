@@ -79,6 +79,16 @@ internal static class NetworkConfig
 	/// </summary>
 	public static string RelayRoom = string.Empty;
 
+	/// <summary>
+	/// Ask the router to forward the game port over UPnP (<c>[Network] UPnP</c>).
+	///
+	/// On by default because it is what makes hosting work without the player learning what a
+	/// port is, and it only ever touches the game's own port. Off is a legitimate choice for
+	/// people who do not want the game talking to their router at all - and the port still works
+	/// if it was forwarded by hand.
+	/// </summary>
+	public static bool UseUPnP = true;
+
 	/// <summary>Parses "host", "host:port" or "[ipv6]:port".</summary>
 	public static bool TryParseAddress(string text, out string host, out int port)
 	{

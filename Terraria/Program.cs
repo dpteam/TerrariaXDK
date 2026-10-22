@@ -59,6 +59,18 @@ internal static class Program
 					Environment.ExitCode = ConvertTConfig(args, i + 1);
 					return;
 				}
+				if (text == "--upnp")
+				{
+					// Answers "will my router open the port by itself", which is the question
+					// behind "why can nobody join me". Read-only: it reports, it changes nothing.
+					int upnpPort = 7777;
+					if (i + 1 < args.Length)
+					{
+						int.TryParse(args[i + 1], out upnpPort);
+					}
+					Environment.ExitCode = ProbeUPnP(upnpPort);
+					return;
+				}
 			}
 		}
 		InitLogger();
@@ -215,6 +227,47 @@ internal static class Program
 		}
 		Console.WriteLine("Build it with: dotnet build \"" + result.ProjectFile + "\"");
 		Console.WriteLine("Then copy the DLL into Storage/Mods/" + Path.GetFileNameWithoutExtension(result.ProjectFile) + "/");
+		return 0;
+	}
+
+	/// <summary>
+	/// <c>--upnp [port]</c>: reports what the router says about the game port and returns an exit
+	/// code. Read-only on purpose - it never creates or removes a mapping, so it is safe to run
+	/// on a machine whose port was forwarded by hand.
+	/// </summary>
+	private static int ProbeUPnP(int port)
+	{
+		Terraria.Storage.AppPaths.Headless = true;
+		string error;
+		Console.WriteLine("Looking for a UPnP gateway (2 s)...");
+		Terraria.Net.UPnP.Gateway gateway = Terraria.Net.UPnP.Discover(2000, out error);
+		if (gateway == null)
+		{
+			Console.WriteLine("No gateway: " + error);
+			Console.WriteLine("The router either has UPnP switched off or does not have it. Without it,");
+			Console.WriteLine("a world can still be hosted, but players outside your network need either a");
+			Console.WriteLine("manual port forward or the relay ([Network] AllowRelay=True).");
+			return 1;
+		}
+		Console.WriteLine("Gateway  : " + gateway.ControlUrl);
+		Console.WriteLine("Service  : " + gateway.ServiceType);
+		string text = Terraria.Net.UPnP.LocalAddressFor(gateway.Host);
+		Console.WriteLine("This host: " + (text ?? "(unknown)"));
+		string text2 = Terraria.Net.UPnP.ExternalAddress(gateway, out error);
+		Console.WriteLine("External : " + (text2 ?? "(the router did not say: " + error + ")"));
+		string text3 = Terraria.Net.UPnP.DescribeMapping(gateway, port, out error);
+		Console.WriteLine("Port " + port + " : " + (text3 ?? "not forwarded (" + error + ")"));
+		if (text3 != null && text != null && text3 == text)
+		{
+			Console.WriteLine("This machine can be reached directly on port " + port + ".");
+			return 0;
+		}
+		if (text3 != null)
+		{
+			Console.WriteLine("Port " + port + " goes to " + text3 + ", not to this machine.");
+			return 1;
+		}
+		Console.WriteLine("Hosting will ask the router to open it, and fall back to the relay if refused.");
 		return 0;
 	}
 

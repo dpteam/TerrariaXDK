@@ -233,6 +233,10 @@ internal sealed class TcpPeer : IPeerTransport
 			Name = "TerrariaXDK.Discovery"
 		};
 		thread.Start();
+		// Ask the router to forward this port, so the world is reachable directly. Runs in the
+		// background: a router that never answers must not delay the host. If it fails, the
+		// relay is the fallback and the reason is in the log.
+		PortForwarder.Start(port);
 		// Optional: also make this world reachable through the relay, for hosts that cannot be
 		// reached directly at all. Opt-in ([Network] AllowRelay), because a relay costs a hop of
 		// latency and somebody else's bandwidth.
@@ -1237,6 +1241,9 @@ internal sealed class TcpPeer : IPeerTransport
 			// stop waiting for a host that has left.
 			RelayLink.Stop();
 			NetworkConfig.RelayRoom = string.Empty;
+			// Take the router rule back out: a mapping left behind outlives the game and is a
+			// hole nobody remembers opening.
+			PortForwarder.Stop();
 		}
 		try
 		{
