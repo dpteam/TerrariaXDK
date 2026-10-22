@@ -987,6 +987,12 @@ public sealed class UI
 
 	private short menuTop = 250;
 
+	/// <summary>
+	/// Wheel notches collected by <see cref="UpdateMenu"/> this frame, for the list that is on
+	/// screen. Positive is "up" / "previous".
+	/// </summary>
+	private int menuWheelSteps;
+
 	private short menuLeft = 480;
 
 	public bool inputTextEnter;
@@ -2749,6 +2755,17 @@ public sealed class UI
 		menuLeft = (short)((CurrentView != null) ? (CurrentView.ViewWidth >> 1) : (Main.ResolutionWidth / 2));
 		menuSpace = 80;
 		showPlayer = -1;
+		// The wheel belongs to whatever list is on screen. Draining it here is not cosmetic: the
+		// counter is shared with the hotbar, so a scroll over a character list used to pile up and
+		// then jump the hotbar by that many slots the moment the world loaded. Menus that scroll
+		// read `menuWheelSteps`; the rest simply drop it.
+		//
+		// Two screens read the wheel themselves and must be left alone: the map (zoom) and the
+		// cheat list (its own scrolling). Draining for them would silently disable both.
+		bool wheelOwner = CurMenuType != MenuType.NONE
+			&& CurMenuMode != MenuMode.MAP
+			&& CurMenuMode != MenuMode.CHEATS;
+		menuWheelSteps = wheelOwner ? Terraria.Input.KeyboardMouseInput.ConsumeWheelSteps() : 0;
 		for (int i = 0; i < 14; i++)
 		{
 			noFocus[i] = false;
@@ -3286,6 +3303,10 @@ public sealed class UI
 		}
 		else if (CurMenuMode == MenuMode.MODS)
 		{
+			if (menuWheelSteps != 0)
+			{
+				Terraria.Mods.ModMenu.Scroll(-menuWheelSteps);
+			}
 			if (Terraria.Mods.ModMenu.Update())
 			{
 				PrevMenu();
@@ -3474,6 +3495,14 @@ public sealed class UI
 				uiY = (short)(numRows - 1);
 			}
 			charScroll = SaveSlots.ClampScroll(charScroll, uiY, charVisible, numRows);
+			// Wheel over the list moves the cursor a row at a time, the same as the stick. Without
+			// this a list longer than the window could not be reached with a mouse at all: the rows
+			// past the window are not drawn, so there is nothing to click.
+			if (menuWheelSteps != 0 && numRows > 0)
+			{
+				uiY = (short)SaveSlots.Move(uiY, -menuWheelSteps, numRows);
+				charScroll = SaveSlots.ClampScroll(charScroll, uiY, charVisible, numRows);
+			}
 			for (int i = 0; i < charVisible; i++)
 			{
 				int num = charScroll + i;
@@ -3698,6 +3727,13 @@ public sealed class UI
 		}
 		else if (CurMenuMode == MenuMode.WORLD_SELECT)
 		{
+			// Wheel scrolls the list, one row per notch. The stick path is UpdateCursor(dx, dy);
+			// this is the same call with the wheel's direction, so both devices end up in the same
+			// place instead of the wheel having its own idea of what "down" means.
+			if (menuWheelSteps != 0)
+			{
+				WorldSelect.UpdateCursor(0, -menuWheelSteps);
+			}
 			WorldSelect.Update();
 		}
 		else if (CurMenuMode == MenuMode.GAME_MODE)

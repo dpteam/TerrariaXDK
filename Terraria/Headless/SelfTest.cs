@@ -2866,6 +2866,25 @@ internal static class SelfTest
 			{
 				return Fail("the converted folder is not listed as a mod");
 			}
+			// Wheel scrolling clamps instead of wrapping: a mouse wheel that jumps from the last
+			// row to the first is a list you cannot aim at. (The stick wraps, because a stick can
+			// only be pushed a little at a time; the wheel can jump the whole list in one flick.)
+			Terraria.Mods.ModMenu.SelectForTests(0);
+			Terraria.Mods.ModMenu.Scroll(1);
+			if (Terraria.Mods.ModMenu.SelectedIndexForTests != 1)
+			{
+				return Fail("the wheel did not move the selection down one row");
+			}
+			Terraria.Mods.ModMenu.Scroll(1);
+			if (Terraria.Mods.ModMenu.SelectedIndexForTests != 1)
+			{
+				return Fail("the wheel wrapped past the last row instead of clamping");
+			}
+			Terraria.Mods.ModMenu.Scroll(-5);
+			if (Terraria.Mods.ModMenu.SelectedIndexForTests != 0)
+			{
+				return Fail("the wheel wrapped past the first row instead of clamping");
+			}
 			return true;
 		}
 		catch (Exception ex)

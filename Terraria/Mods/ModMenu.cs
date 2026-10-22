@@ -630,6 +630,26 @@ internal static class ModMenu
 		Main.PlaySound(12);
 	}
 
+	/// <summary>
+	/// Moves the selection by <paramref name="steps"/> rows, for the wheel. Negative is down, the
+	/// same sign the stick path uses, so the two cannot disagree about which way is which.
+	/// </summary>
+	internal static void Scroll(int steps)
+	{
+		if (steps == 0 || Entries.Count == 0)
+		{
+			return;
+		}
+		int num = Math.Max(0, Math.Min(Entries.Count - 1, _selected + steps));
+		if (num == _selected)
+		{
+			return;
+		}
+		_selected = num;
+		ClampScroll();
+		Main.PlaySound(12);
+	}
+
 	private static void ClampSelection()
 	{
 		if (_selected >= Entries.Count)
@@ -858,9 +878,11 @@ internal static class ModMenu
 		return (index < 0 || index >= Entries.Count) ? null : Entries[index].Folder;
 	}
 
+	/// <summary>Test hook: which row the cursor is on.</summary>
+	internal static int SelectedIndexForTests => _selected;
+
 	/// <summary>Test hook: selects a row as if the player had.</summary>
-	internal static void SelectForTests(int index)
-	{
+	internal static void SelectForTests(int index)	{
 		if (index < 0 || index >= Entries.Count)
 		{
 			return;
