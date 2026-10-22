@@ -129,6 +129,8 @@ internal static class SelfTest
 		RunCheck("master server live", CheckMasterServerLive);
 		RunCheck("achievement stats", CheckAchievementStats);
 		RunCheck("every text key used", CheckTextKeysUsed);
+		RunCheck("cheat menu layout", CheckCheatMenuLayout);
+		RunCheck("raw mod", CheckRawMod);
 #if DEBUG
 		RunCheck("debug kit", CheckDebugKit);
 		RunCheck("debug console", CheckDebugConsole);
@@ -12959,6 +12961,328 @@ internal static class SelfTest
 		}
 	}
 
+	// --- Raw mods -----------------------------------------------------------
+
+	/// <summary>
+	/// A mod folder with no assembly: INI definitions plus sprites, read straight into the same
+	/// registries a compiled mod uses.
+	///
+	/// The point of the check is the part that is easy to get wrong and impossible to see: a raw
+	/// mod has to be indistinguishable from a compiled one afterwards - same ids, same recipes,
+	/// same overrides, same signature rules - because the network and the save file cannot tell
+	/// them apart.
+	/// </summary>
+	private static bool CheckRawMod()
+	{
+		string root = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-rawmod");
+		try
+		{
+			if (System.IO.Directory.Exists(root))
+			{
+				System.IO.Directory.Delete(root, recursive: true);
+			}
+			string pack = System.IO.Path.Combine(root, "Raw Pack");
+			string items = System.IO.Path.Combine(pack, "Item");
+			System.IO.Directory.CreateDirectory(items);
+			System.IO.File.WriteAllText(System.IO.Path.Combine(pack, "mod.ini"),
+				"[Mod]\r\nName=Raw Pack\r\nVersion=1.2\r\nAuthor=Tester\r\n");
+			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "Copper Bulgeon.ini"),
+				"type=-1\r\ndamage=12\r\nuseTime=20\r\nisMaterial=true\r\n"
+				+ "[Items]\r\nCopper Bar=6\r\n[Tiles]\r\nAnvil=true\r\n[Amount]\r\n2\r\n");
+			WriteTinyPng(System.IO.Path.Combine(items, "Copper Bulgeon.png"));
+			// An existing item: this is an override, not a new item, and the two paths must not
+			// be confused - a pack that changes a sword must not invent a second one.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "Copper Bar.ini"), "value=1234\r\n");
+			// A file with no sprite and no matching item: reported, and it must not stop the rest.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "Imaginary Thing.ini"), "damage=3\r\n");
+
+			if (!Terraria.Mods.RawMod.LooksLikeRawMod(pack))
+			{
+				return Fail("a folder of INI definitions was not recognised as a raw mod");
+			}
+			if (Terraria.Mods.RawMod.LooksLikeRawMod(System.IO.Path.Combine(pack, "Item")))
+			{
+				return Fail("the Item folder itself was taken for a mod");
+			}
+			// A compiled mod may ship Item/*.ini for its own code to read; those must not be
+			// applied a second time by the raw path.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(pack, "Fake.dll"), "not an assembly");
+			if (Terraria.Mods.RawMod.LooksLikeRawMod(pack))
+			{
+				return Fail("a folder with an assembly was treated as a raw mod");
+			}
+			System.IO.File.Delete(System.IO.Path.Combine(pack, "Fake.dll"));
+
+			Terraria.Mods.ModItems.Clear();
+			Terraria.Mods.ModRecipes.Clear();
+			Terraria.Mods.ItemOverrides.Clear();
+			int overridesBefore = Terraria.Mods.ItemOverrides.Count;
+
+			Terraria.Mods.RawMod rawMod = Terraria.Mods.RawMod.Load(pack);
+			if (rawMod.Name != "Raw Pack")
+			{
+				return Fail("the manifest name was ignored: '" + rawMod.Name + "'");
+			}
+			if (rawMod.Version != "1.2")
+			{
+				return Fail("the manifest version was ignored: '" + rawMod.Version + "'");
+			}
+			if (rawMod.NewItems != 1)
+			{
+				return Fail("expected 1 new item, got " + rawMod.NewItems);
+			}
+			if (rawMod.Overrides != 1)
+			{
+				return Fail("expected 1 override, got " + rawMod.Overrides);
+			}
+			if (rawMod.Recipes != 1)
+			{
+				return Fail("expected 1 recipe, got " + rawMod.Recipes);
+			}
+			if (rawMod.Problems.Count == 0)
+			{
+				return Fail("a file with no sprite and no item was not reported");
+			}
+			// The new item is in the registry with its fields, and gets an id like any other.
+			// Ids exist only after Finalize, so that comes first - All() is keyed by id.
+			Terraria.Mods.ModItems.Finalize(null);
+			Terraria.Mods.ModItem definition = null;
+			System.Collections.Generic.List<Terraria.Mods.ModItem> all = Terraria.Mods.ModItems.All();
+			for (int i = 0; i < all.Count; i++)
+			{
+				if (all[i].Name == "Copper Bulgeon")
+				{
+					definition = all[i];
+					break;
+				}
+			}
+			if (definition == null)
+			{
+				return Fail("the raw item was not registered");
+			}
+			string field;
+			if (!definition.Fields.TryGetValue("damage", out field) || field != "12")
+			{
+				return Fail("the raw item lost its damage field");
+			}
+			if (definition.Type < Terraria.Mods.ModItems.IdBase)
+			{
+				return Fail("the raw item got no id");
+			}
+			// The override reaches the live item through the ordinary path.
+			int barId = Terraria.ItemLookup.Find("Copper Bar");
+			if (barId <= 0)
+			{
+				return Fail("the test cannot find Copper Bar");
+			}
+			Item bar = default(Item);
+			bar.SetDefaults(barId);
+			if (bar.Value != 1234)
+			{
+				return Fail("the raw override did not reach the item: value is " + bar.Value);
+			}
+			if (Terraria.Mods.ItemOverrides.Count != overridesBefore + 1)
+			{
+				return Fail("the override was not registered");
+			}
+			// The recipe is pending, and names the station and the amount the file gave.
+			if (Terraria.Mods.ModRecipes.Count != 1)
+			{
+				return Fail("expected 1 pending recipe, got " + Terraria.Mods.ModRecipes.Count);
+			}
+			// --- signature ----------------------------------------------------
+			string first = rawMod.Signature;
+			if (string.IsNullOrEmpty(first))
+			{
+				return Fail("a raw mod has no content signature");
+			}
+			// Toggling the mod must not change what it contains: the host and the client would
+			// disagree after one of them disabled it.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(pack, "disabled.txt"), "x");
+			if (Terraria.Mods.RawMod.ContentHash(pack) != first)
+			{
+				return Fail("disabled.txt changed the content signature");
+			}
+			System.IO.File.Delete(System.IO.Path.Combine(pack, "disabled.txt"));
+			// Editing one number must change it: the folder name is not the content.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "Copper Bar.ini"), "value=1235\r\n");
+			if (Terraria.Mods.RawMod.ContentHash(pack) == first)
+			{
+				return Fail("editing an item file did not change the content signature");
+			}
+			// --- the loader's decision -----------------------------------------
+			// RawMod.Load is only half of it: the loader has to *choose* this folder, and it has to
+			// do it in a directory where a compiled mod and a stray folder also live.
+			string modsRoot = System.IO.Path.Combine(root, "Mods");
+			System.IO.Directory.CreateDirectory(modsRoot);
+			CopyTree(pack, System.IO.Path.Combine(modsRoot, "Raw Pack"));
+			System.IO.Directory.CreateDirectory(System.IO.Path.Combine(modsRoot, "Empty Folder"));
+			System.IO.Directory.CreateDirectory(System.IO.Path.Combine(modsRoot, "Disabled Pack", "Item"));
+			System.IO.File.WriteAllText(System.IO.Path.Combine(modsRoot, "Disabled Pack", "Item", "Thing.ini"), "damage=1\r\n");
+			System.IO.File.WriteAllText(System.IO.Path.Combine(modsRoot, "Disabled Pack", "disabled.txt"), "x");
+			Terraria.Mods.ModLoader.Unload();
+			Terraria.Mods.ModItems.Clear();
+			Terraria.Mods.ModRecipes.Clear();
+			Terraria.Mods.ItemOverrides.Clear();
+			int num = Terraria.Mods.ModLoader.LoadFolders(Terraria.Mods.ModLoader.ApplyLoadOrder(
+				System.IO.Directory.GetDirectories(modsRoot), modsRoot));
+			if (num != 1)
+			{
+				return Fail("the loader took " + num + " folder(s) for mods instead of 1");
+			}
+			if (Terraria.Mods.ModLoader.RawMods.Count != 1)
+			{
+				return Fail("the raw mod was not loaded from the Mods folder");
+			}
+			if (Terraria.Mods.ModLoader.RawMods[0].Name != "Raw Pack")
+			{
+				return Fail("the loader picked the wrong folder: '" + Terraria.Mods.ModLoader.RawMods[0].Name + "'");
+			}
+			if (Terraria.Mods.ModLoader.ModCount != 1)
+			{
+				return Fail("a raw mod is not counted as a mod: " + Terraria.Mods.ModLoader.ModCount);
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("raw mod check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Mods.ModItems.Clear();
+			Terraria.Mods.ModRecipes.Clear();
+			Terraria.Mods.ItemOverrides.Clear();
+			try
+			{
+				if (System.IO.Directory.Exists(root))
+				{
+					System.IO.Directory.Delete(root, recursive: true);
+				}
+			}
+			catch
+			{
+			}
+			// Put the loader back the way the rest of the run expects it: this check unloaded the
+			// real set to scan a temporary folder, and leaving it unloaded would make every later
+			// check that reads the signature see "vanilla".
+			try
+			{
+				Terraria.Mods.ModLoader.Initialize();
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	/// <summary>Copies a folder tree, so a test can hand the loader its own copy of a pack.</summary>
+	private static void CopyTree(string source, string destination)
+	{
+		System.IO.Directory.CreateDirectory(destination);
+		string[] files = System.IO.Directory.GetFiles(source);
+		for (int i = 0; i < files.Length; i++)
+		{
+			System.IO.File.Copy(files[i], System.IO.Path.Combine(destination, System.IO.Path.GetFileName(files[i])), overwrite: true);
+		}
+		string[] directories = System.IO.Directory.GetDirectories(source);
+		for (int j = 0; j < directories.Length; j++)
+		{
+			CopyTree(directories[j], System.IO.Path.Combine(destination, System.IO.Path.GetFileName(directories[j])));
+		}
+	}
+
+	// --- Cheat menu ---------------------------------------------------------
+
+	/// <summary>
+	/// The cheat list has to fit the frame it is drawn into, and every action has to be
+	/// reachable. Both were broken by constants: fourteen rows at a fixed 38 px from a fixed
+	/// top put the bottom of the panel 42 px below a 720-pixel frame, and the fourteenth row
+	/// was a "next page" switch, so two of eighteen actions needed a page turn to reach.
+	///
+	/// Pure layout math, so it runs headless: the same function the screen uses.
+	/// </summary>
+	private static bool CheckCheatMenuLayout()
+	{
+		try
+		{
+			int num = Terraria.Cheats.CheatMenu.ActionCount;
+			if (num <= 0)
+			{
+				return Fail("the cheat menu has no actions");
+			}
+			string[] array = Terraria.Cheats.CheatMenu.BuildRows();
+			if (array.Length != num)
+			{
+				return Fail("the cheat menu built " + array.Length + " rows for " + num + " actions");
+			}
+			for (int i = 0; i < array.Length; i++)
+			{
+				if (string.IsNullOrEmpty(array[i]))
+				{
+					return Fail("cheat row " + i + " has no text");
+				}
+			}
+			// The three internal render presets, with the space each leaves for the list:
+			// 720/960/1440 tall, minus the panel top, the title and the two footer lines.
+			// All of them must show every action at a readable row height.
+			int[] array2 = new int[3] { 594, 793, 1188 };
+			int[] array3 = new int[3] { 40, 53, 80 };
+			for (int j = 0; j < array2.Length; j++)
+			{
+				int rowHeight;
+				int visible;
+				Terraria.Cheats.CheatMenu.FitRows(array2[j], array3[j], (j == 0) ? 26 : ((j == 1) ? 34 : 52), num, out rowHeight, out visible);
+				if (visible != num)
+				{
+					return Fail("only " + visible + " of " + num + " cheat rows fit at preset " + j);
+				}
+				if (rowHeight * visible > array2[j])
+				{
+					return Fail("the cheat list is " + (rowHeight * visible) + " px tall in " + array2[j] + " px");
+				}
+				if (rowHeight < 1)
+				{
+					return Fail("cheat row height collapsed to " + rowHeight);
+				}
+			}
+			// A frame too short for the list scrolls instead of shrinking the rows into each
+			// other, and still fits what it does show.
+			int rowHeight2;
+			int visible2;
+			Terraria.Cheats.CheatMenu.FitRows(260, 40, 26, num, out rowHeight2, out visible2);
+			if (rowHeight2 < 26)
+			{
+				return Fail("rows were shrunk below the readable height instead of scrolling: " + rowHeight2);
+			}
+			if (visible2 >= num)
+			{
+				return Fail("a 260 px list claimed to show all " + num + " rows");
+			}
+			if (visible2 * rowHeight2 > 260)
+			{
+				return Fail("the scrolled list overflows its space: " + (visible2 * rowHeight2) + " > 260");
+			}
+			if (visible2 < 1)
+			{
+				return Fail("a short frame showed no cheat rows at all");
+			}
+			// Degenerate input must not throw or produce a negative count.
+			int rowHeight3;
+			int visible3;
+			Terraria.Cheats.CheatMenu.FitRows(0, 40, 26, num, out rowHeight3, out visible3);
+			if (visible3 != 0 || rowHeight3 < 1)
+			{
+				return Fail("an empty area did not produce an empty layout");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("cheat menu layout check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
 	// --- Text keys used by the code -----------------------------------------
 
 	/// <summary>
@@ -12975,7 +13299,9 @@ internal static class SelfTest
 	{
 		try
 		{
-			string[] array = new string[70]
+			// Length inferred: a fixed count silently left nulls at the end whenever a key was
+			// added, and the check then asked Texts.Has(null) instead of naming the new key.
+			string[] array = new string[]
 			{
 				"ui.common.on", "ui.common.off", "ui.common.change.back",
 				"ui.display.title", "ui.display.profile", "ui.display.window", "ui.display.fullscreen",
@@ -12996,7 +13322,15 @@ internal static class SelfTest
 				"ui.net.spawn.off", "ui.net.spawn", "ui.net.build.disabled", "ui.net.build.allowed",
 				"ui.net.build", "ui.net.refresh.off", "ui.net.refresh", "ui.net.off",
 				"ui.settings.cheats", "ui.settings.keys", "ui.settings.mods", "ui.settings.display",
-				"ui.settings.network", "ui.settings.hud", "ui.menu.cheats"
+				"ui.settings.network", "ui.settings.hud", "ui.menu.cheats",
+				"ui.mods.kind.raw", "ui.mods.raw.detail",
+				"ui.cheats.title", "ui.cheats.hint", "ui.cheats.more",
+				"ui.cheats.god", "ui.cheats.noclip", "ui.cheats.mana", "ui.cheats.buffs",
+				"ui.cheats.fall", "ui.cheats.heal", "ui.cheats.caps", "ui.cheats.dawn",
+				"ui.cheats.noon", "ui.cheats.dusk", "ui.cheats.midnight", "ui.cheats.bloodmoon",
+				"ui.cheats.eye", "ui.cheats.skeletron", "ui.cheats.killall", "ui.cheats.meteor",
+				"ui.cheats.recipes", "ui.cheats.save", "ui.cheats.single.only",
+				"ui.cheats.removed", "ui.cheats.status"
 			};
 			for (int i = 0; i < array.Length; i++)
 			{

@@ -662,6 +662,12 @@ public sealed class UI
 
 	private bool restoreOldInventorySection;
 
+	/// <summary>
+	/// The cheat screen was opened straight from play with F1, so closing it resumes the game
+	/// instead of returning to the pause menu it was never opened from.
+	/// </summary>
+	private bool cheatsFromPlay;
+
 	private InventorySection oldInventorySection;
 
 	public InventorySection ActiveInvSection = InventorySection.ITEMS;
@@ -2435,15 +2441,14 @@ public sealed class UI
 			uiCoords = MENU_SETTINGS_COORDS;
 			return;
 		case MenuMode.CHEATS:
-		{
-			Terraria.Cheats.CheatMenu.ResetPage();
-			string[] cheatRows = Terraria.Cheats.CheatMenu.BuildRows();
-			Terraria.Cheats.CheatMenu.SyncLayout(cheatRows);
-			uiWidth = 1;
-			uiHeight = (sbyte)cheatRows.Length;
-			uiCoords = Terraria.Cheats.CheatMenu.Coords;
+			// Own screen, like Display / HUD / Network: the cheat list needs a panel, a
+			// highlight and a row height that follows the screen, none of which the generic
+			// menu renderer does.
+			uiWidth = 0;
+			uiHeight = 1;
+			uiCoords = null;
+			Terraria.Cheats.CheatMenu.Reset();
 			return;
-		}
 		case MenuMode.KEYBINDS:
 			// Own screen: no generic menu rows, no console cursor.
 			uiWidth = 0;
@@ -3255,6 +3260,7 @@ public sealed class UI
 			else if (!Main.IsTrial && Terraria.Cheats.CheatState.IsAvailable && selectedMenu == num2 + 5)
 			{
 				Main.PlaySound(10);
+				cheatsFromPlay = false;
 				SetMenu(MenuMode.CHEATS);
 			}
 		}
@@ -3307,29 +3313,24 @@ public sealed class UI
 		}
 		else if (CurMenuMode == MenuMode.CHEATS)
 		{
-			string[] cheatRows = Terraria.Cheats.CheatMenu.BuildRows();
-			Terraria.Cheats.CheatMenu.SyncLayout(cheatRows);
-			numMenuItems = (byte)cheatRows.Length;
-			for (int num9 = 0; num9 < numMenuItems; num9++)
+			// PrevMenu, not SetMenu(PAUSE): SetMenu remembers the screen it is leaving, so
+			// closing this way pushed CHEATS onto the history and Back in the pause menu
+			// reopened it.
+			if (Terraria.Cheats.CheatMenu.Update(this))
 			{
-				menuString[num9] = cheatRows[num9];
-				// Small font for the cheat list, like every other screen added in this port. The
-				// rows are 38px apart and the entries are long ("Infinite buffs: OFF", "Spawn Eye
-				// of Cthulhu"), so the big menu font overflowed the panel on both sides.
-				menuScale[num9] = 1f;
-				menuHC[num9] = 0;
-			}
-			menuTop = Terraria.Cheats.CheatMenu.MenuTop;
-			menuSpace = Terraria.Cheats.CheatMenu.MenuSpace;
-			if (selectedMenu >= 0)
-			{
-				Terraria.Cheats.CheatMenu.Activate(selectedMenu);
-				uiY = selectedMenu;
-			}
-			else if (IsBackButtonTriggered() || IsButtonUntriggered(Buttons.Start) || IsButtonTriggered(Buttons.Y))
-			{
-				Main.PlaySound(10);
-				SetMenu(MenuMode.PAUSE);
+				// Opened straight from play with F1 there is no pause menu underneath, so the
+				// way back is the same one the pause menu uses to resume: PrevMenu plus
+				// CurMenuType = NONE. With only PrevMenu the game would sit frozen with no
+				// screen to press anything on.
+				if (cheatsFromPlay)
+				{
+					cheatsFromPlay = false;
+					ResumeGame();
+				}
+				else
+				{
+					PrevMenu();
+				}
 			}
 		}
 		else if (CurMenuMode == MenuMode.EXIT)
@@ -4371,7 +4372,7 @@ public sealed class UI
 		}
 		else if (CurMenuMode == MenuMode.CHEATS)
 		{
-			Terraria.Cheats.CheatMenu.DrawBackdrop(Main.SpriteBatch, CurrentView.ViewWidth);
+			Terraria.Cheats.CheatMenu.Draw();
 		}
 		else if (CurMenuMode == MenuMode.KEYBINDS)
 		{
@@ -4403,10 +4404,8 @@ public sealed class UI
 			hardmodeUpsell.Draw();
 			CurrentView.SetScreenView();
 		}
-		// The cheat list is a column of sentences, not a menu of two-word entries: it gets the small
-		// font the settings screens use. Every place that measures or draws an entry has to agree,
-		// including the mouse hit-test below, which is why this is one variable.
-		SpriteFont menuFont = (CurMenuMode == MenuMode.CHEATS) ? BoldSmallFont : BigFont;
+		// One font for measuring, drawing and hit-testing.
+		SpriteFont menuFont = BigFont;
 		// Invalidate the whole hit-rect table before recording this frame's entries. It used to be
 		// invalidated only for indices whose text was null, so a screen that draws its own layout
 		// (the game-mode screen, world select, the inventory-style screens) inherited the hit
@@ -6614,6 +6613,7 @@ public sealed class UI
 				// Keyboard shortcut straight into the single-player cheat menu.
 				Main.PlaySound(10);
 				CurMenuType = MenuType.PAUSE;
+				cheatsFromPlay = true;
 				SetMenu(MenuMode.CHEATS);
 				ClearButtonTriggers();
 				return;

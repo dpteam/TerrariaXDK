@@ -33,6 +33,12 @@ internal static class ModMenu
 		/// <summary>A real mod: <c>Storage/Mods/&lt;Folder&gt;/*.dll</c>.</summary>
 		Mod,
 
+		/// <summary>
+		/// A mod with no assembly: <c>Storage/Mods/&lt;Folder&gt;/Item/*.ini</c> plus sprites.
+		/// Loaded, counted and signed like any other mod - it just cannot add behaviour.
+		/// </summary>
+		Raw,
+
 		/// <summary>A legacy tConfig pack: <c>Storage/tConfig/&lt;Folder&gt;/Item/*.ini</c>.</summary>
 		Pack
 	}
@@ -132,7 +138,11 @@ internal static class ModMenu
 		foreach (string text2 in array)
 		{
 			string[] files = Directory.GetFiles(text2, "*.dll", SearchOption.TopDirectoryOnly);
-			if (files.Length == 0)
+			bool flag2 = files.Length > 0;
+			// A folder with no assembly is still a mod if it holds item definitions: that is the
+			// raw form, and listing it as "not a mod" is what made a working pack invisible.
+			bool flag3 = !flag2 && RawMod.LooksLikeRawMod(text2);
+			if (!flag2 && !flag3)
 			{
 				continue;
 			}
@@ -142,7 +152,7 @@ internal static class ModMenu
 				Folder = Path.GetFileName(text2),
 				Enabled = flag,
 				Detail = "",
-				Kind = EntryKind.Mod
+				Kind = (flag2 ? EntryKind.Mod : EntryKind.Raw)
 			};
 			// Match the loaded instance (if any) to show its version.
 			for (int i = 0; i < ModLoader.Mods.Count; i++)
@@ -151,6 +161,20 @@ internal static class ModMenu
 				if (mod.Name != null && mod.Name.Equals(entry.Folder, StringComparison.OrdinalIgnoreCase))
 				{
 					entry.Detail = "v" + mod.Version;
+					break;
+				}
+			}
+			if (entry.Kind == EntryKind.Raw)
+			{
+				for (int i = 0; i < ModLoader.RawMods.Count; i++)
+				{
+					RawMod rawMod = ModLoader.RawMods[i];
+					if (!rawMod.Name.Equals(entry.Folder, StringComparison.OrdinalIgnoreCase)
+						&& !Path.GetFileName(rawMod.Directory).Equals(entry.Folder, StringComparison.OrdinalIgnoreCase))
+					{
+						continue;
+					}
+					entry.Detail = Texts.Format("ui.mods.raw.detail", rawMod.NewItems + rawMod.Overrides, rawMod.Version);
 					break;
 				}
 			}
@@ -485,11 +509,12 @@ internal static class ModMenu
 			return;
 		}
 		Entry entry = Entries[index];
-		if (entry.Kind != EntryKind.Mod)
+		if (entry.Kind == EntryKind.Pack)
 		{
 			return;
 		}
-		string path = Path.Combine(ModLoader.ModsDirectory, entry.Folder, "disabled.txt");
+		string text = ModsRootOverride ?? ModLoader.ModsDirectory;
+		string path = Path.Combine(text, entry.Folder, "disabled.txt");
 		try
 		{
 			if (entry.Enabled)
@@ -525,14 +550,17 @@ internal static class ModMenu
 			return;
 		}
 		Entry entry = Entries[_selected];
-		if (entry.Kind != EntryKind.Mod)
+		if (entry.Kind == EntryKind.Pack)
 		{
 			return;
 		}
 		List<string> list = new List<string>();
 		for (int i = 0; i < Entries.Count; i++)
 		{
-			if (Entries[i].Kind == EntryKind.Mod)
+			// Raw mods are folders in the same directory and are loaded by the same pass, so the
+			// load order applies to them too - two packs that touch the same item need an order
+			// just as much as two assemblies do.
+			if (Entries[i].Kind != EntryKind.Pack)
 			{
 				list.Add(Entries[i].Folder);
 			}
@@ -560,7 +588,7 @@ internal static class ModMenu
 		// Rebuild sorts by the file we just wrote, so keep the cursor on the moved mod.
 		for (int j = 0; j < Entries.Count; j++)
 		{
-			if (Entries[j].Kind == EntryKind.Mod && Entries[j].Folder == text)
+			if (Entries[j].Kind != EntryKind.Pack && Entries[j].Folder == text)
 			{
 				_selected = j;
 				break;
@@ -671,13 +699,14 @@ internal static class ModMenu
 			}
 			// The tag comes first so the kind lines up in one column across every row: a list
 			// where the tag moves with the name length is a list you have to read twice.
-			string text2 = Texts.Get(entry.Kind == EntryKind.Pack ? "ui.mods.kind.tconfig" : "ui.mods.kind.xdk");
-			Color color = (entry.Kind == EntryKind.Mod) ? (entry.Enabled ? new Color(120, 230, 140) : new Color(160, 160, 160))
+			string text2 = Texts.Get(entry.Kind == EntryKind.Pack ? "ui.mods.kind.tconfig"
+				: ((entry.Kind == EntryKind.Raw) ? "ui.mods.kind.raw" : "ui.mods.kind.xdk"));
+			Color color = (entry.Kind != EntryKind.Pack) ? (entry.Enabled ? new Color(120, 230, 140) : new Color(160, 160, 160))
 				: new Color(230, 200, 130);
 			UI.DrawStringLC(UI.SmallFont, text2, num2 + (int)(8f * num), y + (int)(9f * num), new Color(140, 150, 170));
 			float num6 = UI.SmallFont.MeasureString(text2).X;
 			// A mod shows its on/off state; a pack has no such state, so it shows its name plain.
-			string text3 = (entry.Kind == EntryKind.Mod)
+			string text3 = (entry.Kind != EntryKind.Pack)
 				? (Texts.Get(entry.Enabled ? "ui.mods.entry.on" : "ui.mods.entry.off") + entry.Folder)
 				: entry.Folder;
 			UI.DrawStringLC(UI.BoldSmallFont, text3, num2 + (int)(8f * num) + (int)num6 + (int)(4f * num), y + (int)(8f * num), color);

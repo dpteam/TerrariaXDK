@@ -27,6 +27,13 @@ internal static class ModLoader
 
 	private static readonly List<Mod> LoadedMods = new List<Mod>();
 
+	/// <summary>
+	/// Mods read from INI files, with no assembly. They take part in the signature and in the
+	/// mod count, because from the player's side they are mods - the difference is only whether
+	/// somebody compiled anything.
+	/// </summary>
+	private static readonly List<RawMod> LoadedRawMods = new List<RawMod>();
+
 	private static readonly List<string> Errors = new List<string>();
 
 	private static readonly HashSet<Mod> BrokenMods = new HashSet<Mod>();
@@ -47,11 +54,14 @@ internal static class ModLoader
 
 	public static int SignatureHash2 { get; private set; }
 
-	public static int ModCount => LoadedMods.Count;
+	public static int ModCount => LoadedMods.Count + LoadedRawMods.Count;
 
 	public static string ModsDirectory => Terraria.Storage.AppPaths.Mods;
 
 	public static IList<Mod> Mods => LoadedMods;
+
+	/// <summary>Raw mods (INI + PNG, no assembly), in load order.</summary>
+	public static IList<RawMod> RawMods => LoadedRawMods;
 
 	public static IList<string> LoadErrors => Errors;
 
@@ -121,24 +131,7 @@ internal static class ModLoader
 		}
 		string[] directories = System.IO.Directory.GetDirectories(text);
 		directories = ApplyLoadOrder(directories, text);
-		string[] array = directories;
-		foreach (string text2 in array)
-		{
-			string[] files = System.IO.Directory.GetFiles(text2, "*.dll", SearchOption.TopDirectoryOnly);
-			if (files.Length == 0)
-			{
-				continue;
-			}
-			if (File.Exists(Path.Combine(text2, "disabled.txt")))
-			{
-				Log("Skipping disabled mod folder " + Path.GetFileName(text2));
-				continue;
-			}
-			foreach (string path in files)
-			{
-				LoadAssembly(path, text2);
-			}
-		}
+		LoadFolders(directories);
 		// Ids and sprite sheets after every mod has loaded: ids are assigned in sorted order, so
 		// the order the mods happened to load in cannot change them.
 		Terraria.Mods.ModItems.Finalize(GraphicsDevice);
@@ -348,9 +341,75 @@ internal static class ModLoader
 		}
 	}
 
+	/// <summary>
+	/// Loads every folder in the given order: an assembly when there is one, and a raw mod when
+	/// there is not.
+	///
+	/// Separate from <see cref="Initialize"/> so a test can point it at a temporary folder and
+	/// check the decision, rather than only the parsing: "which folders count as mods" is the
+	/// part that decides whether a player's pack is loaded at all.
+	/// </summary>
+	internal static int LoadFolders(string[] directories)
+	{
+		int num = 0;
+		for (int i = 0; i < directories.Length; i++)
+		{
+			string text = directories[i];
+			if (File.Exists(Path.Combine(text, "disabled.txt")))
+			{
+				Log("Skipping disabled mod folder " + Path.GetFileName(text));
+				continue;
+			}
+			string[] files = System.IO.Directory.GetFiles(text, "*.dll", SearchOption.TopDirectoryOnly);
+			if (files.Length == 0)
+			{
+				// No assembly: a folder of INI files and sprites is a mod too. Converting one into
+				// a project was already possible, but that needed a compiler on the player's
+				// machine - and the compiler is not the interesting part.
+				if (RawMod.LooksLikeRawMod(text) && LoadRawMod(text))
+				{
+					num++;
+				}
+				continue;
+			}
+			for (int j = 0; j < files.Length; j++)
+			{
+				LoadAssembly(files[j], text);
+			}
+			num++;
+		}
+		return num;
+	}
+
+	private static bool LoadRawMod(string directory)
+	{
+		RawMod rawMod;
+		try
+		{
+			rawMod = RawMod.Load(directory);
+		}
+		catch (Exception ex)
+		{
+			// A pack is somebody else's data: a crash here must be one bad mod, not a game that
+			// will not start.
+			RecordError("Raw mod " + Path.GetFileName(directory) + " failed to load: " + ex);
+			return false;
+		}
+		for (int i = 0; i < rawMod.Problems.Count; i++)
+		{
+			// Reported, not fatal: one unreadable file in a pack of two hundred must not stop the
+			// other one hundred and ninety-nine.
+			Log("[Raw] " + rawMod.Name + ": " + rawMod.Problems[i]);
+		}
+		LoadedRawMods.Add(rawMod);
+		Log("Loaded raw mod " + rawMod.Name + " v" + rawMod.Version + " (" + rawMod.NewItems
+			+ " new item(s), " + rawMod.Overrides + " override(s), " + rawMod.Recipes + " recipe(s))");
+		return true;
+	}
+
 	private static void RecomputeSignature()
 	{
-		if (LoadedMods.Count == 0)
+		if (LoadedMods.Count == 0 && LoadedRawMods.Count == 0)
 		{
 			Signature = "vanilla";
 			SignatureHash1 = 0;
@@ -361,6 +420,13 @@ internal static class ModLoader
 		foreach (Mod loadedMod in LoadedMods)
 		{
 			list.Add(loadedMod.Name + "|" + loadedMod.Version);
+		}
+		foreach (RawMod loadedRawMod in LoadedRawMods)
+		{
+			// A raw mod has no assembly to compare, so its contents are what must agree. Two
+			// players with the same folder name and different numbers inside would otherwise join
+			// each other and quietly disagree about every item in the pack.
+			list.Add(loadedRawMod.Name + "|" + loadedRawMod.Version + "|raw:" + loadedRawMod.Signature);
 		}
 		list.Sort(StringComparer.Ordinal);
 		ulong num = 14695981039346656037uL;
@@ -628,6 +694,7 @@ internal static class ModLoader
 			}
 		}
 		LoadedMods.Clear();
+		LoadedRawMods.Clear();
 		BrokenMods.Clear();
 		UnknownPacketSenders.Clear();
 		Terraria.Net.ModNet.Received -= HandleModPacket;

@@ -421,8 +421,10 @@ internal static class KeyboardMouseInput
 		MenuContext = dialog || ui.CurMenuType != MenuType.NONE || ui.InventoryMode > 0 || MessageBox.IsVisible();
 		_inventoryContext = ui.InventoryMode > 0;
 		_enterConfirms = ui.CurMenuMode == MenuMode.CREATE_CHARACTER;
-		// Only screens that consume the click themselves opt out of "left click = A".
-		MouseHandledByScreen = dialog || (ui.CurMenuType != MenuType.NONE && (ui.CurMenuMode == MenuMode.CREATE_CHARACTER || ui.CurMenuMode == MenuMode.WORLD_SELECT || ui.CurMenuMode == MenuMode.MAP));
+		// Only screens that consume the click themselves opt out of "left click = A". The cheat
+		// menu is one of them: it has its own row rectangles, and letting the click arrive a
+		// second time as A would run the highlighted action as well as the one that was clicked.
+		MouseHandledByScreen = dialog || (ui.CurMenuType != MenuType.NONE && (ui.CurMenuMode == MenuMode.CREATE_CHARACTER || ui.CurMenuMode == MenuMode.WORLD_SELECT || ui.CurMenuMode == MenuMode.MAP || ui.CurMenuMode == MenuMode.CHEATS));
 		// A click that lands nowhere on a menu list must do nothing, not activate the
 		// previously highlighted entry.
 		if (!MouseHandledByScreen && ui.ClickOutsideMenuEntries)

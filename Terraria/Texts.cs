@@ -221,7 +221,8 @@ internal static class Texts
 
 		// --- Cheat screen ---------------------------------------------------
 		Add(dictionary, "ui.cheats.title", "Cheats");
-		Add(dictionary, "ui.cheats.page", "< page {0}/{1} >");
+		Add(dictionary, "ui.cheats.hint", "LMB / A - apply    Esc / B - back");
+		Add(dictionary, "ui.cheats.more", "Scroll for more: wheel, arrows or the stick");
 		Add(dictionary, "ui.cheats.god", "God mode: {0}");
 		Add(dictionary, "ui.cheats.noclip", "No clip: {0}");
 		Add(dictionary, "ui.cheats.mana", "Infinite mana: {0}");
@@ -284,6 +285,8 @@ internal static class Texts
 		// why it has no version, why it is not in the signature, and why it cannot be toggled.
 		Add(dictionary, "ui.mods.kind.xdk", "[TerrariaXDK] ");
 		Add(dictionary, "ui.mods.kind.tconfig", "[tConfig] ");
+		Add(dictionary, "ui.mods.kind.raw", "[Raw] ");
+		Add(dictionary, "ui.mods.raw.detail", "{0} item(s), v{1} - no compiler needed");
 		Add(dictionary, "ui.mods.pack.note", "not loaded - convert it to a mod");
 		Add(dictionary, "ui.mods.pack.hint", "C / Enter - convert to a mod project");
 		Add(dictionary, "ui.mods.convert.done", "{0}: project written to {1}");
