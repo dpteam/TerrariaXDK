@@ -174,7 +174,12 @@ internal static class ModMenu
 					{
 						continue;
 					}
-					entry.Detail = Texts.Format("ui.mods.raw.detail", rawMod.NewItems + rawMod.Overrides, rawMod.Version);
+					// The skipped count is the point: a pack with 146 NPC files that loads "fine" and
+					// spawns nothing is the report this line prevents.
+					int num = rawMod.IgnoredFileCount;
+					entry.Detail = (num > 0)
+						? Texts.Format("ui.mods.raw.detail.skipped", rawMod.NewItems + rawMod.Overrides, num, rawMod.Version)
+						: Texts.Format("ui.mods.raw.detail", rawMod.NewItems + rawMod.Overrides, rawMod.Version);
 					break;
 				}
 			}

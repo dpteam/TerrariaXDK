@@ -1707,6 +1707,25 @@ internal static class SelfTest
 			{
 				return Fail("the README does not say what was dropped");
 			}
+			// The pack's NPC folder is not converted and must be named in the README: "111 items,
+			// done" without it reads as if the NPCs came along.
+			System.IO.Directory.CreateDirectory(System.IO.Path.Combine(text, "TestPack", "NPC"));
+			System.IO.File.WriteAllText(System.IO.Path.Combine(text, "TestPack", "NPC", "Slime.ini"), "damage=1\r\n");
+			Terraria.Mods.TConfigConverter.Result withNpc = Terraria.Mods.TConfigConverter.Convert(
+				System.IO.Path.Combine(text, "TestPack"), System.IO.Path.Combine(text, "out2"), null, out error);
+			if (withNpc == null)
+			{
+				return Fail("conversion refused a pack that also has NPCs: " + error);
+			}
+			if (withNpc.Ignored.Count != 1 || withNpc.Ignored[0].Kind != "NPC" || withNpc.Ignored[0].Files != 1)
+			{
+				return Fail("the NPC folder was not counted by the converter");
+			}
+			string readme = System.IO.File.ReadAllText(System.IO.Path.Combine(text, "out2", "README.md"));
+			if (readme.IndexOf("cannot load", StringComparison.Ordinal) < 0 || readme.IndexOf("NPC", StringComparison.Ordinal) < 0)
+			{
+				return Fail("the README does not say that the NPC folder was not converted");
+			}
 			// Every field the importer accepts must have a property on ItemOverride, or the
 			// generated project will not compile.
 			string[] array = new string[41]
@@ -13201,6 +13220,14 @@ internal static class SelfTest
 				"[Recipe]\r\nItems=2 Stone Block, 1 Wood\r\nTiles=Work Bench\r\nAmount=3\r\n");
 			// A file with no sprite and no matching item: reported, and it must not stop the rest.
 			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "Imaginary Thing.ini"), "damage=3\r\n");
+			// Content this build cannot load. It must be counted and reported, not silently
+			// skipped: a pack with 146 NPCs that loads "fine" and spawns nothing is the report
+			// this prevents.
+			System.IO.Directory.CreateDirectory(System.IO.Path.Combine(pack, "NPC"));
+			System.IO.File.WriteAllText(System.IO.Path.Combine(pack, "NPC", "Slime.ini"), "damage=1\r\n");
+			System.IO.File.WriteAllText(System.IO.Path.Combine(pack, "NPC", "Eye.ini"), "damage=1\r\n");
+			System.IO.Directory.CreateDirectory(System.IO.Path.Combine(pack, "Tiles"));
+			System.IO.File.WriteAllText(System.IO.Path.Combine(pack, "Tiles", "Ore.ini"), "damage=1\r\n");
 
 			if (!Terraria.Mods.RawMod.LooksLikeRawMod(pack))
 			{
@@ -13248,6 +13275,41 @@ internal static class SelfTest
 			if (rawMod.Problems.Count == 0)
 			{
 				return Fail("a file with no sprite and no item was not reported");
+			}
+			// The unsupported content is counted, not ignored: two NPC files and one tile file.
+			if (rawMod.IgnoredFileCount != 3)
+			{
+				return Fail("expected 3 unusable file(s) to be counted, got " + rawMod.IgnoredFileCount);
+			}
+			bool sawNpc = false;
+			bool sawTiles = false;
+			for (int i = 0; i < rawMod.Ignored.Count; i++)
+			{
+				if (rawMod.Ignored[i].Kind == "NPC" && rawMod.Ignored[i].Files == 2)
+				{
+					sawNpc = true;
+				}
+				if (rawMod.Ignored[i].Kind == "Tiles" && rawMod.Ignored[i].Files == 1)
+				{
+					sawTiles = true;
+				}
+			}
+			if (!sawNpc || !sawTiles)
+			{
+				return Fail("the unusable folders were not reported by name");
+			}
+			// And it is said out loud, so it reaches the log the player is told to read.
+			bool saidSkipped = false;
+			for (int i = 0; i < rawMod.Problems.Count; i++)
+			{
+				if (rawMod.Problems[i].IndexOf("NPC", StringComparison.Ordinal) >= 0)
+				{
+					saidSkipped = true;
+				}
+			}
+			if (!saidSkipped)
+			{
+				return Fail("the NPC folder was counted but never mentioned in the report");
 			}
 			// The new item is in the registry with its fields, and gets an id like any other.
 			// Ids exist only after Finalize, so that comes first - All() is keyed by id.
@@ -14226,6 +14288,7 @@ internal static class SelfTest
 				"ui.settings.cheats", "ui.settings.keys", "ui.settings.mods", "ui.settings.display",
 				"ui.settings.network", "ui.settings.hud", "ui.menu.cheats",
 				"ui.mods.kind.raw", "ui.mods.raw.detail",
+				"ui.mods.raw.detail.skipped", "ui.mods.raw.skipped",
 				"ui.modmismatch.title", "ui.modmismatch.text", "ui.modmismatch.downloading",
 				"ui.modmismatch.installed", "ui.modmismatch.restart", "ui.modmismatch.download.failed",
 				"ui.modmismatch.offer",

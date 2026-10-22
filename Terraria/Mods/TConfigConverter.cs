@@ -59,6 +59,13 @@ internal static class TConfigConverter
 		public int RecipesSkipped;
 
 		/// <summary>
+		/// Content folders the pack has that this build cannot load at all: NPC, Tiles, Walls, Buffs,
+		/// Projectiles. Reported because a pack with 146 NPCs that converts to "111 items, done" reads
+		/// as if the NPCs came along - they did not, and they never could.
+		/// </summary>
+		public readonly List<Terraria.Mods.RawMod.IgnoredPart> Ignored = new List<Terraria.Mods.RawMod.IgnoredPart>();
+
+		/// <summary>
 		/// Things the player should look at: dropped fields, unknown names, and files that threw.
 		/// Kept apart from <see cref="Errors"/> by severity, not by source.
 		/// </summary>
@@ -255,6 +262,9 @@ internal static class TConfigConverter
 				error = "no Item/*.ini files in " + packDirectory;
 				return false;
 			}
+			// What the pack has and this build cannot take. Counted once, here, so the report and
+			// the README describe the same pack the loader would see.
+			Result.Ignored.AddRange(Terraria.Mods.RawMod.ScanIgnored(packDirectory));
 			if (Raw)
 			{
 				// Clear the previous conversion before this one writes: a pack that dropped an item
@@ -1296,6 +1306,18 @@ internal static class TConfigConverter
 		{
 			stringBuilder.Append("- ").Append(result.UnknownItems).Append(" file(s) named an item this build does not have\n");
 		}
+		if (result.Ignored.Count > 0)
+		{
+			stringBuilder.Append("\n## What the pack has and this build cannot load\n\n");
+			stringBuilder.Append("These are not mistakes in the pack: this build has no mod NPCs, tiles, walls,\n");
+			stringBuilder.Append("buffs or projectiles, so no conversion can produce them. A pack that was made of\n");
+			stringBuilder.Append("NPCs will become a mod of items only.\n\n");
+			for (int k = 0; k < result.Ignored.Count; k++)
+			{
+				stringBuilder.Append("- ").Append(result.Ignored[k].Files).Append(" file(s) in `")
+					.Append(result.Ignored[k].Kind).Append("`\n");
+			}
+		}
 		if (result.NewItemsSkipped > 0)
 		{
 			stringBuilder.Append("- ").Append(result.NewItemsSkipped).Append(" new item(s) had no sprite and were skipped\n");
@@ -1713,6 +1735,21 @@ internal static class TConfigConverter
 			for (int i = 0; i < result.Errors.Count; i++)
 			{
 				stringBuilder.Append("- ").Append(result.Errors[i]).Append('\n');
+			}
+			stringBuilder.Append('\n');
+		}
+		if (result.Ignored.Count > 0)
+		{
+			// The reason this section exists: a pack of 146 NPCs converts to "111 items, done" and
+			// reads as if the NPCs came along. They did not, and no conversion can bring them.
+			stringBuilder.Append("## What the pack has and this build cannot load\n\n");
+			stringBuilder.Append("Not a mistake in the pack: this build has no mod NPCs, tiles, walls, buffs or\n");
+			stringBuilder.Append("projectiles. Those folders are listed here so the numbers above are not read as\n");
+			stringBuilder.Append("\"everything came across\".\n\n");
+			for (int j = 0; j < result.Ignored.Count; j++)
+			{
+				stringBuilder.Append("- ").Append(result.Ignored[j].Files.ToString(CultureInfo.InvariantCulture))
+					.Append(" file(s) in `").Append(result.Ignored[j].Kind).Append("`\n");
 			}
 			stringBuilder.Append('\n');
 		}

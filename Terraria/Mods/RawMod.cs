@@ -69,6 +69,82 @@ internal sealed class RawMod
 	public IList<string> Problems => _problems;
 
 	/// <summary>
+	/// Content folders the pack has but this build cannot use, and how many files are in each.
+	///
+	/// Not a failure - it is a boundary. This build has no mod NPCs, tiles, walls, buffs or
+	/// projectiles, so those files can never do anything; silently not reading them is what makes
+	/// a player think the mod is broken ("it says 146 NPCs and nothing spawned"). Counting them
+	/// turns that into a sentence: "146 NPC file(s) - this build has no mod NPCs".
+	/// </summary>
+	public IList<IgnoredPart> Ignored => _ignored;
+
+	private readonly List<IgnoredPart> _ignored = new List<IgnoredPart>();
+
+	/// <summary>One folder of content that this build cannot load.</summary>
+	internal sealed class IgnoredPart
+	{
+		/// <summary>Folder name as the pack writes it: "NPC", "Tiles", ...</summary>
+		public string Kind = "";
+
+		public int Files;
+	}
+
+	/// <summary>
+	/// Content kinds a tConfig pack can carry. Item is the one this build loads; the rest are
+	/// counted so the boundary is visible instead of silent.
+	/// </summary>
+	private static readonly string[] OtherKinds = new string[5] { "NPC", "Tiles", "Walls", "Buffs", "Projectiles" };
+
+	/// <summary>
+	/// Counts the content folders this build cannot load. Shared with the converter, so the two
+	/// cannot disagree about what a pack contains.
+	/// </summary>
+	internal static List<IgnoredPart> ScanIgnored(string directory)
+	{
+		List<IgnoredPart> list = new List<IgnoredPart>();
+		for (int i = 0; i < OtherKinds.Length; i++)
+		{
+			string text = Path.Combine(directory, OtherKinds[i]);
+			if (!System.IO.Directory.Exists(text))
+			{
+				continue;
+			}
+			int num = 0;
+			try
+			{
+				num = System.IO.Directory.GetFiles(text, "*", SearchOption.AllDirectories).Length;
+			}
+			catch
+			{
+				continue;
+			}
+			if (num == 0)
+			{
+				continue;
+			}
+			IgnoredPart ignoredPart = new IgnoredPart();
+			ignoredPart.Kind = OtherKinds[i];
+			ignoredPart.Files = num;
+			list.Add(ignoredPart);
+		}
+		return list;
+	}
+
+	/// <summary>How many files of unsupported content the pack has, in total.</summary>
+	internal int IgnoredFileCount
+	{
+		get
+		{
+			int num = 0;
+			for (int i = 0; i < _ignored.Count; i++)
+			{
+				num += _ignored[i].Files;
+			}
+			return num;
+		}
+	}
+
+	/// <summary>
 	/// True for a folder the loader should treat as a raw mod: no assembly, but item INI files
 	/// (or a manifest) in it.
 	///
@@ -131,6 +207,14 @@ internal sealed class RawMod
 			{
 				mod.LoadItemFile(files[i]);
 			}
+		}
+		// Reported, not loaded: this build has no mod NPCs or tiles, and saying so is the
+		// difference between "the mod is broken" and "the mod does more than this build can".
+		mod._ignored.AddRange(ScanIgnored(directory));
+		for (int j = 0; j < mod._ignored.Count; j++)
+		{
+			IgnoredPart ignoredPart = mod._ignored[j];
+			mod._problems.Add(Texts.Format("ui.mods.raw.skipped", ignoredPart.Files, ignoredPart.Kind));
 		}
 		mod.Signature = ContentHash(directory);
 		return mod;
