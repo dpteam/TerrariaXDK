@@ -117,13 +117,13 @@ internal static class ItemOverrides
 	/// Kept explicit on purpose: silently ignoring unknown fields is how broken conversions go
 	/// unnoticed.
 	/// </summary>
-	private static readonly string[] SupportedFields = new string[46]
+	private static readonly string[] SupportedFields = new string[47]
 	{
 		"damage", "defense", "pick", "axe", "hammer", "useAnimation", "useTime", "useSound", "shoot", "shootSpeed",
 		"knockBack", "mana", "healLife", "healMana", "buffType", "buffTime", "rare", "value", "maxStack", "autoReuse",
 		"melee", "magic", "ranged", "consumable", "potion", "accessory", "noMelee", "crit",
 		"width", "height", "useStyle", "holdStyle", "scale", "isMaterial", "material", "ammo", "useAmmo",
-		"useTurn", "toolTip", "toolTip2", "createTileName",
+		"useTurn", "toolTip", "toolTip2", "createTileName", "light",
 		// tConfig spellings that mean the same as a field above: `stack` is MaxStack, `color` is
 		// the sprite tint, `noUseGraphic` is the item that only fires a projectile, and the two
 		// ammo fields are written by name rather than by id.
@@ -244,6 +244,42 @@ internal static class ItemOverrides
 		return value;
 	}
 
+	/// <summary>
+	/// Parses a pack's float, accepting a comma as the decimal separator.
+	///
+	/// 49 values in the packs on this machine are written that way - <c>scale=1,1</c>,
+	/// <c>knockBack=0,8</c>, <c>light=0,8</c> - because the machine that wrote them formats decimals
+	/// with a comma. Read with the invariant culture they are not numbers at all, so 36 scales,
+	/// 7 knockbacks, 2 shoot speeds and 2 lights were dropped as "is not a number", and those items
+	/// came out the wrong size. A comma is unambiguous in these fields: they hold one number, never
+	/// a list, and the only field with commas is <c>color</c>, which is read as a colour before this.
+	/// </summary>
+	internal static bool TryParseFloat(string text, out float value)
+	{
+		if (float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+		{
+			return true;
+		}
+		string swapped = SwapDecimalComma(text);
+		return swapped != null
+			&& float.TryParse(swapped, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+	}
+
+	/// <summary>
+	/// Rewrites <c>1,1</c> as <c>1.1</c>, and returns null for anything that is not exactly one
+	/// comma and no dot - so a list or a thousands-separated number is never silently reinterpreted.
+	/// </summary>
+	internal static string SwapDecimalComma(string text)
+	{
+		string trimmed = (text ?? string.Empty).Trim();
+		if (trimmed.Length == 0 || trimmed.IndexOf(',') < 0 || trimmed.IndexOf('.') >= 0
+			|| trimmed.IndexOf(',') != trimmed.LastIndexOf(','))
+		{
+			return null;
+		}
+		return trimmed.Replace(',', '.');
+	}
+
 	internal static void ApplyField(ref Item item, string field, string value)
 	{
 		int result;
@@ -306,13 +342,13 @@ internal static class ItemOverrides
 			}
 			break;
 		case "shootspeed":
-			if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result2))
+			if (TryParseFloat(value, out result2))
 			{
 				item.ShootSpeed = FitFloat(item.Type, field, result2, item.ShootSpeed, 1000f);
 			}
 			break;
 		case "knockback":
-			if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result2))
+			if (TryParseFloat(value, out result2))
 			{
 				item.Knockback = FitFloat(item.Type, field, result2, item.Knockback, 1000f);
 			}
@@ -445,7 +481,12 @@ internal static class ItemOverrides
 			RecordError("item " + item.Type + ": 'createTileName' needs mod tiles, which this build does not have");
 			break;
 		case "light":
-			RecordError("item " + item.Type + ": 'light' has no equivalent field in this build");
+			if (TryParseFloat(value, out result2))
+			{
+				// 0..1 is the brightness a pack writes; more than 1 is not "brighter", it is a
+				// different number in a field that means a fraction.
+				item.Light = FitFloat(item.Type, field, result2, item.Light, 1f, 0f);
+			}
 			break;
 		case "width":
 			if (int.TryParse(value, out result))
@@ -474,7 +515,7 @@ internal static class ItemOverrides
 			}
 			break;
 		case "scale":
-			if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result2))
+			if (TryParseFloat(value, out result2))
 			{
 				// A scale of zero draws nothing: the item exists, is pickable, and is invisible -
 				// which reads as a missing sprite rather than as a bad number.

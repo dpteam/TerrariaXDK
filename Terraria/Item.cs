@@ -169,6 +169,20 @@ public struct Item
 	/// <inheritdoc cref="Ammo"/>
 	public short UseAmmo;
 
+	/// <summary>
+	/// How brightly this item glows, 0 (not at all) to 1, or 0 for every item in this build.
+	///
+	/// tConfig had <c>light</c> on items and 13 items in the packs on this machine use it; the
+	/// port refused it with "items do not glow here", which was true and not a reason to keep it
+	/// that way. The value is read by the held-item and dropped-item light calls, which already
+	/// exist for torches - a glowing mod item is the same <c>Lighting.AddLight</c> call with white
+	/// instead of a torch colour.
+	///
+	/// A single float, not an RGB triple: that is what the pack field means, and inventing a colour
+	/// from nothing would be a guess. White light at the given brightness is the honest reading.
+	/// </summary>
+	public float Light;
+
 	public byte Shoot;
 
 	public float ShootSpeed;
@@ -423,6 +437,7 @@ public struct Item
 		PlaceStyle = 0;
 		BuffTime = 0;
 		BuffType = 0;
+		Light = 0f;
 		IsMaterial = false;
 		CantTouchLiquid = false;
 		IsVanity = false;
@@ -1331,6 +1346,7 @@ public struct Item
 		PlaceStyle = 0;
 		BuffTime = 0;
 		BuffType = 0;
+		Light = 0f;
 		IsMaterial = false;
 		CantTouchLiquid = false;
 		IsVanity = false;
@@ -9126,6 +9142,13 @@ public struct Item
 					NetMessage.CreateMessage2(21, UI.MainUI.MyPlayer, ActiveItemIdx);
 					NetMessage.SendMessage();
 				}
+			}
+			// A mod item that declares `light` glows on the ground, the same call the vanilla items
+			// below make. Placed before the chain so it cannot change which vanilla branch runs.
+			if (Light > 0f)
+			{
+				Lighting.AddLight((int)Position.X + (Width >> 1) >> 4, (int)Position.Y + (Height >> 1) >> 4,
+					new Vector3(Light, Light, Light));
 			}
 			if (Type == 520)
 			{

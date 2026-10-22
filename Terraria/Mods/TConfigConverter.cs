@@ -1580,9 +1580,12 @@ internal static class TConfigConverter
 		{
 			return "needs mod walls, which this build does not have";
 		}
-		if (text2 == "light" || text2 == "wetlight")
+		if (text2 == "wetlight")
 		{
-			return "has no equivalent in this build (items do not glow here)";
+			// `light` is supported now: it is a brightness, and the item light calls use it.
+			// `wetLight` is the *in-water* colour, which is a different thing (a tinted glow that
+			// only applies while submerged) and needs the liquid check this build does not do.
+			return "is the underwater glow, which this build does not model (only `light` is used)";
 		}
 		if (text2 == "setname")
 		{
@@ -1638,8 +1641,19 @@ internal static class TConfigConverter
 				? null : "is not R,G,B or R,G,B,A with 0..255 values";
 		}
 		double result2;
-		return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out result2)
-			? null : "is not a number";
+		if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out result2))
+		{
+			return null;
+		}
+		// A comma decimal separator: 49 values in the packs on this machine use it. Accepted here
+		// too, or the field would be dropped at conversion and never reach the game at all.
+		string swapped = Terraria.Mods.ItemOverrides.SwapDecimalComma(text);
+		if (swapped != null
+			&& double.TryParse(swapped, NumberStyles.Float, CultureInfo.InvariantCulture, out result2))
+		{
+			return null;
+		}
+		return "is not a number";
 	}
 
 	/// <summary>
@@ -1805,6 +1819,8 @@ internal static class TConfigConverter
 			return "MaxStack";
 		case "nousegraphic":
 			return "NoUseGraphic";
+		case "light":
+			return "Light";
 		default:
 			return null;
 		}
@@ -1819,6 +1835,16 @@ internal static class TConfigConverter
 	private static string Literal(string field, string value)
 	{
 		string text = value.Trim();
+		// A comma decimal separator would emit `1,1f`, which does not compile. Normalised here
+		// rather than at the call site so both outputs agree on the number.
+		if (IsFloat(field))
+		{
+			string swapped = Terraria.Mods.ItemOverrides.SwapDecimalComma(text);
+			if (swapped != null)
+			{
+				text = swapped;
+			}
+		}
 		if (IsBoolean(field))
 		{
 			bool result;
@@ -1844,7 +1870,7 @@ internal static class TConfigConverter
 	private static bool IsFloat(string field)
 	{
 		string text = PropertyName(field);
-		return text == "ShootSpeed" || text == "Knockback" || text == "Scale";
+		return text == "ShootSpeed" || text == "Knockback" || text == "Scale" || text == "Light";
 	}
 
 	/// <summary>

@@ -782,6 +782,7 @@ internal static class SelfTest
 			IList<Terraria.Mods.ModItem> all = Terraria.Mods.ModItems.All();
 			int described = 0;
 			int ammoItems = 0;
+			int glowingItems = 0;
 			for (int i = 0; i < all.Count; i++)
 			{
 				int id = all[i].Type;
@@ -813,12 +814,26 @@ internal static class SelfTest
 					}
 					ammoItems++;
 				}
+				// `light` was refused outright until it was implemented; a value outside 0..1 would
+				// now reach Lighting.AddLight and tint the world with an impossible brightness.
+				if (probe.Light < 0f || probe.Light > 1f)
+				{
+					return Fail("mod item " + id + " (" + all[i].Name + ") has light " + probe.Light);
+				}
+				if (probe.Light > 0f)
+				{
+					glowingItems++;
+				}
 				described++;
 			}
 			Console.WriteLine("       mod items created and named: " + described);
 			if (ammoItems > 0)
 			{
 				Console.WriteLine("       mod items that are ammo: " + ammoItems);
+			}
+			if (glowingItems > 0)
+			{
+				Console.WriteLine("       mod items that glow: " + glowingItems);
 			}
 		}
 		if (!Terraria.Mods.ModLoader.IsInitialized)
@@ -1704,7 +1719,7 @@ internal static class SelfTest
 			System.IO.Directory.CreateDirectory(text2);
 			// The conversion writes a log; a self-test must not append to the player's own.
 			Terraria.Mods.TConfigConverter.LogPathOverride = System.IO.Path.Combine(text, "convert.log");
-			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Shortsword.ini"), "damage=12\r\nuseTime=17\r\nautoReuse=True\r\nbogusField=1\r\n");
+			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Shortsword.ini"), "damage=12\r\nuseTime=17\r\nautoReuse=True\r\nlight=0.4\r\nbogusField=1\r\n");
 			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Pickaxe.ini"), "pick=45\r\nuseTime=23000\r\n");
 			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Not A Real Item.ini"), "damage=5\r\n");
 			// The newer recipe spelling: one line per list, counts before names. It used to be
@@ -1719,9 +1734,9 @@ internal static class SelfTest
 			{
 				return Fail("conversion refused a valid pack: " + error);
 			}
-			if (result.Items != 2 || result.Fields != 4)
+			if (result.Items != 2 || result.Fields != 5)
 			{
-				return Fail("expected 2 items and 4 fields, got " + result.Items + " and " + result.Fields);
+				return Fail("expected 2 items and 5 fields, got " + result.Items + " and " + result.Fields);
 			}
 			if (result.UnknownItems != 1 || result.UnsupportedFields != 2)
 			{
@@ -1752,6 +1767,12 @@ internal static class SelfTest
 				|| !text4.Contains(".UseTime = 17;") || !text4.Contains(".AutoReuse = true;"))
 			{
 				return Fail("the generated source does not carry the pack's values");
+			}
+			// `light` used to be refused with "items do not glow here". It is a brightness now, and
+			// the generated project must carry it as a float literal or it will not compile.
+			if (!text4.Contains(".Light = 0.4f;"))
+			{
+				return Fail("the generated source does not carry the pack's light value");
 			}
 			if (!text4.Contains(".Pick = 45;"))
 			{
@@ -14589,6 +14610,40 @@ internal static class SelfTest
 			if (bow.Scale <= 0f)
 			{
 				return Fail("a scale of 0 was accepted, which draws nothing");
+			}
+			// --- `light` is a brightness from 0 to 1, and it is applied ---
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "light", "0.5");
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.Light < 0.49f || bow.Light > 0.51f)
+			{
+				return Fail("light=0.5 was stored as " + bow.Light);
+			}
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "light", "2");
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.Light > 1f)
+			{
+				return Fail("a light above 1 was accepted: " + bow.Light);
+			}
+			// --- a comma decimal separator is a number, not a typo ---
+			// 49 values in the packs on this machine are written `1,1` instead of `1.1`. Read with
+			// the invariant culture they are not numbers, so the fields were dropped and the items
+			// came out the wrong size.
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "scale", "1,1");
+			Terraria.Mods.ItemOverrides.Set(bowId, "light", "0,8");
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.Scale < 1.09f || bow.Scale > 1.11f)
+			{
+				return Fail("scale=1,1 was stored as " + bow.Scale);
+			}
+			if (bow.Light < 0.79f || bow.Light > 0.81f)
+			{
+				return Fail("light=0,8 was stored as " + bow.Light);
 			}
 			// --- and the ordinary values still work ---
 			Terraria.Mods.ItemOverrides.Clear();

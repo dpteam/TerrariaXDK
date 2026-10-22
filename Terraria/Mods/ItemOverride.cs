@@ -246,6 +246,12 @@ public sealed class ItemOverride
 		set { Set("material", value ? "true" : "false"); }
 	}
 
+	/// <summary>How brightly the item glows, 0 (not at all) to 1.</summary>
+	public float Light
+	{
+		set { Set("light", value); }
+	}
+
 	/// <summary>Whether the sprite turns to follow the swing.</summary>
 	public bool CanUseTurn
 	{

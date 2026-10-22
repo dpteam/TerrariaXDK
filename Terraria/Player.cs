@@ -7100,6 +7100,14 @@ public sealed class Player
 				itemLocation.Y = XYWH.Y + 21 - (itemHeight >> 1);
 				itemRotation = 0f;
 			}
+			// A mod item that declares `light` glows in the hand: the same call the torches below
+			// make, with white instead of a torch colour. Vanilla items and mod items without the
+			// field have Light == 0, so nothing changes for them.
+			if (ptr->Light > 0f)
+			{
+				Lighting.AddLight((itemLocation.X + 6) >> 4, (itemLocation.Y - 14) >> 4,
+					new Vector3(ptr->Light, ptr->Light, ptr->Light));
+			}
 			if ((ptr->Type == 8 || ptr->Type == 523 || (ptr->Type >= 427 && ptr->Type <= 433)) && !IsWet)
 			{
 				int num14 = 0;
