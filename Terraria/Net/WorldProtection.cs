@@ -94,6 +94,39 @@ internal static class WorldProtection
 	}
 
 	/// <summary>
+	/// The whole decision for an edit arriving from a client: may this player edit here, and how
+	/// often may they edit at all.
+	///
+	/// One function rather than two calls at the call site, because the <b>order</b> is part of the
+	/// rule: permission is asked first, so a player who is not allowed to build does not spend
+	/// their rate budget discovering that on every click. Splitting it would let a future caller
+	/// get that backwards.
+	///
+	/// <paramref name="rateLimited"/> tells the caller which message to use: "you may not build"
+	/// and "you are editing too fast" are different problems and deserve different words.
+	/// </summary>
+	internal static bool MayEdit(string gamertag, int x, int y, bool isSection, out string reason, out bool rateLimited)
+	{
+		rateLimited = false;
+		if (CanEdit(isHost: false, gamertag, x, y, out reason))
+		{
+			reason = null;
+		}
+		else
+		{
+			return false;
+		}
+		bool flag = isSection
+			? Terraria.Net.EditBudget.AllowsSection(gamertag, out reason)
+			: Terraria.Net.EditBudget.AllowsEdit(gamertag, out reason);
+		if (!flag)
+		{
+			rateLimited = true;
+		}
+		return flag;
+	}
+
+	/// <summary>
 	/// True when the tile is inside the protected box around the world spawn. A square box,
 	/// not a circle: it is what the player can see on the map, so "why is this tile blocked"
 	/// has an answer they can check.

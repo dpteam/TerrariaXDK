@@ -105,6 +105,7 @@ internal static class SelfTest
 		RunCheck("relay client", CheckRelayClient);
 		RunCheck("upnp", CheckUPnP);
 		RunCheck("packet batching", CheckPacketBatching);
+		RunCheck("edit budget", CheckEditBudget);
 		RunCheck("whitelist", CheckWhitelist);
 		RunCheck("relay session", CheckRelaySession);
 		RunCheck("relay live", CheckRelayLive);
@@ -1687,6 +1688,239 @@ internal static class SelfTest
 			{
 			}
 		}
+	}
+
+	// --- Edit budget --------------------------------------------------------
+
+	/// <summary>
+	/// How fast one player may change the world.
+	///
+	/// The numbers are the interesting part, not the mechanism: too tight and a drill or a
+	/// dynamite blast is refused, too loose and a flooder gets through. So the honest cases are
+	/// checked as explicitly as the abusive one - an endgame mining run and a blast that clears a
+	/// hundred tiles must both pass, and a client sending edits as fast as it can must not.
+	/// </summary>
+	private static bool CheckEditBudget()
+	{
+		try
+		{
+			// --- the bucket itself -------------------------------------------
+			TokenBucket tokenBucket = new TokenBucket(10.0, 5.0, 0L);
+			if (tokenBucket.CreditAt(0L) != 10.0)
+			{
+				return Fail("a new bucket is not full");
+			}
+			for (int i = 0; i < 10; i++)
+			{
+				if (!tokenBucket.TryTake(1, 0L))
+				{
+					return Fail("the bucket refused edit " + i + " of its own capacity");
+				}
+			}
+			if (tokenBucket.TryTake(1, 0L))
+			{
+				return Fail("the bucket handed out more than its capacity");
+			}
+			// Refusing must not charge: a client asking for too much cannot drain itself.
+			if (tokenBucket.CreditAt(0L) != 0.0)
+			{
+				return Fail("a refused take changed the credit");
+			}
+			// Refill: 5 per second, so 400 ms is 2 edits.
+			if (!tokenBucket.TryTake(2, 400L))
+			{
+				return Fail("the bucket did not refill");
+			}
+			if (tokenBucket.TryTake(1, 400L))
+			{
+				return Fail("the bucket refilled more than the elapsed time allows");
+			}
+			// The cap: waiting a minute must not bank a minute's worth.
+			if (tokenBucket.CreditAt(60000L) != 10.0)
+			{
+				return Fail("credit exceeded the capacity after a long wait");
+			}
+			// A clock that goes backwards must not hand out credit.
+			TokenBucket tokenBucket2 = new TokenBucket(10.0, 5.0, 1000L);
+			tokenBucket2.TryTake(10, 1000L);
+			if (tokenBucket2.TryTake(1, 500L))
+			{
+				return Fail("a backwards clock refilled the bucket");
+			}
+			// A cost above the capacity is refused, not clamped.
+			TokenBucket tokenBucket3 = new TokenBucket(4.0, 1.0, 0L);
+			if (tokenBucket3.TryTake(5, 0L))
+			{
+				return Fail("a cost above the capacity was accepted");
+			}
+
+			// --- the honest cases --------------------------------------------
+			// Driven with a synthetic clock: the point is the constants, and ten seconds of real
+			// sleeping in a self-test is ten seconds nobody gets back.
+			TokenBucket honest = new TokenBucket(Terraria.Net.EditBudget.BurstEdits,
+				Terraria.Net.EditBudget.EditsPerSecond, 0L);
+			// An endgame drill: 20 tiles a second for 10 seconds, one edit every 50 ms.
+			for (int j = 0; j < 200; j++)
+			{
+				if (!honest.TryTake(1, j * 50L))
+				{
+					return Fail("honest mining was rate-limited at edit " + j);
+				}
+			}
+			// A dynamite blast right after it: about 150 tiles in one burst, no time passing.
+			for (int k = 0; k < 150; k++)
+			{
+				if (!honest.TryTake(1, 10000L))
+				{
+					return Fail("a dynamite-sized burst was rate-limited at tile " + k);
+				}
+			}
+
+			// --- the abusive case --------------------------------------------
+			Terraria.Net.EditBudget.ResetAll();
+			// Assigned by the calls below; the initialiser is for the compiler, which cannot
+			// prove a loop body ran.
+			string reason = null;
+			int accepted = 0;
+			for (int l = 0; l < 5000; l++)
+			{
+				if (Terraria.Net.EditBudget.AllowsEdit("Flooder", out reason))
+				{
+					accepted++;
+				}
+			}
+			if (accepted > Terraria.Net.EditBudget.BurstEdits + 20)
+			{
+				return Fail("a flooder got " + accepted + " edits through in one instant, expected about "
+					+ Terraria.Net.EditBudget.BurstEdits);
+			}
+			if (accepted < 100)
+			{
+				return Fail("the budget is so tight that even a burst is refused (" + accepted + ")");
+			}
+			if (reason == null || reason.IndexOf("faster", StringComparison.Ordinal) < 0)
+			{
+				return Fail("a rate-limited edit gave no usable reason: " + reason);
+			}
+			// Sections have their own, much smaller budget.
+			Terraria.Net.EditBudget.ResetAll();
+			int sections = 0;
+			for (int m = 0; m < 500; m++)
+			{
+				if (Terraria.Net.EditBudget.AllowsSection("Flooder", out reason))
+				{
+					sections++;
+				}
+			}
+			if (sections != Terraria.Net.EditBudget.BurstSections)
+			{
+				return Fail("a section flooder got " + sections + " section(s), expected "
+					+ Terraria.Net.EditBudget.BurstSections);
+			}
+			// ...and spending the section budget must not spend the tile budget.
+			if (!Terraria.Net.EditBudget.AllowsEdit("Flooder", out reason))
+			{
+				return Fail("a section flood also used up the tile budget");
+			}
+			// Budgets are per player: one flooder must not silence anybody else.
+			if (!Terraria.Net.EditBudget.AllowsEdit("Innocent", out reason))
+			{
+				return Fail("one player's budget affected another's");
+			}
+			// Leaving and rejoining starts clean.
+			Terraria.Net.EditBudget.Reset("Flooder");
+			if (!Terraria.Net.EditBudget.AllowsEdit("Flooder", out reason))
+			{
+				return Fail("a rejoining player inherited the old budget");
+			}
+			// The refusal notice is throttled, or the flood becomes a chat flood.
+			Terraria.Net.EditBudget.ResetAll();
+			Terraria.Net.EditBudget.AllowsEdit("Spam", out reason);
+			if (!Terraria.Net.EditBudget.ShouldNotify("Spam"))
+			{
+				return Fail("the first refusal was not announced");
+			}
+			if (Terraria.Net.EditBudget.ShouldNotify("Spam"))
+			{
+				return Fail("refusals are not throttled");
+			}
+			Terraria.Net.EditBudget.ResetAll();
+			if (Terraria.Net.EditBudget.TrackedPlayers != 0)
+			{
+				return Fail("ResetAll left budgets behind");
+			}
+			// An unnamed sender is let through: refusing would break play against a state that
+			// the handshake says cannot happen.
+			if (!Terraria.Net.EditBudget.AllowsEdit(null, out reason))
+			{
+				return Fail("an unnamed sender was rate-limited");
+			}
+
+			// --- the composition: permission first, budget second ------------
+			// A player who may not build must not spend their rate budget finding that out.
+			// This ordering is the reason MayEdit exists instead of two calls at the call site.
+			Terraria.Net.EditBudget.ResetAll();
+			bool savedDisable = Terraria.Net.WorldProtection.DisableBuild;
+			try
+			{
+				Terraria.Net.WorldProtection.DisableBuild = true;
+				for (int n = 0; n < 300; n++)
+				{
+					bool rateLimited;
+					if (Terraria.Net.WorldProtection.MayEdit("Guest", 500, 500, isSection: false, out reason, out rateLimited))
+					{
+						return Fail("an edit was allowed while building was disabled");
+					}
+					if (rateLimited)
+					{
+						return Fail("a permission refusal was reported as a rate limit");
+					}
+				}
+				// 300 refusals later the budget is untouched, so lifting the ban leaves a player
+				// who can still build.
+				Terraria.Net.WorldProtection.DisableBuild = false;
+				bool flag;
+				if (!Terraria.Net.WorldProtection.MayEdit("Guest", 500, 500, isSection: false, out reason, out flag))
+				{
+					return Fail("a permission refusal spent the rate budget: " + reason);
+				}
+				if (flag)
+				{
+					return Fail("an allowed edit was reported as rate-limited");
+				}
+				// And the other way round: a rate limit is not reported as a permission problem.
+				for (int num = 0; num < 400; num++)
+				{
+					Terraria.Net.WorldProtection.MayEdit("Guest", 500, 500, isSection: false, out reason, out flag);
+				}
+				if (Terraria.Net.WorldProtection.MayEdit("Guest", 500, 500, isSection: false, out reason, out flag))
+				{
+					return Fail("the budget never ran out through MayEdit");
+				}
+				if (!flag)
+				{
+					return Fail("a rate limit was reported as a permission problem");
+				}
+			}
+			finally
+			{
+				Terraria.Net.WorldProtection.DisableBuild = savedDisable;
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("edit budget check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Net.EditBudget.ResetAll();
+		}
+	}
+
+	private static void ThreadSleep(int milliseconds)
+	{
+		System.Threading.Thread.Sleep(milliseconds);
 	}
 
 	// --- Packet batching ----------------------------------------------------

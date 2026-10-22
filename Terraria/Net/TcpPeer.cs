@@ -577,6 +577,9 @@ internal sealed class TcpPeer : IPeerTransport
 		}
 		Broadcast(WireFormat.Frame(OpLeave, BitConverter.GetBytes(connection.Id)), null);
 		_inbox.Enqueue(() => _session.RemoveRemoteGamer(connection.Id));
+		// A player who leaves gets a clean budget: a reconnect must not inherit the credit (or
+		// the exhaustion) of the session before it.
+		Terraria.Net.EditBudget.Reset(connection.Gamertag);
 		ModLoaderLog("Peer left: " + connection.Gamertag);
 	}
 
@@ -1279,6 +1282,8 @@ internal sealed class TcpPeer : IPeerTransport
 			// Take the router rule back out: a mapping left behind outlives the game and is a
 			// hole nobody remembers opening.
 			PortForwarder.Stop();
+			// Every edit budget belongs to this hosting session.
+			Terraria.Net.EditBudget.ResetAll();
 		}
 		try
 		{

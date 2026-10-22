@@ -25,9 +25,14 @@ public sealed class NetMessage
 	};
 
 	/// <summary>
-	/// World protection gate for edits arriving from a client. Returns true when the edit may
-	/// be applied. Refusals are explained to the player at most once every few seconds, and
+	/// World protection gate for edits arriving from a client. Returns true when the edit may be
+	/// applied. Refusals are explained to the player at most once every few seconds, and
 	/// logged once per player as well, so a griefing client cannot flood either.
+	///
+	/// Two questions, in this order: <b>may</b> this player edit here
+	/// (<see cref="Terraria.Net.WorldProtection.CanEdit"/>), and <b>how often</b> may they edit at
+	/// all (<see cref="Terraria.Net.EditBudget"/>). The permission comes first so a player who is
+	/// not allowed to build at all does not spend their budget finding that out on every click.
 	///
 	/// An unknown sender (no <see cref="NetClient"/>, which should not happen for a data
 	/// packet) is allowed through: breaking normal play to defend against a state we cannot
@@ -35,29 +40,36 @@ public sealed class NetMessage
 	/// </summary>
 	private static bool AllowRemoteEdit(NetClient sender, int x, int y, out string reason)
 	{
+		return AllowRemoteEdit(sender, x, y, isSection: false, out reason);
+	}
+
+	/// <summary>
+	/// Same gate, with the kind of write named: a whole section (packet 20) is a different act
+	/// from one tile, and gets its own much smaller budget.
+	/// </summary>
+	private static bool AllowRemoteEdit(NetClient sender, int x, int y, bool isSection, out string reason)
+	{
 		reason = null;
-		string gamertag = null;
-		try
-		{
-			if (sender != null && sender.NetGamer != null)
-			{
-				gamertag = sender.NetGamer.Gamertag;
-			}
-		}
-		catch
-		{
-		}
+		string gamertag = SenderTag(sender);
 		if (string.IsNullOrEmpty(gamertag))
 		{
 			return true;
 		}
-		if (Terraria.Net.WorldProtection.CanEdit(isHost: false, gamertag, x, y, out reason))
+		bool rateLimited;
+		if (Terraria.Net.WorldProtection.MayEdit(gamertag, x, y, isSection, out reason, out rateLimited))
 		{
 			return true;
 		}
-		if (Terraria.Net.WorldProtection.ShouldNotify(gamertag))
+		if (!rateLimited)
 		{
-			Program.LogInfo("Protection", "refused " + gamertag + " at (" + x + ", " + y + "): " + reason);
+			NotifyRefusedEdit(gamertag, x, y, reason);
+			return false;
+		}
+		// Not a permission problem, so the log line says "too fast" rather than repeating the
+		// world-protection text.
+		if (Terraria.Net.EditBudget.ShouldNotify(gamertag))
+		{
+			Program.LogWarn("Protection", "rate-limited " + gamertag + " at (" + x + ", " + y + "): " + reason);
 			Terraria.Net.TcpPeer host = Terraria.Net.TcpPeer.CurrentHost;
 			string sent;
 			if (host != null)
@@ -66,6 +78,36 @@ public sealed class NetMessage
 			}
 		}
 		return false;
+	}
+
+	private static string SenderTag(NetClient sender)
+	{
+		try
+		{
+			if (sender != null && sender.NetGamer != null)
+			{
+				return sender.NetGamer.Gamertag;
+			}
+		}
+		catch
+		{
+		}
+		return null;
+	}
+
+	private static void NotifyRefusedEdit(string gamertag, int x, int y, string reason)
+	{
+		if (!Terraria.Net.WorldProtection.ShouldNotify(gamertag))
+		{
+			return;
+		}
+		Program.LogInfo("Protection", "refused " + gamertag + " at (" + x + ", " + y + "): " + reason);
+		Terraria.Net.TcpPeer host = Terraria.Net.TcpPeer.CurrentHost;
+		string sent;
+		if (host != null)
+		{
+			host.SendTextTo(gamertag, reason, out sent);
+		}
 	}
 
 	/// <summary>
@@ -2282,13 +2324,27 @@ public sealed class NetMessage
 		}
 		case 19:
 		{
-			if (Main.NetMode == 2)
-			{
-				EchoMessage(sender);
-			}
 			ushort i4 = PacketIn.ReadUInt16();
 			int j4 = PacketIn.ReadUInt16();
 			int direction = PacketIn.ReadSByte();
+			if (Main.NetMode == 2)
+			{
+				// Doors are a world change that the host applies and relays, so they count
+				// against the same budget as tiles. They are not permission-gated on purpose:
+				// refusing to open a door inside a protected area would lock players out of
+				// rooms they are meant to walk into, and opening one destroys nothing.
+				string tag = SenderTag(sender);
+				string reason4;
+				if (!Terraria.Net.EditBudget.AllowsEdit(tag, out reason4))
+				{
+					if (Terraria.Net.EditBudget.ShouldNotify(tag))
+					{
+						Program.LogWarn("Protection", "rate-limited " + tag + " on a door: " + reason4);
+					}
+					break;
+				}
+				EchoMessage(sender);
+			}
 			WorldGen.OpenDoor(i4, j4, direction);
 			break;
 		}
@@ -2303,7 +2359,7 @@ public sealed class NetMessage
 				// The box covers the whole section; refused as a unit so a griefing client
 				// cannot slip tiles in at the edges.
 				string reason2;
-				if (!AllowRemoteEdit(sender, num80 + num79 / 2, num81 + num79 / 2, out reason2))
+				if (!AllowRemoteEdit(sender, num80 + num79 / 2, num81 + num79 / 2, isSection: true, out reason2))
 				{
 					break;
 				}
