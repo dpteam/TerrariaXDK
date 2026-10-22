@@ -349,6 +349,21 @@ public sealed class Recipe
 		CurrentRecipes.Clear();
 	}
 
+	/// <summary>
+	/// How many recipes this build ships, measured before any mod recipe is added. <c>-1</c> until
+	/// something records it.
+	///
+	/// The boundary the mod recipes are appended after, and therefore the length to cut back to
+	/// when mods are unloaded. <see cref="MaxNumRecipes"/> is the size of the vanilla array, which
+	/// is the same number today - but it is an assumption, and resetting to an assumption is how a
+	/// reload silently eats a vanilla recipe or leaves a stale mod one behind.
+	///
+	/// Recorded in two places because the game and the headless self-test reach this differently:
+	/// <see cref="SetupRecipes"/> runs from <c>Main</c>'s constructor, which the self-test never
+	/// builds, so the loader records whatever the count is before it appends the first mod recipe.
+	/// </summary>
+	public static int VanillaRecipeCount = -1;
+
 	public static void SetupRecipes()
 	{
 		NewRecipe.RecipeCategory = Category.STRUCTURES;
@@ -2761,6 +2776,43 @@ public sealed class Recipe
 			}
 			Main.ActiveRecipe[i].CraftedItem.CheckMaterial();
 		}
+		// Everything from here on is a mod recipe: this is the boundary Unload cuts back to.
+		VanillaRecipeCount = NumRecipes;
+	}
+
+	/// <summary>
+	/// Drops every recipe added after <see cref="SetupRecipes"/> and forgets them.
+	///
+	/// Called when mods are unloaded. Without it, unloading and loading mods again appended the
+	/// same recipes a second time - the crafting list showed every mod recipe twice, and the array
+	/// grew by the whole set on each reload until it ran past <see cref="Capacity"/>. Nothing in
+	/// the game reloads mods today (the menu says "restart"), which is exactly why the bug would
+	/// have waited for whoever added a reload button.
+	///
+	/// The slots are cleared, not just the counter: a stale <see cref="Recipe"/> left in the array
+	/// is a recipe the next append would silently overwrite, and a duplicate is worse than a gap.
+	/// </summary>
+	public static void DropModRecipes()
+	{
+		if (VanillaRecipeCount < 0)
+		{
+			// Nothing recorded a baseline, so there is nothing to cut back to. Guessing
+			// MaxNumRecipes here would delete real recipes in a build where SetupRecipes produced
+			// a different number.
+			CurrentRecipes.Clear();
+			return;
+		}
+		int num = VanillaRecipeCount;
+		if (num > NumRecipes)
+		{
+			num = NumRecipes;
+		}
+		for (int i = num; i < NumRecipes && i < Main.ActiveRecipe.Length; i++)
+		{
+			Main.ActiveRecipe[i] = null;
+		}
+		NumRecipes = num;
+		CurrentRecipes.Clear();
 	}
 
 	/// <summary>

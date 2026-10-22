@@ -149,6 +149,15 @@ internal static class ModLoader
 		Terraria.Mods.ModItems.Finalize(GraphicsDevice);
 		// Recipes after the ids: a recipe names its result and its ingredients, and a mod item has
 		// no id until Finalize has run.
+		//
+		// The baseline is whatever the count is now, before the first mod recipe is appended. In
+		// the game that is the 342 from SetupRecipes; in the headless self-test, which never builds
+		// Main, it is 0. Recording it here rather than trusting MaxNumRecipes is what lets Unload
+		// cut back to the right place in both.
+		if (Terraria.Recipe.VanillaRecipeCount < 0)
+		{
+			Terraria.Recipe.VanillaRecipeCount = Terraria.Recipe.NumRecipes;
+		}
 		List<string> recipeProblems;
 		int num = Terraria.Mods.ModRecipes.Apply(out recipeProblems);
 		for (int i = 0; i < recipeProblems.Count; i++)
@@ -763,6 +772,16 @@ internal static class ModLoader
 		// The hashes describe the assemblies that were loaded; after an unload they describe
 		// nothing, and a stale one would make a reloaded mod look unchanged.
 		AssemblyHashes.Clear();
+		// Everything a load appends has to be taken back, or the next load appends it again:
+		// recipes would appear twice in the crafting list, and the array would grow by the whole
+		// set each time until it ran past its capacity. Items, overrides and tooltips are cleared
+		// for the same reason - they are keyed by id, so a reload would overwrite them harmlessly,
+		// but a definition from a mod that is no longer installed must not survive either.
+		Terraria.Mods.ModItems.Clear();
+		Terraria.Mods.ModRecipes.Clear();
+		Terraria.Recipe.DropModRecipes();
+		Terraria.Mods.ItemOverrides.Clear();
+		Terraria.ItemToolTips.Clear();
 		UnknownPacketSenders.Clear();
 		Terraria.Net.ModNet.Received -= HandleModPacket;
 		IsInitialized = false;

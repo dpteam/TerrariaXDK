@@ -766,8 +766,12 @@ internal static class SelfTest
 		}
 		if (Recipe.NumRecipes > 0)
 		{
+			// The vanilla count is what was recorded before the first mod recipe was appended, not
+			// MaxNumRecipes: the self-test never builds Main, so SetupRecipes does not run here and
+			// the baseline is 0. Printing the constant claimed "vanilla 342" over a run with no
+			// vanilla recipes at all.
 			Console.WriteLine("       recipes: " + Recipe.NumRecipes
-				+ " (vanilla " + Recipe.MaxNumRecipes + ")");
+				+ " (this build's own: " + Recipe.VanillaRecipeCount + ")");
 		}
 		for (int i = 0; i < Terraria.Mods.ModLoader.LoadErrors.Count; i++)
 		{
@@ -863,12 +867,45 @@ internal static class SelfTest
 		// produce the identical string.
 		string signature = Terraria.Mods.ModLoader.Signature;
 		int modCount = Terraria.Mods.ModLoader.ModCount;
+		// --- and a reload must not append what the unload did not take back ------------
+		// `Initialize` appends recipes at `Main.ActiveRecipe[Recipe.NumRecipes]`, so a second load
+		// over the first added every mod recipe twice: the crafting list showed each one two
+		// times, and the array grew by the whole set per reload until it ran past its capacity.
+		// Nothing reloads mods in the game today, which is why this waited - and why it is worth
+		// an assertion rather than a comment.
+		int recipesBefore = Recipe.NumRecipes;
+		int vanillaRecipes = Recipe.VanillaRecipeCount;
+		int itemsBefore = Terraria.Mods.ModItems.Count;
+		if (vanillaRecipes < 0 || vanillaRecipes > recipesBefore)
+		{
+			return Fail("the vanilla recipe count was not recorded: " + vanillaRecipes
+				+ " with " + recipesBefore + " total");
+		}
 		Terraria.Mods.ModLoader.Unload();
+		if (Recipe.NumRecipes != vanillaRecipes)
+		{
+			return Fail("unloading mods left " + Recipe.NumRecipes + " recipe(s) instead of the "
+				+ vanillaRecipes + " this build ships");
+		}
+		if (Terraria.Mods.ModItems.Count != 0)
+		{
+			return Fail("unloading mods left " + Terraria.Mods.ModItems.Count + " item definition(s)");
+		}
 		Terraria.Mods.ModLoader.Initialize();
 		if (Terraria.Mods.ModLoader.ModCount != modCount)
 		{
 			return Fail("a reload changed the mod count: " + modCount + " -> "
 				+ Terraria.Mods.ModLoader.ModCount);
+		}
+		if (Recipe.NumRecipes != recipesBefore)
+		{
+			return Fail("a reload changed the recipe count: " + recipesBefore + " -> "
+				+ Recipe.NumRecipes + " (each mod recipe is appended again)");
+		}
+		if (Terraria.Mods.ModItems.Count != itemsBefore)
+		{
+			return Fail("a reload changed the item count: " + itemsBefore + " -> "
+				+ Terraria.Mods.ModItems.Count);
 		}
 		if (!string.Equals(signature, Terraria.Mods.ModLoader.Signature, StringComparison.Ordinal))
 		{
