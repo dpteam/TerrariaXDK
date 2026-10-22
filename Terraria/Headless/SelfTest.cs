@@ -2441,6 +2441,62 @@ internal static class SelfTest
 			{
 				return Fail("the item name is '" + name + "'");
 			}
+			// --- a new item may not take a vanilla item's name ---------------------
+			// Names are how recipes and Context.Item refer to items, and ItemLookup asks the mod
+			// registry first - so a new "Wood" would answer every name-based reference to Wood.
+			// Four items in the packs on this machine do this (Purple Dye, Harp, Shotgun,
+			// Excalibur); refused, with the reason naming the existing item.
+			if (Terraria.Mods.ModItems.Register("ModC", "Wood", "sword.png", root, out error) != null)
+			{
+				return Fail("a new item was allowed to take the vanilla name 'Wood'");
+			}
+			if (error == null || error.IndexOf("already exists", StringComparison.Ordinal) < 0)
+			{
+				return Fail("a name collision was refused without saying why: " + error);
+			}
+			// And the vanilla name still resolves to the vanilla item, which is the whole point.
+			int wood = Terraria.ItemLookup.Find("Wood");
+			if (wood <= 0 || wood >= Terraria.Mods.ModItems.IdBase)
+			{
+				return Fail("'Wood' resolves to " + wood + " instead of the vanilla item");
+			}
+			// Two mods sharing a name is still allowed (the key is (mod, name)), and the vanilla
+			// table is not affected by it.
+			if (Terraria.Mods.ModItems.Register("ModC", "Test Sword", "sword.png", root, out error) == null)
+			{
+				return Fail("a mod could not use a name another mod already used");
+			}
+			// --- and a recipe that makes a refused item is refused too -------------
+			// A compiled mod can call Context.AddRecipe("Wood") on its own. Without this the
+			// recipe survives the refusal of the item and resolves to the *vanilla* Wood - a
+			// recipe nobody wrote, turning the mod's ingredients into somebody else's item.
+			int savedRecipes = Recipe.NumRecipes;
+			try
+			{
+				Terraria.Mods.ModRecipes.Clear();
+				Terraria.Mods.ModRecipe phantom = Terraria.Mods.ModRecipes.Register("ModC", "Wood", out error);
+				if (phantom == null)
+				{
+					return Fail("could not register the refused-item recipe: " + error);
+				}
+				phantom.AddIngredient("Copper Ore", 1);
+				List<string> recipeProblems;
+				int added = Terraria.Mods.ModRecipes.Apply(out recipeProblems);
+				if (added != 0)
+				{
+					return Fail("a recipe making a refused item name was added, and would craft the"
+						+ " vanilla item instead");
+				}
+				if (!SaidAny(recipeProblems, "was refused"))
+				{
+					return Fail("a recipe for a refused item was skipped without a reason");
+				}
+			}
+			finally
+			{
+				Recipe.NumRecipes = savedRecipes;
+				Terraria.Mods.ModRecipes.Clear();
+			}
 			if (string.IsNullOrEmpty(item.AffixName()))
 			{
 				return Fail("a mod item has no affix name");

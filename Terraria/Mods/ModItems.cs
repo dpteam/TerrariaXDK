@@ -50,6 +50,30 @@ internal static class ModItems
 	/// <summary>Definitions keyed by "mod/name", before and after assignment.</summary>
 	private static readonly Dictionary<string, ModItem> ByKey = new Dictionary<string, ModItem>(StringComparer.OrdinalIgnoreCase);
 
+	/// <summary>
+	/// Which mod first claimed each item name, for the "two mods, one name" warning.
+	///
+	/// Names are the only way a recipe or <c>Context.Item</c> can refer to a mod's item, so a
+	/// duplicate is not harmless even though the registry keys on (mod, name): the lookup has to
+	/// return one of them, and the author of the other gets nothing.
+	/// </summary>
+	private static readonly Dictionary<string, string> NameOwners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+	/// <summary>
+	/// Names refused because a vanilla item already has them.
+	///
+	/// Kept so a recipe that *makes* such an item can be refused too. Without it the pack's
+	/// "Harp" recipe survives the refusal of its item and resolves to the vanilla Harp - a recipe
+	/// the author never wrote, turning their ingredients into somebody else's item.
+	/// </summary>
+	private static readonly HashSet<string> RefusedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+	/// <summary>True when a new item with this name was refused because the name was taken.</summary>
+	internal static bool WasRefused(string name)
+	{
+		return name != null && RefusedNames.Contains(name.Trim());
+	}
+
 	private static readonly List<Pending> Unassigned = new List<Pending>();
 
 	private static readonly object Sync = new object();
@@ -105,6 +129,28 @@ internal static class ModItems
 				error = "this mod already defines an item called '" + text + "'";
 				return null;
 			}
+			// A new item may not take a vanilla item's name.
+			//
+			// Names are how recipes, `Context.Item` and the tConfig importer refer to items, and
+			// `ItemLookup` asks the mod registry first - so a new "Harp" makes every name-based
+			// reference to the vanilla Harp resolve to it instead. That is silent: the recipe
+			// still works, it just needs a different item, and a mod that meant to adjust the
+			// vanilla Harp adjusts a new one. Four items in the packs on this machine do this
+			// (`Purple Dye`, `Harp`, `Shotgun`, `Excalibur`).
+			//
+			// Refused rather than renamed: the author's intent for a name is not ours to guess,
+			// and a quietly renamed item is another surprise. Changing an existing item's stats is
+			// what `Context.Item` is for.
+			int vanilla = Terraria.ItemLookup.FindVanilla(text);
+			if (vanilla > 0)
+			{
+				RefusedNames.Add(text);
+				error = "an item called '" + text + "' already exists in this build (id " + vanilla
+					+ "), and a new item cannot take its name - every recipe that names it would find"
+					+ " this one instead. Rename the new item, or change the existing one with"
+					+ " Context.Item";
+				return null;
+			}
 			if (string.IsNullOrEmpty(spritePath))
 			{
 				error = "an item needs a sprite";
@@ -121,6 +167,20 @@ internal static class ModItems
 			modItem.ModName = modName;
 			modItem.Name = text;
 			modItem.SpritePath = spritePath;
+			// Two mods may use the same name - the key is (mod, name) - but then a name-based
+			// lookup has to pick one, and the player cannot tell them apart. Allowed, and said out
+			// loud, because refusing would be a policy the author cannot work around when the two
+			// mods are not theirs.
+			string owner;
+			if (NameOwners.TryGetValue(text, out owner) && !string.Equals(owner, modName, StringComparison.OrdinalIgnoreCase))
+			{
+				ModLoader.Log("[Mods] '" + text + "' is defined by both '" + owner + "' and '" + modName
+					+ "' - recipes and Context.Item that name it will find whichever loaded first");
+			}
+			else
+			{
+				NameOwners[text] = modName;
+			}
 			ByKey[key] = modItem;
 			Pending pending = new Pending();
 			pending.ModName = modName;
@@ -405,6 +465,8 @@ internal static class ModItems
 		{
 			ById.Clear();
 			ByKey.Clear();
+			NameOwners.Clear();
+			RefusedNames.Clear();
 			Unassigned.Clear();
 			SheetsByName.Clear();
 		}

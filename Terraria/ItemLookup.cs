@@ -28,6 +28,24 @@ internal static class ItemLookup
 		return TryFind(name, out result) ? result : 0;
 	}
 
+	/// <summary>
+	/// The same lookup, but only among the items this build ships - never a mod's.
+	///
+	/// Exists for <c>ModItems.Register</c>: a new item may not take a name that already belongs to
+	/// a vanilla item, and deciding that needs the vanilla table on its own. Asking <see cref="Find"/>
+	/// would answer with whichever mod item happened to be registered first, which is the very
+	/// ambiguity being prevented.
+	/// </summary>
+	internal static int FindVanilla(string name)
+	{
+		if (string.IsNullOrEmpty(name))
+		{
+			return 0;
+		}
+		int result;
+		return Map().TryGetValue(name.Trim(), out result) ? result : 0;
+	}
+
 	internal static bool TryFind(string name, out int type)
 	{
 		type = 0;

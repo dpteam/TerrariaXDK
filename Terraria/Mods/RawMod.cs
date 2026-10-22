@@ -61,6 +61,17 @@ internal sealed class RawMod
 	public int Recipes { get; private set; }
 
 	/// <summary>
+	/// Items this pack declares that could not be created: no sprite, an unreadable file, a name
+	/// that is already taken, a manifest that will not parse.
+	///
+	/// Separate from <see cref="Problems"/>, which also lists every field that has no equivalent
+	/// here. Those are expected - a pack uses tConfig fields this build does not have - and counting
+	/// them as errors would show "364 load error(s)" over a perfectly normal conversion. A missing
+	/// item is different: the pack said it exists and it does not.
+	/// </summary>
+	public int RefusedItems { get; private set; }
+
+	/// <summary>
 	/// Hash of everything in the folder. Two players with a folder of the same name but
 	/// different contents must not be able to join each other, and the name is not the content.
 	/// </summary>
@@ -298,6 +309,7 @@ internal sealed class RawMod
 		if (list == null)
 		{
 			_problems.Add("'" + text + "': " + Path.GetFileName(iniPath) + ": " + error);
+			RefusedItems++;
 			return;
 		}
 		string text2 = FindSprite(iniPath);
@@ -314,6 +326,7 @@ internal sealed class RawMod
 				if (text2 == null)
 				{
 					_problems.Add("'" + text + "': no such item in this build and no sprite, skipped");
+					RefusedItems++;
 					return;
 				}
 				flag = true;
@@ -326,12 +339,14 @@ internal sealed class RawMod
 				// An item that cannot be drawn is not a feature: it would show as an empty slot and
 				// read as a bug in the game.
 				_problems.Add("'" + text + "': new item with no sprite (" + text + ".png), skipped");
+				RefusedItems++;
 				return;
 			}
 			ModItem modItem = ModItems.Register(Name, text, text2, Directory, out error);
 			if (modItem == null)
 			{
 				_problems.Add("'" + text + "': " + error);
+				RefusedItems++;
 				return;
 			}
 			ApplyFields(list, text, modItem);

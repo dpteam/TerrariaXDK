@@ -424,6 +424,17 @@ internal static class ModLoader
 			// other one hundred and ninety-nine.
 			Log("[Raw] " + rawMod.Name + ": " + rawMod.Problems[i]);
 		}
+		if (rawMod.RefusedItems > 0)
+		{
+			// Counted, not only logged. The menu shows "N load error(s)", and it used to show zero
+			// over a pack whose items had been refused - the same "collected and never read"
+			// problem ItemOverrides.Errors had. Fields without an equivalent are deliberately NOT
+			// counted: a normal conversion drops hundreds of them, and calling that an error would
+			// make the number useless. A refused item is the pack saying "this exists" and the game
+			// saying "it does not".
+			Errors.Add(rawMod.Name + ": " + rawMod.RefusedItems
+				+ " declared item(s) could not be loaded - see terraria-debug.log");
+		}
 		LoadedRawMods.Add(rawMod);
 		Log("Loaded raw mod " + rawMod.Name + " v" + rawMod.Version + " (" + rawMod.NewItems
 			+ " new item(s), " + rawMod.Overrides + " override(s), " + rawMod.Recipes + " recipe(s))");

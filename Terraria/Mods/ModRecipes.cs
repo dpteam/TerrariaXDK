@@ -258,6 +258,15 @@ internal static class ModRecipes
 					problems.Add("'" + modRecipe.Result + "': no such item in this build");
 					continue;
 				}
+				if (Terraria.Mods.ModItems.WasRefused(modRecipe.Result))
+				{
+					// The pack declares an item with this name, but the name belongs to a vanilla
+					// item, so the item was refused. Resolving the recipe by name would quietly
+					// produce the vanilla item from the mod's ingredients - a recipe nobody wrote.
+					problems.Add("'" + modRecipe.Result + "': the item it makes was refused because"
+						+ " the name already exists in this build - recipe skipped");
+					continue;
+				}
 				// A count is stored in an item's Stack, which is a short. 40000 becomes -25536, and a
 				// negative required count is not "impossible to craft": Recipe.Create sees
 				// `Stack > num` on every slot and *adds* the difference to the player's inventory.

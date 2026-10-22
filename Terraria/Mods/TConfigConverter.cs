@@ -565,15 +565,22 @@ internal static class TConfigConverter
 			result.Errors.Add("'" + text + "': cannot create the item (" + ex.GetType().Name + ": " + ex.Message + ")");
 			return;
 		}
+		if (DefinesNewItem(iniPath))
+		{
+			// `type=-1` decides this, before the name is looked up.
+			//
+			// The order used to be the other way round: an existing name went to the override
+			// path even when the pack said `type=-1`, so a pack adding a new "Purple Dye" quietly
+			// became an *override* of the vanilla Purple Dye - its `type` field dropped as "no
+			// equivalent" and its numbers written onto the vanilla item. The raw output dropped
+			// the same item instead, so the two outputs disagreed about a pack. tConfig's marker
+			// means "this is a new item", and a new item whose name is taken is refused (see
+			// AppendNewItem), not reinterpreted.
+			AppendNewItem(body, iniPath, packDirectory, outputDirectory, used, result);
+			return;
+		}
 		if (item.Type <= 0)
 		{
-			// "Unknown item" and "this pack adds a new item" are different facts, and now they
-			// lead to different code: one is a mistake in the pack, the other is a feature.
-			if (DefinesNewItem(iniPath))
-			{
-				AppendNewItem(body, iniPath, packDirectory, outputDirectory, used, result);
-				return;
-			}
 			result.UnknownItems++;
 			result.Warnings.Add("'" + text + "': no such item in this build, skipped");
 			return;
@@ -1109,6 +1116,18 @@ internal static class TConfigConverter
 		string outputDirectory, HashSet<string> used, Result result)
 	{
 		string text = Path.GetFileNameWithoutExtension(iniPath);
+		// A new item may not take a vanilla item's name: names are how recipes and Context.Item
+		// refer to items, and the game refuses such an item at load (ModItems.Register). Reported
+		// here, at conversion time, so the author sees it before the pack reaches a player - and so
+		// the two outputs (project and raw mod) drop the same items for the same reason.
+		if (Terraria.ItemLookup.FindVanilla(text) > 0)
+		{
+			result.NewItemsSkipped++;
+			result.Warnings.Add("'" + text + "': an item with this name already exists in this build"
+				+ " - a new item cannot take its name, because every recipe that names it would find"
+				+ " this one instead. Rename the item in the pack; the game would refuse it too");
+			return;
+		}
 		string spriteSource = Path.ChangeExtension(iniPath, ".png");
 		if (!File.Exists(spriteSource))
 		{
@@ -1288,6 +1307,15 @@ internal static class TConfigConverter
 		stringBuilder.Append("; Only the fields this build understands are kept; the rest are listed in README.md.\n");
 		if (flag)
 		{
+			// Same rule as the project output: a new item cannot take a vanilla item's name.
+			if (Terraria.ItemLookup.FindVanilla(text) > 0)
+			{
+				result.NewItemsSkipped++;
+				result.Warnings.Add("'" + text + "': an item with this name already exists in this build"
+					+ " - a new item cannot take its name, because every recipe that names it would find"
+					+ " this one instead. Rename the item in the pack; the game would refuse it too");
+				return;
+			}
 			string text2 = Path.ChangeExtension(iniPath, ".png");
 			if (!File.Exists(text2))
 			{
