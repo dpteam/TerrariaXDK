@@ -240,10 +240,15 @@ internal static class ModRecipes
 			for (int i = 0; i < Pending.Count; i++)
 			{
 				ModRecipe modRecipe = Pending[i];
-				if (Recipe.NumRecipes >= Recipe.MaxNumRecipes + Capacity)
+				// The limit is the length of Main.ActiveRecipe, which is Recipe.Capacity. The check
+				// used to say MaxNumRecipes + Capacity - 342 slots past the end of the array - so a
+				// large enough set of packs would have thrown IndexOutOfRange on the assignment
+				// below instead of reporting "no room". A guard that does not match the array it
+				// guards is worse than no guard: it reads as handled.
+				if (Recipe.NumRecipes >= Recipe.Capacity)
 				{
 					problems.Add("'" + modRecipe.Result + "': no room for more recipes (limit "
-						+ Capacity.ToString(CultureInfo.InvariantCulture) + ")");
+						+ Recipe.Capacity.ToString(CultureInfo.InvariantCulture) + ")");
 					continue;
 				}
 				Item item = default(Item);

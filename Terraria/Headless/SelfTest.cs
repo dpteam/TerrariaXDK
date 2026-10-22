@@ -137,6 +137,7 @@ internal static class SelfTest
 		RunCheck("item field widths", CheckItemFieldWidths);
 		RunCheck("item fields hostile", CheckItemFieldsHostile);
 		RunCheck("item type on the wire", CheckItemTypeWire);
+		RunCheck("recipe capacity", CheckRecipeCapacity);
 		RunCheck("raw mod", CheckRawMod);
 		RunCheck("mod download", CheckModDownload);
 #if DEBUG
@@ -14561,6 +14562,69 @@ internal static class SelfTest
 		finally
 		{
 			Terraria.Mods.ItemOverrides.Clear();
+		}
+	}
+
+	// --- Recipe table capacity --------------------------------------------
+
+	/// <summary>
+	/// The recipe table's guard has to match the array it guards.
+	///
+	/// <c>Main.ActiveRecipe</c> is <c>new Recipe[Recipe.Capacity]</c>, and <c>Apply</c> used to stop
+	/// at <c>MaxNumRecipes + Capacity</c> - 342 slots past the end. It reads as handled and is not:
+	/// the assignment below the check would have thrown <c>IndexOutOfRangeException</c> at load time,
+	/// with 11 packs installed and a mod set that grew.
+	///
+	/// The test drives the boundary directly instead of registering 2390 recipes: fill the table,
+	/// ask for one more, and require a refusal with a reason.
+	/// </summary>
+	private static bool CheckRecipeCapacity()
+	{
+		int saved = Recipe.NumRecipes;
+		try
+		{
+			if (Main.ActiveRecipe.Length != Recipe.Capacity)
+			{
+				return Fail("Main.ActiveRecipe is " + Main.ActiveRecipe.Length
+					+ " long but Recipe.Capacity says " + Recipe.Capacity);
+			}
+			Terraria.Mods.ModRecipes.Clear();
+			string error;
+			Terraria.Mods.ModRecipe recipe = Terraria.Mods.ModRecipes.Register("CapacityTest", "Wood", out error);
+			if (recipe == null)
+			{
+				return Fail("could not register a test recipe: " + error);
+			}
+			recipe.AddIngredient("Copper Ore", 1);
+			Recipe.NumRecipes = Recipe.Capacity;
+			List<string> problems;
+			int added = Terraria.Mods.ModRecipes.Apply(out problems);
+			if (added != 0)
+			{
+				return Fail("a recipe was added past the end of the table");
+			}
+			bool saidNoRoom = false;
+			for (int i = 0; i < problems.Count; i++)
+			{
+				if (problems[i].IndexOf("no room", StringComparison.Ordinal) >= 0)
+				{
+					saidNoRoom = true;
+				}
+			}
+			if (!saidNoRoom)
+			{
+				return Fail("a full recipe table did not say why the recipe was refused");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("the recipe capacity check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Recipe.NumRecipes = saved;
+			Terraria.Mods.ModRecipes.Clear();
 		}
 	}
 
