@@ -77,6 +77,16 @@ internal static class TConfigConverter
 		public string SlowestFile = "";
 
 		/// <summary>
+		/// Gen-2 collections that happened while the slowest file was converting.
+		///
+		/// Zero means the pause really was that file. Anything else means the garbage collector
+		/// stopped the world and the file was a bystander - and the two call for opposite fixes:
+		/// "make the parser cheaper" versus "allocate less". A 39 ms file among 0.5 ms ones is
+		/// almost always the second, and without this number the log points at the wrong file.
+		/// </summary>
+		public int SlowestFileGen2;
+
+		/// <summary>
 		/// Things the player should look at: dropped fields, unknown names, and files that threw.
 		/// Kept apart from <see cref="Errors"/> by severity, not by source.
 		/// </summary>
@@ -284,6 +294,12 @@ internal static class TConfigConverter
 				try
 				{
 					Directory.CreateDirectory(outputDirectory);
+					// Create Item/ here rather than on the first sprite copy: the first write into a
+					// new folder is the single slowest thing in a whole conversion (20-37 ms on this
+					// machine, measured, with no GC involved - it is the filesystem and the virus
+					// scanner meeting a new directory). Doing it once up front costs the same and
+					// keeps the budgeted loop honest, instead of charging it to one item's frame.
+					Directory.CreateDirectory(Path.Combine(outputDirectory, "Item"));
 				}
 				catch (Exception ex2)
 				{
@@ -315,6 +331,7 @@ internal static class TConfigConverter
 				string text = _files[_index];
 				CurrentFile = Path.GetFileNameWithoutExtension(text);
 				long num2 = stopwatch.ElapsedMilliseconds;
+				int num4 = GC.CollectionCount(2);
 				try
 				{
 					if (Raw)
@@ -339,6 +356,7 @@ internal static class TConfigConverter
 				{
 					Result.SlowestFileMs = num3;
 					Result.SlowestFile = Path.GetFileName(text);
+					Result.SlowestFileGen2 = GC.CollectionCount(2) - num4;
 				}
 				// The budget is checked after at least one file, so progress always happens: a file
 				// that alone exceeds the budget still moves the bar instead of freezing it.
@@ -492,6 +510,8 @@ internal static class TConfigConverter
 				{
 					stringBuilder.Append(" ('").Append(result.SlowestFile).Append("')");
 				}
+				stringBuilder.Append(", gen2 collections during it: ")
+					.Append(result.SlowestFileGen2.ToString(CultureInfo.InvariantCulture));
 				stringBuilder.Append('\n');
 			}
 			if (result.Errors.Count > 0)
