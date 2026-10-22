@@ -1669,7 +1669,21 @@ internal static class SDL2_FNAPlatform
 			SoundEffect.FAudioContext.Context.Dispose();
 		}
 		MediaPlayer.DisposeIfNecessary();
-		SDL.SDL_Quit();
+		try
+		{
+			SDL.SDL_Quit();
+		}
+		catch (DllNotFoundException)
+		{
+			// Headless commands (--selftest, --tconfig-convert, --lang-export) never open a window
+			// and may run on a machine with no SDL at all. SDL_Quit is then an unhandled exception
+			// on the process-exit path, which prints a stack trace *after* the command already
+			// succeeded - so a working conversion looked like a crash.
+		}
+		catch (EntryPointNotFoundException)
+		{
+			// Same story with an older SDL that has no SDL_Quit symbol.
+		}
 	}
 
 	public static GameWindow CreateWindow()
