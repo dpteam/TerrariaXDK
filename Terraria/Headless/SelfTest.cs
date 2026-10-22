@@ -6521,10 +6521,17 @@ internal static class SelfTest
 								Main.NetMode = savedMode3;
 								Main.PlayerSet[1] = savedForHair;
 							}
+							// --- and a chest or sign index from a packet is bounded -----------
+							// These travel as compacted integers, which have no width limit at all -
+							// unlike the byte-sized slots above. ChestSet and SignSet both hold 1000,
+							// and a chest slot inside a chest is a byte against Chest.MaxNumItems.
+							RefuseOne(itemClient, "message 32 chest", new byte[4] { 32, 0xE8, 0x07, 0 });
+							RefuseOne(itemClient, "message 32 chest slot", new byte[3] { 32, 0, 200 });
+							RefuseOne(itemClient, "message 47 sign", new byte[4] { 47, 1, 0xE8, 0x07 });
 							// "No exception" is also true when the guard is never reached, which is the
 							// mistake this project has made once already (IsValidWallType, written and
 							// never called). The counter is the proof that each packet hit its guard.
-							if (NetMessage.RefusedIndexCount - refusalsBefore < 9)
+							if (NetMessage.RefusedIndexCount - refusalsBefore < 12)
 							{
 								string seen = "";
 								for (int i = refusalsBefore; i < NetMessage.RefusedIndices.Count; i++)
@@ -6532,7 +6539,7 @@ internal static class SelfTest
 									seen += " [" + NetMessage.RefusedIndices[i] + "]";
 								}
 								return Fail("only " + (NetMessage.RefusedIndexCount - refusalsBefore)
-									+ " of 9 out-of-range packets reached a guard - refused:" + seen
+									+ " of 12 out-of-range packets reached a guard - refused:" + seen
 									+ "; the rest were accepted, or the check is not wired in");
 							}
 						}

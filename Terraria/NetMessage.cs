@@ -120,6 +120,37 @@ public sealed class NetMessage
 		return Texts.Format("net.text.unknown", id);
 	}
 
+	/// <summary>
+	/// A chest slot from a packet, or -1 when it names no chest this build has.
+	///
+	/// The index travels as a compacted integer, which is unbounded: <c>Main.ChestSet</c> holds 1000,
+	/// so a client sending 5000 used to index past the end. Same rule as every other index from the
+	/// wire (see <see cref="ReadSlot"/>), only the encoding differs - which is why it needs its own
+	/// helper rather than being assumed covered.
+	/// </summary>
+	private static int ReadChestSlot(NetClient sender, string what)
+	{
+		int num = (int)ReadCompacted();
+		if (num < 0 || num >= Main.ChestSet.Length)
+		{
+			RefuseIndex(sender, what, num, Main.ChestSet.Length, "chest");
+			return -1;
+		}
+		return num;
+	}
+
+	/// <summary>A sign slot from a packet, or -1. <c>Main.SignSet</c> holds 1000.</summary>
+	private static int ReadSignSlot(NetClient sender, string what)
+	{
+		int num = (int)ReadCompacted();
+		if (num < 0 || num >= Main.SignSet.Length)
+		{
+			RefuseIndex(sender, what, num, Main.SignSet.Length, "sign");
+			return -1;
+		}
+		return num;
+	}
+
 	/// <summary>An NPC slot from a packet, or -1. <c>Main.NPCSet</c> holds 197.</summary>
 	private static int ReadNpcSlot(NetClient sender, string what)
 	{
@@ -3020,22 +3051,43 @@ public sealed class NetMessage
 		}
 		case 32:
 		{
-			int num73 = (int)ReadCompacted();
+			int num73 = ReadChestSlot(sender, "message 32 chest");
 			int num74 = PacketIn.ReadByte();
-			if (Main.ChestSet[num73] == null)
-			{
-				Main.ChestSet[num73] = new Chest();
-			}
 			int num75 = PacketIn.ReadInt16();
 			if (num75 != 0)
 			{
 				int prefix2 = PacketIn.ReadByte();
 				int stack2 = PacketIn.ReadInt16();
+				// The item slot is a byte and a chest holds 20, so it needs the same check.
+				if (num73 < 0 || num74 >= Chest.MaxNumItems)
+				{
+					if (num73 >= 0)
+					{
+						RefuseIndex(sender, "message 32 chest slot", num74, Chest.MaxNumItems, "chest item");
+					}
+					break;
+				}
+				if (Main.ChestSet[num73] == null)
+				{
+					Main.ChestSet[num73] = new Chest();
+				}
 				Main.ChestSet[num73].ItemSet[num74].NetDefaults(num75, stack2);
 				Main.ChestSet[num73].ItemSet[num74].SetPrefix(prefix2);
 			}
 			else
 			{
+				if (num73 < 0 || num74 >= Chest.MaxNumItems)
+				{
+					if (num73 >= 0)
+					{
+						RefuseIndex(sender, "message 32 chest slot", num74, Chest.MaxNumItems, "chest item");
+					}
+					break;
+				}
+				if (Main.ChestSet[num73] == null)
+				{
+					Main.ChestSet[num73] = new Chest();
+				}
 				Main.ChestSet[num73].ItemSet[num74].Init();
 			}
 			break;
@@ -3208,18 +3260,22 @@ public sealed class NetMessage
 		}
 		case 47:
 		{
-			int num107 = PacketIn.ReadByte();
+			int num107 = ReadPlayerSlot(sender, "message 47 player");
+			int num123 = ReadSignSlot(sender, "message 47 sign");
+			if (num107 < 0 || num123 < 0)
+			{
+				break;
+			}
 			Player player16 = Main.PlayerSet[num107];
-			num107 = (int)ReadCompacted();
-			Main.SignSet[num107].Read(PacketIn);
-			if (Main.NetMode == 1 && num107 != player16.sign)
+			Main.SignSet[num123].Read(PacketIn);
+			if (Main.NetMode == 1 && num123 != player16.sign)
 			{
 				player16.ui.CloseInventory();
 				player16.TalkNPC = -1;
 				player16.ui.editSign = false;
 				Main.PlaySound(10);
-				player16.sign = (short)num107;
-				player16.ui.npcChatText = Main.SignSet[num107].SignString;
+				player16.sign = (short)num123;
+				player16.ui.npcChatText = Main.SignSet[num123].SignString;
 			}
 			break;
 		}
