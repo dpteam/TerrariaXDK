@@ -309,6 +309,12 @@ internal static class Texts
 		Add(dictionary, "ui.net.refresh", "Auto refresh: {0} s");
 		Add(dictionary, "ui.net.off", "off");
 		Add(dictionary, "ui.net.hint.scope", "Port and password apply when the next world is hosted");
+		// Second line of a server card. Short on purpose: the row is wide enough for one of these
+		// next to the address, not for a sentence.
+		Add(dictionary, "ui.net.card.relay", "via relay");
+		Add(dictionary, "ui.net.card.password", "password");
+		Add(dictionary, "ui.net.card.mods", "mods differ");
+		Add(dictionary, "ui.net.card.version", "protocol {0}, yours {1}");
 
 		// --- Key bindings screen --------------------------------------------
 		Add(dictionary, "ui.keys.title", "Keyboard bindings");

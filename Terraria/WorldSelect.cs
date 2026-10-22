@@ -35,6 +35,13 @@ public static class WorldSelect
 
 	private static byte sessionListTop;
 
+	/// <summary>
+	/// Server cards that fit in the panel, recomputed every draw because it depends on the
+	/// resolution. The cursor logic used a hardcoded 16 here, which paged the list by a number
+	/// that had nothing to do with the screen.
+	/// </summary>
+	private static int sessionVisible = 8;
+
 	public static bool isLocalWorld;
 
 	/// <summary>
@@ -55,6 +62,14 @@ public static class WorldSelect
 	private static Rectangle MouseSessionArea;
 
 	private static int MouseRowHeight = 1;
+
+	/// <summary>
+	/// Row height of the server list, which is twice the world row height: each server is a
+	/// card with two lines. Kept apart from <see cref="MouseRowHeight"/> on purpose - the two
+	/// lists live in different panels, and one shared number is how a click lands on the wrong
+	/// server.
+	/// </summary>
+	private static int MouseSessionRowHeight = 1;
 
 	private static int MouseWorldStart;
 
@@ -77,6 +92,22 @@ public static class WorldSelect
 	/// it, clicking a session row joins it. Returns true when the click was consumed, so the
 	/// caller can skip the gamepad branch and avoid acting twice on one click.
 	/// </summary>
+	/// <summary>
+	/// Which list row a click at this Y selects.
+	///
+	/// Pure and shared by both lists, because the two panels have different row heights (a server
+	/// card is two lines, a world is one) and the arithmetic was duplicated at both call sites.
+	/// Duplicated integer division is how a click lands on the row above.
+	/// </summary>
+	internal static int RowAt(int y, int areaTop, int rowStart, int rowHeight)
+	{
+		if (rowHeight <= 0)
+		{
+			return rowStart;
+		}
+		return rowStart + (y - areaTop) / rowHeight;
+	}
+
 	private static bool HandleMouse()
 	{
 		if (!Terraria.Input.KeyboardMouseInput.Enabled || !Terraria.Input.KeyboardMouseInput.CursorOverride)
@@ -88,7 +119,7 @@ public static class WorldSelect
 		bool leftClicked = Terraria.Input.KeyboardMouseInput.LeftClicked;
 		if (MouseWorldArea.Width > 0 && MouseWorldArea.Contains(num, num2))
 		{
-			int num3 = MouseWorldStart + (num2 - MouseWorldArea.Y) / MouseRowHeight;
+			int num3 = RowAt(num2, MouseWorldArea.Y, MouseWorldStart, MouseRowHeight);
 			if (num3 >= MouseWorldStart && num3 < MouseWorldEnd)
 			{
 				selectedWorld = (byte)num3;
@@ -112,8 +143,9 @@ public static class WorldSelect
 		}
 		if (MouseSessionArea.Width > 0 && MouseSessionArea.Contains(num, num2) && Netplay.availableSessions.Count > 0)
 		{
-			int num4 = MouseSessionStart + (num2 - MouseSessionArea.Y) / MouseRowHeight;
-			if (num4 >= MouseSessionStart && num4 < MouseSessionEnd && num4 < Netplay.availableSessions.Count)
+			int sessionCount = Netplay.availableSessions.Count;
+			int num4 = RowAt(num2, MouseSessionArea.Y, MouseSessionStart, MouseSessionRowHeight);
+			if (num4 >= MouseSessionStart && num4 < MouseSessionEnd && num4 < sessionCount)
 			{
 				selectedSession = (byte)num4;
 				cursorX = 1;
@@ -123,6 +155,17 @@ public static class WorldSelect
 					return true;
 				}
 			}
+			// Wheel scrolls the server list too. With two-line cards fewer fit than before, so a
+			// long list needs it at least as much as the world list does.
+			int wheelSteps2 = Terraria.Input.KeyboardMouseInput.ConsumeWheelSteps();
+			if (wheelSteps2 != 0 && sessionCount > sessionVisible)
+			{
+				selectedSession = (byte)SaveSlots.Move(selectedSession, wheelSteps2, sessionCount);
+				sessionListTop = (byte)SaveSlots.ClampScroll(sessionListTop, selectedSession, sessionVisible, sessionCount);
+				cursorX = 1;
+				Main.PlaySound(12);
+			}
+			return false;
 		}
 		return false;
 	}
@@ -261,14 +304,7 @@ public static class WorldSelect
 			dy -= count;
 		}
 		selectedSession = (byte)dy;
-		if (dy < sessionListTop)
-		{
-			sessionListTop = (byte)dy;
-		}
-		else if (dy > sessionListTop + 15)
-		{
-			sessionListTop = (byte)(sessionListTop + (dy - (sessionListTop + 15)));
-		}
+		sessionListTop = (byte)SaveSlots.ClampScroll(sessionListTop, dy, sessionVisible, count);
 	}
 
 	/// <summary>Name of a world row, or null for an empty slot or a row that does not exist yet.</summary>
@@ -331,6 +367,7 @@ public static class WorldSelect
 		if (count == 0)
 		{
 			MouseSessionArea = default;
+			MouseSessionRowHeight = num;
 			string s = ((!Netplay.IsFindingSessions()) ? Lang.MenuText[77] : Lang.MenuText[76]);
 			UI.DrawStringCC(UI.SmallFont, s, destRect.Center.X, destRect.Center.Y, UI.mouseTextColor);
 		}
@@ -340,10 +377,18 @@ public static class WorldSelect
 			destRect.Y += 80;
 			destRect.Width = width2;
 			destRect.Height = height2;
-			int num7 = Math.Min(count, sessionListTop + 16);
+			// Each server is a card: two lines, so half as many fit as worlds do. The height is
+			// its own number rather than `num`, because the two lists sit in different panels and
+			// sharing one row height is how a hit-test ends up pointing at the wrong server.
+			int cardHeight = num * 2;
+			MouseSessionRowHeight = cardHeight;
+			sessionVisible = Math.Max(1, SaveSlots.VisibleRows(height - 80, cardHeight));
+			sessionListTop = (byte)SaveSlots.ClampScroll(sessionListTop, selectedSession, sessionVisible, count);
+			int num7 = Math.Min(count, sessionListTop + sessionVisible);
 			MouseSessionStart = sessionListTop;
 			MouseSessionEnd = num7;
-			MouseSessionArea = new Rectangle(destRect.X, destRect.Y, width2, num * Math.Max(0, num7 - sessionListTop));
+			MouseSessionArea = new Rectangle(destRect.X, destRect.Y, width2, cardHeight * Math.Max(0, num7 - sessionListTop));
+			int cardTop = destRect.Y;
 			lock (Netplay.availableSessions)
 			{
 				for (int i = sessionListTop; i < num7; i++)
@@ -356,64 +401,37 @@ public static class WorldSelect
 						texId = 448;
 					}
 					Main.DrawRect(texId, destRect, alpha);
-					destRect.Y += num;
+					destRect.Y += cardHeight;
 				}
-				destRect.Y -= num * Math.Min(count, 16);
+				destRect.Y = cardTop;
 				white = Color.White;
 				for (int j = sessionListTop; j < num7; j++)
 				{
 					JoinableSession joinableSession = Netplay.availableSessions[j];
-					string s2 = (j + 1).ToStringLookup() + ".";
-					UI.DrawStringLC(UI.BoldSmallFont, s2, destRect.X, destRect.Center.Y, white);
-					// Markers instead of a second line: the list rows are one line tall.
-					string text = joinableSession.HostTag;
 					string address = Terraria.Net.ServerFavorites.AddressOf(joinableSession.AvailableSession.EndPoint);
-					if (address != null && Terraria.Net.ServerFavorites.Contains(address))
-					{
-						text = "* " + text;
-					}
-					if (joinableSession.AvailableSession.Passworded)
-					{
-						text += " [pw]";
-					}
-					if (joinableSession.AvailableSession.ModMismatch)
-					{
-						text += " [mods]";
-					}
-					// A listing from a server running a different wire version: the handshake
-					// will refuse it, so say so before the player waits for a connection.
-					int protocol = joinableSession.AvailableSession.ProtocolVersion;
-					if (protocol > 0 && protocol != Terraria.Net.TcpPeer.ProtocolVersionPublic)
-					{
-						text += " [v" + protocol + "]";
-					}
-					// Relayed worlds have no reachable address of their own. Saying so is honest:
-					// the game goes through a third machine, which costs a hop of latency and means
-					// somebody else carries the traffic.
-					if (!string.IsNullOrEmpty(joinableSession.AvailableSession.RelayRoom))
-					{
-						text += " [relay]";
-					}
-					bool incompatible = joinableSession.AvailableSession.ModMismatch || (protocol > 0 && protocol != Terraria.Net.TcpPeer.ProtocolVersionPublic);
-					Color color = incompatible ? new Color(235, 130, 120) : white;
-					UI.DrawStringLC(UI.BoldSmallFont, text, destRect.X + 32, destRect.Center.Y, color);
-					int maxPlayers2 = joinableSession.AvailableSession.OpenPublicGamerSlots + joinableSession.PlayerCount;
-					s2 = Lang.MenuText[78] + joinableSession.PlayerCount.ToStringLookup() + "/" + Math.Max(1, maxPlayers2).ToStringLookup();
-					// Ping goes to the left of the player count: it is the first thing you look
-					// at when choosing between two servers, and it fits on the same line.
+					bool favorite = address != null && Terraria.Net.ServerFavorites.Contains(address);
 					bool timedOut;
 					string pingLabel = Terraria.Net.ServerPing.Label(joinableSession.AvailableSession.EndPoint, out timedOut);
-					if (pingLabel.Length != 0)
+					ServerCard.Card card = ServerCard.Build(j, joinableSession, address, favorite, pingLabel);
+					Color color = card.Incompatible ? new Color(235, 130, 120) : white;
+					int maxPlayers2 = joinableSession.AvailableSession.OpenPublicGamerSlots + joinableSession.PlayerCount;
+					string players = Lang.MenuText[78] + joinableSession.PlayerCount.ToStringLookup() + "/"
+						+ Math.Max(1, maxPlayers2).ToStringLookup();
+					// Line one: the name on the left, ping and fill on the right. Two lines means
+					// the right side has room for both without crowding the name.
+					int titleY = destRect.Y + (num >> 1);
+					UI.DrawStringLC(UI.BoldSmallFont, card.Title, destRect.X, titleY, color);
+					string right = (pingLabel.Length != 0) ? (pingLabel + "   " + players) : players;
+					Color pingColor = timedOut ? new Color(235, 130, 120) : color;
+					UI.DrawStringRC(UI.BoldSmallFont, right, destRect.Right, titleY, pingColor);
+					// Line two: address and caveats, dimmer than the name so the eye lands on who
+					// it is first and reads the caveats second.
+					if (card.Detail.Length != 0)
 					{
-						s2 = pingLabel + "   " + s2;
-						Color pingColor = timedOut ? new Color(235, 130, 120) : color;
-						UI.DrawStringRC(UI.BoldSmallFont, s2, destRect.Right, destRect.Center.Y, pingColor);
+						UI.DrawStringLC(UI.SmallFont, card.Detail, destRect.X, destRect.Y + num + (num >> 1),
+							card.Incompatible ? color : new Color(200, 200, 220));
 					}
-					else
-					{
-						UI.DrawStringRC(UI.BoldSmallFont, s2, destRect.Right, destRect.Center.Y, color);
-					}
-					destRect.Y += num;
+					destRect.Y += cardHeight;
 				}
 			}
 		}

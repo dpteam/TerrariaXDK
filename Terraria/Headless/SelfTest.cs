@@ -106,6 +106,7 @@ internal static class SelfTest
 		RunCheck("upnp", CheckUPnP);
 		RunCheck("packet batching", CheckPacketBatching);
 		RunCheck("edit budget", CheckEditBudget);
+		RunCheck("server cards", CheckServerCards);
 		RunCheck("whitelist", CheckWhitelist);
 		RunCheck("relay session", CheckRelaySession);
 		RunCheck("relay live", CheckRelayLive);
@@ -1687,6 +1688,173 @@ internal static class SelfTest
 			catch
 			{
 			}
+		}
+	}
+
+	// --- Server cards -------------------------------------------------------
+
+	/// <summary>
+	/// The two-line server listing.
+	///
+	/// Two things are being checked, and the second is the one that bites: the wording (every
+	/// caveat appears exactly once, in a line that stays readable) and the geometry (a click on
+	/// the second line of a card selects that card, not the next one). The card is twice as tall
+	/// as a world row, and sharing one row height between the two lists is how a hit-test ends up
+	/// pointing at the wrong server.
+	/// </summary>
+	private static bool CheckServerCards()
+	{
+		try
+		{
+			Microsoft.Xna.Framework.Net.NetworkSessionProperties properties = new Microsoft.Xna.Framework.Net.NetworkSessionProperties();
+			Microsoft.Xna.Framework.Net.QualityOfService qos = new Microsoft.Xna.Framework.Net.QualityOfService();
+			// A plain direct server: address on the second line, nothing else to warn about.
+			Microsoft.Xna.Framework.Net.AvailableNetworkSession available =
+				new Microsoft.Xna.Framework.Net.AvailableNetworkSession(0, "Bob", 0, 7, properties, qos);
+			available.HostGamertag = "Bob";
+			available.CurrentGamerCount = 2;
+			available.OpenPublicGamerSlots = 5;
+			JoinableSession session = new JoinableSession(available);
+			ServerCard.Card card = ServerCard.Build(0, session, "203.0.113.7:7777", favorite: false, "42 ms");
+			if (card.Title != "1. Bob")
+			{
+				return Fail("the card title is '" + card.Title + "', expected '1. Bob'");
+			}
+			if (card.Detail != "203.0.113.7:7777")
+			{
+				return Fail("a plain server's detail line is '" + card.Detail + "'");
+			}
+			if (card.Incompatible)
+			{
+				return Fail("a plain server was marked incompatible");
+			}
+			// A favorite gets the star, and the number stays first: the number is what the D-pad
+			// counts with, so it has to be in the same place on every row.
+			ServerCard.Card favorited = ServerCard.Build(11, session, "203.0.113.7:7777", favorite: true, "");
+			if (favorited.Title != "12. * Bob")
+			{
+				return Fail("a favorite's title is '" + favorited.Title + "'");
+			}
+			// Every caveat, at once: the old one-line form was unreadable exactly here.
+			available.Passworded = true;
+			available.ModMismatch = true;
+			available.ProtocolVersion = Terraria.Net.TcpPeer.ProtocolVersionPublic + 1;
+			ServerCard.Card busy = ServerCard.Build(0, session, "203.0.113.7:7777", favorite: false, "");
+			if (!busy.Incompatible)
+			{
+				return Fail("a server with different mods and a different protocol was not marked incompatible");
+			}
+			string[] expected = new string[4]
+			{
+				"203.0.113.7:7777",
+				Texts.Get("ui.net.card.password"),
+				Texts.Get("ui.net.card.mods"),
+				Texts.Format("ui.net.card.version",
+					(Terraria.Net.TcpPeer.ProtocolVersionPublic + 1).ToString(),
+					Terraria.Net.TcpPeer.ProtocolVersionPublic.ToString())
+			};
+			for (int i = 0; i < expected.Length; i++)
+			{
+				if (busy.Detail.IndexOf(expected[i], StringComparison.Ordinal) < 0)
+				{
+					return Fail("the detail line is missing '" + expected[i] + "': " + busy.Detail);
+				}
+			}
+			// The version warning names both numbers: "protocol 4" alone does not say what this
+			// build speaks, and the difference is the whole point.
+			if (busy.Detail.IndexOf("protocol", StringComparison.Ordinal) < 0)
+			{
+				return Fail("the version warning does not mention the protocol: " + busy.Detail);
+			}
+			// A relayed server has no address to show, so it says so instead - and never shows a
+			// stale address next to it.
+			available.ModMismatch = false;
+			available.ProtocolVersion = 0;
+			available.Passworded = false;
+			available.RelayRoom = "room01";
+			ServerCard.Card relayed = ServerCard.Build(0, session, "203.0.113.7:7777", favorite: false, "");
+			if (relayed.Detail != Texts.Get("ui.net.card.relay"))
+			{
+				return Fail("a relayed server's detail line is '" + relayed.Detail + "'");
+			}
+			if (relayed.Detail.IndexOf("203.0.113.7", StringComparison.Ordinal) >= 0)
+			{
+				return Fail("a relayed server still shows a direct address it does not have");
+			}
+			// A null session is a placeholder row, not a crash.
+			ServerCard.Card empty = ServerCard.Build(3, null, null, favorite: false, "");
+			if (empty.Title != "4." || empty.Detail.Length != 0)
+			{
+				return Fail("an empty card is '" + empty.Title + "' / '" + empty.Detail + "'");
+			}
+
+			// --- geometry ----------------------------------------------------
+			// The card is twice a world row, so the same panel holds half as many servers.
+			int rowHeight = 48;
+			int panelHeight = 446 - 80;
+			int worldRows = Terraria.Storage.SaveSlots.VisibleRows(panelHeight, rowHeight);
+			int cardRows = Terraria.Storage.SaveSlots.VisibleRows(panelHeight, rowHeight * 2);
+			if (cardRows * 2 > worldRows + 1)
+			{
+				return Fail("cards do not halve the visible rows: " + cardRows + " cards vs " + worldRows + " worlds");
+			}
+			if (cardRows < 1)
+			{
+				return Fail("no server card fits in the panel");
+			}
+			// A click anywhere in a card selects that card, and a click in the second line is
+			// still the same card - this is the mistake the separate row height exists to avoid.
+			int cardHeight = rowHeight * 2;
+			int areaTop = 100;
+			for (int cardIndex = 0; cardIndex < cardRows; cardIndex++)
+			{
+				for (int offset = 0; offset < cardHeight; offset++)
+				{
+					int clicked = WorldSelect.RowAt(areaTop + cardIndex * cardHeight + offset, areaTop, 0, cardHeight);
+					if (clicked != cardIndex)
+					{
+						return Fail("a click at card " + cardIndex + " +" + offset + " px hit card " + clicked);
+					}
+				}
+			}
+			// The same function with the world list's row height must still be right: the two
+			// lists differ only by that number.
+			for (int worldIndex = 0; worldIndex < worldRows; worldIndex++)
+			{
+				int clicked2 = WorldSelect.RowAt(areaTop + worldIndex * rowHeight, areaTop, 0, rowHeight);
+				if (clicked2 != worldIndex)
+				{
+					return Fail("a click on world row " + worldIndex + " hit row " + clicked2);
+				}
+			}
+			// A scrolled list: the row start is added, so the click still lands on the right entry.
+			int scrolled = WorldSelect.RowAt(areaTop + 3 * cardHeight + 10, areaTop, 7, cardHeight);
+			if (scrolled != 10)
+			{
+				return Fail("a scrolled click landed on row " + scrolled + ", expected 10");
+			}
+			// A zero row height must not divide by zero.
+			if (WorldSelect.RowAt(areaTop + 5, areaTop, 2, 0) != 2)
+			{
+				return Fail("a zero row height broke the row lookup");
+			}
+			// Scrolling with cards: the last card must be reachable and the window must not run
+			// past the end.
+			int total = 23;
+			int top = Terraria.Storage.SaveSlots.ClampScroll(0, total - 1, cardRows, total);
+			if (top != total - cardRows)
+			{
+				return Fail("scrolling to the last card left the window at " + top + ", expected " + (total - cardRows));
+			}
+			if (Terraria.Storage.SaveSlots.ClampScroll(999, 0, cardRows, total) != 0)
+			{
+				return Fail("the scroll window ran past the end");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("server card check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 
