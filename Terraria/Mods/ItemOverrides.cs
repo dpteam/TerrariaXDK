@@ -54,6 +54,62 @@ internal static class ItemOverrides
 	private static readonly HashSet<string> Reported = new HashSet<string>(StringComparer.Ordinal);
 
 	/// <summary>
+	/// Set while <see cref="FieldRefusal"/> runs: the probe must not pollute the real error list,
+	/// and it must not be deduplicated against a real refusal of the same text.
+	/// </summary>
+	private static bool _capturing;
+
+	private static string _captured;
+
+	/// <summary>
+	/// Reports that a field's value was refused, in a form both the game and the converter can use.
+	///
+	/// <paramref name="phrase"/> is a predicate with no value in it ("does not fit 0..255"), because
+	/// every caller already prints the value: the game as <c>'useTime' = '23000'</c>, the converter
+	/// as <c>has the value '23000', which ...</c>. Restating it produced "has the value '23000',
+	/// which is 23000, which does not fit".
+	/// </summary>
+	private static void Refuse(int itemType, string field, string value, string phrase)
+	{
+		if (_capturing)
+		{
+			_captured = phrase;
+			return;
+		}
+		RecordError("item " + itemType + ": '" + field + "' = '" + value + "' " + phrase + " - left as it was");
+	}
+
+	/// <summary>
+	/// Applies one field to a scratch item and returns why it was refused, or null when it was not.
+	///
+	/// The converter asks this before writing a field, so a value the game would refuse is named in
+	/// the report the player reads - instead of surfacing later as one line in a log they were
+	/// never told to open. <c>Fiery Whip</c> in Omnirs Weapons says <c>useTime=23000</c>: before,
+	/// that became <c>(byte)23000</c> = 216 and the whip was merely unusable; now the game refuses
+	/// it and this makes the conversion report say so.
+	///
+	/// It runs the same <see cref="ApplyField"/> the game runs, deliberately: a second copy of the
+	/// ranges in the converter is exactly how the two would drift apart. The scratch item starts
+	/// empty, so nothing depends on what the field's previous value was.
+	/// </summary>
+	internal static string FieldRefusal(string field, string value)
+	{
+		Item probe = default(Item);
+		probe.Type = 1;
+		_capturing = true;
+		_captured = null;
+		try
+		{
+			ApplyField(ref probe, field, value);
+		}
+		finally
+		{
+			_capturing = false;
+		}
+		return _captured;
+	}
+
+	/// <summary>
 	/// Fields that can be applied to an item. One table for both overrides and new items: a
 	/// tConfig pack's <c>width</c> means the same thing whether it is changing a sword or defining
 	/// one, and two tables would drift apart.
@@ -162,8 +218,7 @@ internal static class ItemOverrides
 	{
 		if (value < min || value > max)
 		{
-			RecordError("item " + itemType + ": '" + field + "' is " + value + ", outside " + min + ".." + max
-				+ (note ?? "") + " - left as it was");
+			Refuse(itemType, field, value.ToString(CultureInfo.InvariantCulture), "does not fit " + min + ".." + max + (note ?? ""));
 			return current;
 		}
 		return value;
@@ -182,9 +237,8 @@ internal static class ItemOverrides
 	{
 		if (float.IsNaN(value) || float.IsInfinity(value) || value < -max || value > max)
 		{
-			RecordError("item " + itemType + ": '" + field + "' is " + value.ToString(CultureInfo.InvariantCulture)
-				+ ", outside -" + max.ToString(CultureInfo.InvariantCulture) + ".."
-				+ max.ToString(CultureInfo.InvariantCulture) + " - left as it was");
+			Refuse(itemType, field, value.ToString(CultureInfo.InvariantCulture),
+				"does not fit -" + max.ToString(CultureInfo.InvariantCulture) + ".." + max.ToString(CultureInfo.InvariantCulture));
 			return current;
 		}
 		return value;
@@ -479,8 +533,7 @@ internal static class ItemOverrides
 			int num5 = Terraria.ItemLookup.Find(value);
 			if (num5 <= 0)
 			{
-				RecordError("item " + item.Type + ": '" + field + "' names '" + value
-					+ "', which is not an item in this build - left as it was");
+				Refuse(item.Type, field, value, "does not name an item in this build");
 				break;
 			}
 			if (num5 > 255)
@@ -489,9 +542,8 @@ internal static class ItemOverrides
 				// the console protocol. (byte)20043 is 75 - a different item - so this is refused
 				// rather than truncated. Naming the id makes the limit visible instead of looking
 				// like the pack's mistake.
-				RecordError("item " + item.Type + ": '" + field + "' names '" + value + "' (id " + num5
-					+ "), and this build holds an ammo type in one byte, so a mod item cannot be used"
-					+ " - left as it was");
+				Refuse(item.Type, field, value, "names item id " + num5
+					+ ", and this build holds an ammo type in one byte, so a mod item cannot be used");
 				break;
 			}
 			if (field.Equals("useAmmoName", StringComparison.OrdinalIgnoreCase))

@@ -596,7 +596,7 @@ internal static class TConfigConverter
 				// A value that cannot become a C# literal is quoted by Literal() and would make the
 				// generated project fail to compile at that line. Catching it here is better: the
 				// project builds, and the player is told which field was nonsense.
-				string valueProblem = ValueProblem(line.Key, line.Value);
+				string valueProblem = FieldProblem(line.Key, line.Value);
 				if (valueProblem != null)
 				{
 					result.UnsupportedFields++;
@@ -1089,7 +1089,7 @@ internal static class TConfigConverter
 				continue;
 			}
 			string text5 = PropertyName(keyValuePair.Key);
-			string valueProblem2 = ValueProblem(keyValuePair.Key, keyValuePair.Value);
+			string valueProblem2 = FieldProblem(keyValuePair.Key, keyValuePair.Value);
 			if ((text5 == null && !IsEscapedField(keyValuePair.Key)) || valueProblem2 != null)
 			{
 				result.UnsupportedFields++;
@@ -1249,7 +1249,7 @@ internal static class TConfigConverter
 				result.Warnings.Add("'" + text + "': field '" + sectionLine.Key + "' has no equivalent, dropped");
 				continue;
 			}
-			string valueProblem3 = ValueProblem(sectionLine.Key, sectionLine.Value);
+			string valueProblem3 = FieldProblem(sectionLine.Key, sectionLine.Value);
 			if (valueProblem3 != null)
 			{
 				result.UnsupportedFields++;
@@ -1560,6 +1560,32 @@ internal static class TConfigConverter
 		double result2;
 		return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out result2)
 			? null : "is not a number";
+	}
+
+	/// <summary>
+	/// Why a field cannot be used at all, or null when it can.
+	///
+	/// <see cref="ValueProblem"/> answers "is this the right kind of value"; this adds "and does it
+	/// fit the field". The ranges are not copied here: the probe runs the same
+	/// <c>ItemOverrides.ApplyField</c> the game runs, so the report and the game cannot disagree
+	/// about what fits - which is the whole point, because the player only ever sees one of them.
+	///
+	/// Text, item names, colours and booleans are skipped. An item name is resolved at load time,
+	/// when mods are present; judging it here would call every mod item "not an item in this
+	/// build", and the load-time message already names it.
+	/// </summary>
+	private static string FieldProblem(string field, string value)
+	{
+		string text = ValueProblem(field, value);
+		if (text != null)
+		{
+			return text;
+		}
+		if (IsText(field) || IsItemName(field) || IsColour(field) || IsBoolean(field))
+		{
+			return null;
+		}
+		return Terraria.Mods.ItemOverrides.FieldRefusal(field, value);
 	}
 
 	/// <summary>

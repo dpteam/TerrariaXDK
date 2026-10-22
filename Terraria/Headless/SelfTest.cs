@@ -767,6 +767,40 @@ internal static class SelfTest
 		{
 			Console.WriteLine("       mod error: " + Terraria.Mods.ModLoader.LoadErrors[i]);
 		}
+		for (int i = 0; i < Terraria.Mods.ItemOverrides.LoadErrors.Count; i++)
+		{
+			Console.WriteLine("       field refused: " + Terraria.Mods.ItemOverrides.LoadErrors[i]);
+		}
+		// Every item a mod declares must be creatable and describable. This walks whatever mods
+		// are installed rather than a fixture, because the crashes players report are in their own
+		// packs: the crafting tab, the pickup, the equipment screen. A pack with no mods installed
+		// (CI, a clean clone) simply skips it.
+		if (Terraria.Mods.ModItems.Count > 0)
+		{
+			IList<Terraria.Mods.ModItem> all = Terraria.Mods.ModItems.All();
+			int described = 0;
+			for (int i = 0; i < all.Count; i++)
+			{
+				int id = all[i].Type;
+				if (id <= 0)
+				{
+					return Fail("a registered mod item has no id: " + all[i].Name);
+				}
+				Item probe = default(Item);
+				probe.SetDefaults(id);
+				if (probe.Type != id)
+				{
+					return Fail("mod item " + id + " (" + all[i].Name + ") came back as type " + probe.Type);
+				}
+				string name = Terraria.Lang.ItemName(id);
+				if (string.IsNullOrEmpty(name))
+				{
+					return Fail("mod item " + id + " (" + all[i].Name + ") has no name to show");
+				}
+				described++;
+			}
+			Console.WriteLine("       mod items created and named: " + described);
+		}
 		if (!Terraria.Mods.ModLoader.IsInitialized)
 		{
 			return Fail("loader did not initialize");
@@ -1651,7 +1685,7 @@ internal static class SelfTest
 			// The conversion writes a log; a self-test must not append to the player's own.
 			Terraria.Mods.TConfigConverter.LogPathOverride = System.IO.Path.Combine(text, "convert.log");
 			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Shortsword.ini"), "damage=12\r\nuseTime=17\r\nautoReuse=True\r\nbogusField=1\r\n");
-			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Pickaxe.ini"), "pick=45\r\n");
+			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Pickaxe.ini"), "pick=45\r\nuseTime=23000\r\n");
 			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Not A Real Item.ini"), "damage=5\r\n");
 			// The newer recipe spelling: one line per list, counts before names. It used to be
 			// skipped as "not an item field", so those items converted into a mod that could
@@ -1669,10 +1703,25 @@ internal static class SelfTest
 			{
 				return Fail("expected 2 items and 4 fields, got " + result.Items + " and " + result.Fields);
 			}
-			if (result.UnknownItems != 1 || result.UnsupportedFields != 1)
+			if (result.UnknownItems != 1 || result.UnsupportedFields != 2)
 			{
-				return Fail("expected 1 unknown item and 1 dropped field, got "
+				return Fail("expected 1 unknown item and 2 dropped fields, got "
 					+ result.UnknownItems + " and " + result.UnsupportedFields);
+			}
+			// A value that does not fit its field is dropped at conversion time and named here,
+			// not left for the game to refuse later in a log the player was never told to open.
+			// `useTime=23000` is a real line from Omnirs Weapons; it used to become (byte)23000 = 216.
+			bool namedRange = false;
+			for (int i = 0; i < result.Warnings.Count; i++)
+			{
+				if (result.Warnings[i].IndexOf("does not fit", StringComparison.Ordinal) >= 0)
+				{
+					namedRange = true;
+				}
+			}
+			if (!namedRange)
+			{
+				return Fail("a value out of range was dropped without naming the range");
 			}
 			string text4 = System.IO.File.ReadAllText(result.SourceFile);
 			if (!text4.Contains("ModInfo(\"TestPack\""))
@@ -1687,6 +1736,10 @@ internal static class SelfTest
 			if (!text4.Contains(".Pick = 45;"))
 			{
 				return Fail("the generated source dropped the second item");
+			}
+			if (text4.Contains("23000"))
+			{
+				return Fail("the generated source kept a useTime that does not fit the field");
 			}
 			// The [Recipe] style: ingredients with counts, the station, the output count.
 			if (result.Recipes != 1)
