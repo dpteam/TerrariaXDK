@@ -12,6 +12,62 @@ public sealed class NetMessage
 	private static readonly PacketWriter PacketOut = new PacketWriter(65536);
 
 	/// <summary>
+	/// True when a tile type from a packet names a tile this build has.
+	///
+	/// The type travels as a byte, so 0..255 are all representable, and every tile table is
+	/// <c>new bool[150]</c> - <c>TileFrameImportant</c>, <c>TileSolid</c>, <c>TileLighted</c> and the
+	/// rest. A client sending type 200 used to index past the end of <c>TileFrameImportant</c> on
+	/// the very next line, so the crash was in the host, caused by one packet, and the type was
+	/// already written into the world: even without the crash, collision and lighting would index
+	/// the same tables later.
+	///
+	/// A refused type is not applied at all. The packet is still consumed in full - the caller
+	/// reads the rest of its fields - so the stream stays in sync and the next packet is not
+	/// misread as part of this one.
+	/// </summary>
+	internal static bool IsValidTileType(int type)
+	{
+		return type >= 0 && type < Main.TileFrameImportant.Length;
+	}
+
+	/// <summary>True when a wall type from a packet names a wall this build has.</summary>
+	internal static bool IsValidWallType(int type)
+	{
+		return type >= 0 && type < Main.WallHouse.Length;
+	}
+
+	/// <summary>
+	/// Logs a refused tile type once per sender, so a client that keeps sending one cannot flood
+	/// the log with a line per packet.
+	/// </summary>
+	private static void RefuseTileType(NetClient sender, int type)
+	{
+		string text = null;
+		try
+		{
+			if (sender != null && sender.NetGamer != null)
+			{
+				text = sender.NetGamer.Gamertag;
+			}
+		}
+		catch
+		{
+		}
+		if (string.IsNullOrEmpty(text))
+		{
+			text = "(no sender)";
+		}
+		if (ReportedTileTypes.Add(text + "|" + type))
+		{
+			Program.LogWarn("Tiles", "refused tile type " + type + " from " + text
+				+ " (this build has " + Main.TileFrameImportant.Length + ")");
+		}
+	}
+
+	private static readonly System.Collections.Generic.HashSet<string> ReportedTileTypes =
+		new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+
+	/// <summary>
 	/// The value <c>MSG_SYNC_ITEM</c> writes in the type's 11 bits when the real type does not fit
 	/// there, meaning "the id follows as a separate <c>short</c>".
 	///
@@ -1628,16 +1684,31 @@ public sealed class NetMessage
 								if (num24 != 0)
 								{
 									int type = ptr2->Type;
-									int num25 = (ptr2->Type = PacketIn.ReadByte());
-									if (Main.TileFrameImportant[num25])
+									int num25 = PacketIn.ReadByte();
+									// A tile type from a packet must name a tile this build has, or the
+									// tables below (and every collision and lighting query afterwards)
+									// index past their end. See IsValidTileType.
+									if (!IsValidTileType(num25))
 									{
-										ptr2->FrameX = (short)ReadCompacted();
-										ptr2->FrameY = (short)ReadCompacted();
-									}
-									else if (num25 != type || ptr2->IsActive == 0)
-									{
+										RefuseTileType(sender, num25);
+										ptr2->IsActive = 0;
+										ptr2->Type = 0;
 										ptr2->FrameX = -1;
 										ptr2->FrameY = -1;
+									}
+									else
+									{
+										ptr2->Type = (byte)num25;
+										if (Main.TileFrameImportant[num25])
+										{
+											ptr2->FrameX = (short)ReadCompacted();
+											ptr2->FrameY = (short)ReadCompacted();
+										}
+										else if (num25 != type || ptr2->IsActive == 0)
+										{
+											ptr2->FrameX = -1;
+											ptr2->FrameY = -1;
+										}
 									}
 								}
 								ptr2->IsActive = (byte)num24;
@@ -2258,16 +2329,31 @@ public sealed class NetMessage
 			if (Main.TileSet[num55, num56].IsActive != 0)
 			{
 				int type2 = Main.TileSet[num55, num56].Type;
-				int num58 = (Main.TileSet[num55, num56].Type = PacketIn.ReadByte());
-				if (Main.TileFrameImportant[num58])
+				int num58 = PacketIn.ReadByte();
+				if (!IsValidTileType(num58))
 				{
-					Main.TileSet[num55, num56].FrameX = (short)ReadCompacted();
-					Main.TileSet[num55, num56].FrameY = (short)ReadCompacted();
-				}
-				else if (isActive == 0 || num58 != type2)
-				{
+					// A type this build does not have: refuse the tile instead of indexing the
+					// tables with it. The slot is emptied, so the world cannot keep a type that
+					// collision and lighting would trip over later.
+					RefuseTileType(sender, num58);
+					Main.TileSet[num55, num56].IsActive = 0;
+					Main.TileSet[num55, num56].Type = 0;
 					Main.TileSet[num55, num56].FrameX = -1;
 					Main.TileSet[num55, num56].FrameY = -1;
+				}
+				else
+				{
+					Main.TileSet[num55, num56].Type = (byte)num58;
+					if (Main.TileFrameImportant[num58])
+					{
+						Main.TileSet[num55, num56].FrameX = (short)ReadCompacted();
+						Main.TileSet[num55, num56].FrameY = (short)ReadCompacted();
+					}
+					else if (isActive == 0 || num58 != type2)
+					{
+						Main.TileSet[num55, num56].FrameX = -1;
+						Main.TileSet[num55, num56].FrameY = -1;
+					}
 				}
 			}
 			if ((num57 & 4) != 0)
@@ -2412,16 +2498,28 @@ public sealed class NetMessage
 					if (Main.TileSet[num82, num83].IsActive != 0)
 					{
 						int type4 = Main.TileSet[num82, num83].Type;
-						int num85 = (Main.TileSet[num82, num83].Type = PacketIn.ReadByte());
-						if (Main.TileFrameImportant[num85])
+						int num85 = PacketIn.ReadByte();
+						if (!IsValidTileType(num85))
 						{
-							Main.TileSet[num82, num83].FrameX = (short)ReadCompacted();
-							Main.TileSet[num82, num83].FrameY = (short)ReadCompacted();
-						}
-						else if (isActive2 == 0 || num85 != type4)
-						{
+							RefuseTileType(sender, num85);
+							Main.TileSet[num82, num83].IsActive = 0;
+							Main.TileSet[num82, num83].Type = 0;
 							Main.TileSet[num82, num83].FrameX = -1;
 							Main.TileSet[num82, num83].FrameY = -1;
+						}
+						else
+						{
+							Main.TileSet[num82, num83].Type = (byte)num85;
+							if (Main.TileFrameImportant[num85])
+							{
+								Main.TileSet[num82, num83].FrameX = (short)ReadCompacted();
+								Main.TileSet[num82, num83].FrameY = (short)ReadCompacted();
+							}
+							else if (isActive2 == 0 || num85 != type4)
+							{
+								Main.TileSet[num82, num83].FrameX = -1;
+								Main.TileSet[num82, num83].FrameY = -1;
+							}
 						}
 					}
 					if ((num84 & 4) != 0)

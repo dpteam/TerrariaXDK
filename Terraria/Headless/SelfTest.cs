@@ -129,6 +129,7 @@ internal static class SelfTest
 		RunCheck("master server live", CheckMasterServerLive);
 		RunCheck("achievement stats", CheckAchievementStats);
 		RunCheck("every text key used", CheckTextKeysUsed);
+		RunCheck("tile tables", CheckTileTables);
 		RunCheck("cheat menu layout", CheckCheatMenuLayout);
 		RunCheck("npc names", CheckNpcNames);
 		RunCheck("tutorial hints", CheckTutorialHints);
@@ -6370,6 +6371,43 @@ internal static class SelfTest
 						{
 							return Fail("buff type 3 did not arrive (stored as " + target.buff[0].Type + ")");
 						}
+						// --- and a tile type past this build's table is refused ---------------
+						// The type travels as a byte and every per-tile table is 150 long, so a
+						// packet with type 200 indexed `TileFrameImportant[200]` on the next line -
+						// a crash in the host from one packet, with the bogus type already written
+						// into the world for collision and lighting to trip over later.
+						short savedX = Main.MaxTilesX;
+						short savedY = Main.MaxTilesY;
+						try
+						{
+							// A position TileFrame will not touch: it returns early near the edges,
+							// and this test is about the packet, not about framing.
+							Main.MaxTilesX = 100;
+							Main.MaxTilesY = 100;
+							Main.TileSet[10, 10].IsActive = 0;
+							Main.TileSet[10, 10].Type = 0;
+							SendTileSync(itemClient, 10, 10, 200);
+							if (Main.TileSet[10, 10].IsActive != 0 || Main.TileSet[10, 10].Type != 0)
+							{
+								return Fail("a tile type past the table was applied (active "
+									+ Main.TileSet[10, 10].IsActive + ", type " + Main.TileSet[10, 10].Type + ")");
+							}
+							// A real tile type still arrives.
+							SendTileSync(itemClient, 10, 10, (int)EntityID.TileID.DIRT);
+							if (Main.TileSet[10, 10].IsActive == 0
+								|| Main.TileSet[10, 10].Type != (int)EntityID.TileID.DIRT)
+							{
+								return Fail("a valid tile type did not arrive (active "
+									+ Main.TileSet[10, 10].IsActive + ", type " + Main.TileSet[10, 10].Type + ")");
+							}
+						}
+						finally
+						{
+							Main.MaxTilesX = savedX;
+							Main.MaxTilesY = savedY;
+							Main.TileSet[10, 10].IsActive = 0;
+							Main.TileSet[10, 10].Type = 0;
+						}
 					}
 					finally
 					{
@@ -6587,6 +6625,29 @@ internal static class SelfTest
 					binaryWriter.Write(style);
 				}
 			}
+			binaryWriter.Flush();
+		}
+		byte[] buffer = stream.ToArray();
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.PacketIn.BaseStream.Write(buffer, 0, buffer.Length);
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.GetData(client);
+	}
+
+	/// <summary>
+	/// Feeds one tile sync packet (message 15) into the host as if it arrived from that client:
+	/// position, flags with the "has tile" bit set, then the tile type.
+	/// </summary>
+	private static void SendTileSync(NetClient client, int x, int y, int tileType)
+	{
+		System.IO.MemoryStream stream = new System.IO.MemoryStream();
+		using (System.IO.BinaryWriter binaryWriter = new System.IO.BinaryWriter(stream, Encoding.UTF8))
+		{
+			binaryWriter.Write((byte)15);
+			binaryWriter.Write((ushort)x);
+			binaryWriter.Write((ushort)y);
+			binaryWriter.Write((byte)1);
+			binaryWriter.Write((byte)tileType);
 			binaryWriter.Flush();
 		}
 		byte[] buffer = stream.ToArray();
@@ -15633,6 +15694,86 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("the crafting cursor check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	// --- Tile and wall tables ----------------------------------------------
+
+	/// <summary>
+	/// Every per-tile table has to be as long as the tile enum, and a type from a packet has to be
+	/// inside it.
+	///
+	/// The tables are <c>new bool[150]</c> written out by hand, one per flag, and the tile enum has
+	/// its own count in <c>NUM_TILESETS</c>. Adding a tile to the enum and forgetting one table is
+	/// silent until something indexes that table with the new type - and the type arrives from the
+	/// network as a byte, so 150..255 are all reachable from a single packet. That is what this
+	/// checks: not "the game works", but "the numbers agree".
+	/// </summary>
+	private static bool CheckTileTables()
+	{
+		try
+		{
+			int tiles = (int)EntityID.TileID.NUM_TILESETS;
+			if (tiles <= 0)
+			{
+				return Fail("the tile enum has no count");
+			}
+			System.Reflection.FieldInfo[] fields = typeof(Main).GetFields(
+				System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+			int checkedTables = 0;
+			for (int i = 0; i < fields.Length; i++)
+			{
+				if (!fields[i].Name.StartsWith("Tile", StringComparison.Ordinal))
+				{
+					continue;
+				}
+				if (fields[i].FieldType != typeof(bool[]))
+				{
+					continue;
+				}
+				bool[] table = (bool[])fields[i].GetValue(null);
+				if (table == null)
+				{
+					return Fail("Main." + fields[i].Name + " is null");
+				}
+				if (table.Length != tiles)
+				{
+					return Fail("Main." + fields[i].Name + " is " + table.Length
+						+ " long but the tile enum says " + tiles);
+				}
+				checkedTables++;
+			}
+			if (checkedTables < 20)
+			{
+				return Fail("only " + checkedTables + " per-tile table(s) found, so this check is not"
+					+ " looking at the real fields");
+			}
+			// The packet gate: a type inside the table passes, one at or past the end does not.
+			if (!Terraria.NetMessage.IsValidTileType(0) || !Terraria.NetMessage.IsValidTileType(tiles - 1))
+			{
+				return Fail("a valid tile type was refused");
+			}
+			if (Terraria.NetMessage.IsValidTileType(tiles) || Terraria.NetMessage.IsValidTileType(255)
+				|| Terraria.NetMessage.IsValidTileType(-1))
+			{
+				return Fail("a tile type outside the table was accepted");
+			}
+			int walls = Main.WallHouse.Length;
+			if (!Terraria.NetMessage.IsValidWallType(0) || !Terraria.NetMessage.IsValidWallType(walls - 1))
+			{
+				return Fail("a valid wall type was refused");
+			}
+			if (Terraria.NetMessage.IsValidWallType(walls) || Terraria.NetMessage.IsValidWallType(255))
+			{
+				return Fail("a wall type outside the table was accepted");
+			}
+			Console.WriteLine("       per-tile tables: " + checkedTables + " of " + tiles
+				+ " entries; wall table " + walls);
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("the tile table check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 
