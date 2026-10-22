@@ -3524,7 +3524,10 @@ public sealed class UI
 				menuHC[i] = loadPlayer[num2].difficulty;
 				if (loadPlayer[num2].difficulty == 67)
 				{
-					menuString[i] = "Unsupported";
+					// A save from a newer build: the character cannot be played, and saying so on the
+					// row is the only way the player learns why it will not load. Was an English
+					// literal, so a German client saw one English row in a translated list.
+					menuString[i] = Texts.Get("ui.char.unsupported");
 					menuHC[i] = 3;
 				}
 			}

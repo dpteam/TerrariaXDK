@@ -14287,6 +14287,7 @@ internal static class SelfTest
 				"ui.hint.map", "ui.hint.character", "ui.hint.select", "ui.hint.back",
 				"ui.hint.cheats", "ui.hint.keybinds", "ui.hint.mods", "ui.hint.pause",
 				"ui.hint.start",
+				"ui.char.unsupported",
 				"ui.display.title", "ui.display.profile", "ui.display.window", "ui.display.fullscreen",
 				"ui.display.render", "ui.display.fps", "ui.display.vsync", "ui.display.fpslimit",
 				"ui.display.language", "ui.display.hint.restart", "ui.display.status.window",

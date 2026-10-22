@@ -232,6 +232,7 @@ internal static class Texts
 		// so a translator has one place to look. They used to be English literals in UI.cs: on a
 		// German client the inventory said "LMB - pick / place" in English while everything else
 		// was translated.
+		Add(dictionary, "ui.char.unsupported", "Unsupported");
 		Add(dictionary, "ui.hint.inv", "LMB - pick / place    Esc or Tab - close");
 		Add(dictionary, "ui.hint.inv.split", "    RMB - split stack");
 		Add(dictionary, "ui.hint.craft", "LMB - craft    Wheel - scroll    Q - ingredients    R - show all    Esc or Tab - close");
