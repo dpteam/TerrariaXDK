@@ -136,6 +136,7 @@ internal static class SelfTest
 		RunCheck("mod sheets", CheckModSheets);
 		RunCheck("item field widths", CheckItemFieldWidths);
 		RunCheck("item fields hostile", CheckItemFieldsHostile);
+		RunCheck("item type on the wire", CheckItemTypeWire);
 		RunCheck("raw mod", CheckRawMod);
 		RunCheck("mod download", CheckModDownload);
 #if DEBUG
@@ -6151,6 +6152,14 @@ internal static class SelfTest
 						{
 							return Fail("an allowed item was refused by the item gate");
 						}
+						// A stack above 255 survives the frame. It used to travel as a byte, so a mod
+						// item with maxStack=999 arrived as 231 - a plausible number, which is why
+						// nobody would have found it by playing.
+						SendInventorySync(itemClient, 1, 3, 999, 1);
+						if (target.Inventory[3].Stack != 999)
+						{
+							return Fail("a stack of 999 arrived as " + target.Inventory[3].Stack);
+						}
 					}
 					finally
 					{
@@ -6381,7 +6390,7 @@ internal static class SelfTest
 	/// Feeds one inventory sync packet (message 5) into the host as if it arrived from that
 	/// client: player index, slot, stack, then prefix and item id when the stack is non-zero.
 	/// </summary>
-	private static void SendInventorySync(NetClient client, byte player, byte slot, byte stack, short netId)
+	private static void SendInventorySync(NetClient client, byte player, byte slot, int stack, short netId)
 	{
 		System.IO.MemoryStream stream = new System.IO.MemoryStream();
 		using (System.IO.BinaryWriter binaryWriter = new System.IO.BinaryWriter(stream, Encoding.UTF8))
@@ -6389,7 +6398,9 @@ internal static class SelfTest
 			binaryWriter.Write((byte)5);
 			binaryWriter.Write(player);
 			binaryWriter.Write(slot);
-			binaryWriter.Write(stack);
+			// A short, not a byte: a mod item can set maxStack above 255, and the frame carries the
+			// stack in a short so that 999 arrives as 999 instead of 231.
+			binaryWriter.Write((short)stack);
 			if (stack > 0)
 			{
 				binaryWriter.Write((byte)0);
@@ -14550,6 +14561,84 @@ internal static class SelfTest
 		finally
 		{
 			Terraria.Mods.ItemOverrides.Clear();
+		}
+	}
+
+	// --- Item ids on the wire ---------------------------------------------
+
+	/// <summary>
+	/// <c>MSG_SYNC_ITEM</c> packs a dropped item's type and the ignoring player into one short.
+	///
+	/// That leaves the type 11 bits. Vanilla ids (up to 631) fit; a mod item (ids from 20000) does
+	/// not, and the cast used to truncate it silently: 20000 &lt;&lt; 5 as a short is -14848, which
+	/// unpacks as type -464 in slot 0. A mod item dropped on the ground arrived as a different item
+	/// in the wrong place - in multiplayer, with mods, which is exactly where nobody can debug it.
+	///
+	/// This is the same class as the item fields: a value sized for the vanilla build, handed a mod
+	/// value, truncated without a word.
+	/// </summary>
+	private static bool CheckItemTypeWire()
+	{
+		try
+		{
+			int[] types = new int[8] { 0, 1, 631, 1023, 1024, 20043, 31999, -5 };
+			for (int i = 0; i < types.Length; i++)
+			{
+				for (int ignore = 0; ignore <= 4; ignore++)
+				{
+					int type = types[i];
+					byte[] frame;
+					using (MemoryStream stream = new MemoryStream())
+					{
+						using (BinaryWriter writer = new BinaryWriter(stream, Encoding.UTF8))
+						{
+							writer.Write(Terraria.NetMessage.PackItemType(type, ignore));
+							if (Terraria.NetMessage.ItemTypeNeedsEscape(type))
+							{
+								writer.Write((short)type);
+							}
+							writer.Flush();
+							frame = stream.ToArray();
+						}
+					}
+					int gotType;
+					int gotIgnore;
+					using (BinaryReader reader = new BinaryReader(new MemoryStream(frame, writable: false), Encoding.UTF8))
+					{
+						int packed = reader.ReadInt16();
+						gotIgnore = packed & 0x1F;
+						gotType = packed >> 5;
+						if (gotType == Terraria.NetMessage.ItemTypeEscape)
+						{
+							gotType = reader.ReadInt16();
+						}
+					}
+					if (gotType != type)
+					{
+						return Fail("item type " + type + " arrived as " + gotType);
+					}
+					if (gotIgnore != ignore)
+					{
+						return Fail("ignoring player " + ignore + " arrived as " + gotIgnore);
+					}
+				}
+			}
+			// The escape must not be used for ids that fit, or every vanilla drop would grow by two
+			// bytes - dropped items are the most frequent packet in the game. 1023 itself has to
+			// escape: it is the marker, so it cannot also be a type.
+			if (Terraria.NetMessage.ItemTypeNeedsEscape(631) || Terraria.NetMessage.ItemTypeNeedsEscape(1022))
+			{
+				return Fail("a vanilla item id asked for the escape value");
+			}
+			if (!Terraria.NetMessage.ItemTypeNeedsEscape(1023) || !Terraria.NetMessage.ItemTypeNeedsEscape(20043))
+			{
+				return Fail("a mod item id did not ask for the escape value");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("item type wire check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 

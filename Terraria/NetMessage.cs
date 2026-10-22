@@ -11,6 +11,35 @@ public sealed class NetMessage
 {
 	private static readonly PacketWriter PacketOut = new PacketWriter(65536);
 
+	/// <summary>
+	/// The value <c>MSG_SYNC_ITEM</c> writes in the type's 11 bits when the real type does not fit
+	/// there, meaning "the id follows as a separate <c>short</c>".
+	///
+	/// <b>Why this exists.</b> A dropped item's type shares one <c>short</c> with the player who is
+	/// being ignored: <c>(type &lt;&lt; 5) | ignore</c>. That leaves the type 11 bits - 1023, enough
+	/// for the 632 vanilla items and <b>not</b> for a mod item, whose ids start at 20000. A mod item
+	/// dropped on the ground sent <c>(short)(20000 &lt;&lt; 5)</c> = -14848, and the receiver
+	/// unpacked it as type <b>-464</b> in slot <b>0</b>: a garbage item in the wrong place, on the
+	/// floor, in a multiplayer game with mods. Vanilla ids are unaffected and pay no extra bytes.
+	///
+	/// 1023 itself is therefore <b>not</b> a representable type - it is the marker, so 0..1022 pack
+	/// directly and 1023 upwards escape. Nothing is lost: this build has 632 items and mod ids
+	/// start at 20000.
+	/// </summary>
+	internal const int ItemTypeEscape = 1023;
+
+	/// <summary>The packed "type + ignoring player" word of <c>MSG_SYNC_ITEM</c>.</summary>
+	internal static short PackItemType(int itemType, int ignore)
+	{
+		return (short)((System.Math.Min(itemType, ItemTypeEscape) << 5) | (ignore & 0x1F));
+	}
+
+	/// <summary>True when <see cref="PackItemType"/> had to substitute the escape value.</summary>
+	internal static bool ItemTypeNeedsEscape(int itemType)
+	{
+		return itemType >= ItemTypeEscape;
+	}
+
 	public static PacketReader PacketIn = new PacketReader(65536);
 
 	private static readonly byte[] PRIORITY = new byte[68]
@@ -677,7 +706,10 @@ public sealed class NetMessage
 				netID = Main.PlayerSet[num7].armor[num8].NetID;
 				prefixType = Main.PlayerSet[num7].armor[num8].PrefixType;
 			}
-			PacketOut.Write((byte)stack2);
+			// A short, not a byte: a mod item can set maxStack above 255, and (byte)999 is 231 -
+			// a stack that silently shrinks when it is synced. Vanilla stacks are all below 256,
+			// which is why the byte was right for as long as vanilla was all there was.
+			PacketOut.Write((short)stack2);
 			if (stack2 > 0)
 			{
 				PacketOut.Write((byte)prefixType);
@@ -812,11 +844,16 @@ public sealed class NetMessage
 				break;
 			}
 			PacketOut.Write((byte)number2);
-			PacketOut.Write((short)((num2 << 5) | number));
+			PacketOut.Write(PackItemType(num2, number));
+			if (ItemTypeNeedsEscape(num2))
+			{
+				// A mod item: the id does not fit the 11 bits above. See ItemTypeEscape.
+				PacketOut.Write((short)num2);
+			}
 			if (num2 != 0)
 			{
 				PacketOut.Write(Main.ItemSet[number2].PrefixType);
-				PacketOut.Write((byte)stack);
+				PacketOut.Write((short)stack);
 				PacketOut.Write(Main.ItemSet[number2].Position);
 				HalfVector2 halfVector = new HalfVector2(Main.ItemSet[number2].Velocity);
 				PacketOut.Write(halfVector.PackedValue);
@@ -840,7 +877,7 @@ public sealed class NetMessage
 			if (netID2 != 0)
 			{
 				PacketOut.Write(Main.ChestSet[number].ItemSet[number2].PrefixType);
-				PacketOut.Write((byte)Main.ChestSet[number].ItemSet[number2].Stack);
+				PacketOut.Write((short)Main.ChestSet[number].ItemSet[number2].Stack);
 			}
 			break;
 		}
@@ -2072,7 +2109,7 @@ public sealed class NetMessage
 			int num119 = PacketIn.ReadByte();
 			Player player18 = Main.PlayerSet[num119];
 			int num120 = PacketIn.ReadByte();
-			int num121 = PacketIn.ReadByte();
+			int num121 = PacketIn.ReadInt16();
 			int prefix3 = 0;
 			int type5 = 0;
 			if (num121 > 0)
@@ -2412,6 +2449,11 @@ public sealed class NetMessage
 			int num66 = PacketIn.ReadInt16();
 			int num67 = num66 & 0x1F;
 			num66 >>= 5;
+			if (num66 == ItemTypeEscape)
+			{
+				// A mod item: the real id follows the packed word. See ItemTypeEscape.
+				num66 = PacketIn.ReadInt16();
+			}
 			int owner = Main.ItemSet[num65].Owner;
 			if (Main.NetMode == 1)
 			{
@@ -2422,7 +2464,7 @@ public sealed class NetMessage
 				}
 				Main.ItemSet[num65].NetDefaults(num66);
 				Main.ItemSet[num65].SetPrefix(PacketIn.ReadByte());
-				Main.ItemSet[num65].Stack = PacketIn.ReadByte();
+				Main.ItemSet[num65].Stack = PacketIn.ReadInt16();
 				Main.ItemSet[num65].Position = PacketIn.ReadVector2();
 				HalfVector2 halfVector3 = new HalfVector2
 				{
@@ -2441,7 +2483,7 @@ public sealed class NetMessage
 				break;
 			}
 			int prefix = PacketIn.ReadByte();
-			int stack = PacketIn.ReadByte();
+			int stack = PacketIn.ReadInt16();
 			float num68 = PacketIn.ReadSingle();
 			float num69 = PacketIn.ReadSingle();
 			bool flag4 = num65 == 200;
@@ -2686,7 +2728,7 @@ public sealed class NetMessage
 			if (num75 != 0)
 			{
 				int prefix2 = PacketIn.ReadByte();
-				int stack2 = PacketIn.ReadByte();
+				int stack2 = PacketIn.ReadInt16();
 				Main.ChestSet[num73].ItemSet[num74].NetDefaults(num75, stack2);
 				Main.ChestSet[num73].ItemSet[num74].SetPrefix(prefix2);
 			}

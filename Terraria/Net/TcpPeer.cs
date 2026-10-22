@@ -77,8 +77,14 @@ internal sealed class TcpPeer : IPeerTransport
 	/// sentence. A version bump rather than a silent change, because a 2 client would print the
 	/// raw bytes as text - and because the refusal it gets ("versions differ") is now shown in
 	/// its own language, which is exactly the case this change was for.
+	///
+	/// 4: <c>MSG_SYNC_ITEM</c> can carry a mod item's id. The type used to share a short with the
+	/// ignoring player (11 bits, 0..1023), so a dropped mod item arrived as a different item in
+	/// the wrong slot. Ids above 1023 now follow as a separate <c>short</c> after the packed word;
+	/// a 3 client would read those two bytes as the item's prefix. Vanilla items are byte-for-byte
+	/// unchanged, but the frame is not, so the version moves.
 	/// </summary>
-	public const int ProtocolVersion = 3;
+	public const int ProtocolVersion = 4;
 
 	/// <summary>Same value, exposed to the headless self-test.</summary>
 	public const int ProtocolVersionPublic = ProtocolVersion;
