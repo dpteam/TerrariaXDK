@@ -10521,14 +10521,19 @@ public sealed class Player
 
 	public void UpdateRecipes()
 	{
+		// Grow the flags to the current recipe count first. They are sized when the character is
+		// loaded, and the count can grow afterwards - loading mods, or reloading them - so the
+		// bounds check below used to turn "this build has more recipes" into "those recipes can
+		// never be discovered": skipped on every pass, invisible in the crafting screen, and
+		// nothing said why. Growing is cheap and happens once.
+		EnsureRecipeBits();
 		// Down to zero over every registered recipe, including mods'. The bound used to be the
 		// vanilla 341, so a mod recipe was never "discovered" and never showed up in the crafting
 		// screen at all.
 		for (int num = Recipe.NumRecipes - 1; num >= 0; num--)
 		{
-			// A save from a smaller recipe list leaves the arrays short; discovering past their
-			// end throws, and a recipe index without a flag is not worth a crash. Both arrays are
-			// checked: they are grown together but read separately.
+			// Kept as a guard even after growing: a recipe index without a flag is not worth a
+			// crash, and the arrays are read separately.
 			if (num >= RecipesFound.Length || num >= recipesNew.Length)
 			{
 				continue;
@@ -10538,6 +10543,26 @@ public sealed class Player
 				RecipesFound.Set(num, value: true);
 				recipesNew.Set(num, value: true);
 			}
+		}
+	}
+
+	/// <summary>
+	/// Makes the recipe flags long enough for every recipe this build has, including mods'.
+	///
+	/// <see cref="Recipe.Capacity"/> is the size a new character gets, and it is also the upper
+	/// bound the recipe array itself has - so growing to it is always enough and never wasteful
+	/// (a BitArray of 2390 bits is 300 bytes).
+	/// </summary>
+	internal void EnsureRecipeBits()
+	{
+		int num = Recipe.Capacity;
+		if (RecipesFound.Length < num)
+		{
+			RecipesFound.Length = num;
+		}
+		if (recipesNew.Length < num)
+		{
+			recipesNew.Length = num;
 		}
 	}
 

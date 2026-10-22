@@ -912,6 +912,40 @@ internal static class SelfTest
 			return Fail("signature not deterministic: " + signature + " -> "
 				+ Terraria.Mods.ModLoader.Signature + " with " + modCount + " mod(s)");
 		}
+		// --- a character loaded before the recipes existed must still discover them -------
+		// The "discovered" flags are sized when the character is loaded, and the recipe count can
+		// grow afterwards (mods, or a reload). With a short array the bounds check in
+		// UpdateRecipes skipped every new recipe, so they were never discovered and never appeared
+		// in the crafting screen - silently. The flags are grown now.
+		{
+			Player old = new Player();
+			// What a save from a build with the vanilla 342 recipes carries.
+			old.RecipesFound = new System.Collections.BitArray(342);
+			old.recipesNew = new System.Collections.BitArray(342);
+			old.UpdateRecipes();
+			if (old.RecipesFound.Length < Recipe.NumRecipes || old.recipesNew.Length < Recipe.NumRecipes)
+			{
+				return Fail("recipe flags were not grown: " + old.RecipesFound.Length
+					+ " bits for " + Recipe.NumRecipes + " recipes");
+			}
+			if (old.RecipesFound.Length > Recipe.Capacity)
+			{
+				return Fail("recipe flags grew past the recipe capacity: " + old.RecipesFound.Length);
+			}
+			// And the crafting screen's own read is bounds-safe even if something did not grow:
+			// a character from a smaller build must show "not discovered", not throw.
+			Player tight = new Player();
+			tight.RecipesFound = new System.Collections.BitArray(1);
+			tight.recipesNew = new System.Collections.BitArray(1);
+			if (Recipe.IsRecipeDiscoveredForTests(tight, 5))
+			{
+				return Fail("a recipe index past the flags was reported as discovered");
+			}
+			if (Recipe.IsRecipeDiscoveredForTests(tight, -1))
+			{
+				return Fail("a negative recipe index was reported as discovered");
+			}
+		}
 		return true;
 	}
 

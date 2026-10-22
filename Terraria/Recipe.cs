@@ -248,6 +248,27 @@ public sealed class Recipe
 		}
 	}
 
+	/// <summary>
+	/// True when the player has discovered recipe <paramref name="index"/>.
+	///
+	/// Bounds-checked, because the flag lives in a bit array sized when the character was loaded
+	/// and the recipe count can grow afterwards - a mod reload adds recipes, and the next pass
+	/// over the crafting screen would index past the end. "Not in the array" means "not
+	/// discovered", which is also what the player sees: a recipe they have not made yet.
+	/// <see cref="Player.UpdateRecipes"/> already checks this; the crafting screen did not, and it
+	/// is the one that runs on every frame the tab is open.
+	/// </summary>
+	private static bool IsRecipeDiscovered(Player player, int index)
+	{
+		return index >= 0 && index < player.RecipesFound.Length && player.RecipesFound[index];
+	}
+
+	/// <summary>The same read, for the self-test.</summary>
+	internal static bool IsRecipeDiscoveredForTests(Player player, int index)
+	{
+		return IsRecipeDiscovered(player, index);
+	}
+
 	public static void FindRecipes(UI ActiveUI, Category RecipeCategory, bool IsCraftable)
 	{
 		int num = 1024;
@@ -284,7 +305,7 @@ public sealed class Recipe
 					continue;
 				}
 			}
-			else if (!Main.UnlockAllRecipes && !ActiveUI.ActivePlayer.RecipesFound[i])
+			else if (!Main.UnlockAllRecipes && !IsRecipeDiscovered(ActiveUI.ActivePlayer, i))
 			{
 				continue;
 			}
