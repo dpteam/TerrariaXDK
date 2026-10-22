@@ -9180,6 +9180,20 @@ public sealed class Player
 						buff[m].Type = binaryReader.ReadUInt16();
 					}
 					buff[m].Time = binaryReader.ReadUInt16();
+					// A buff type outside this build's table is dropped here, once, instead of
+					// being carried around and crashing whichever screen indexes a table with it
+					// first: the HUD bar draws sprite `141 + type`, the equipment screen draws
+					// `Buff.BuffName[type]`. The field is a ushort in this format, so 65535 is
+					// representable - a save written by a build with more buffs, or a damaged one,
+					// reaches here with a number no table covers.
+					if (buff[m].Type >= Buff.MaxNumBuffs)
+					{
+						Program.LogWarn("Saves", "character has buff type " + buff[m].Type
+							+ ", which this build does not have (" + Buff.MaxNumBuffs
+							+ " buffs) - dropped");
+						buff[m].Type = 0;
+						buff[m].Time = 0;
+					}
 				}
 				if (num >= 1)
 				{

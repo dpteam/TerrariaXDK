@@ -6353,6 +6353,23 @@ internal static class SelfTest
 						{
 							return Fail("a stack of 999 arrived as " + target.Inventory[3].Stack);
 						}
+						// --- and a buff type past this build's table is dropped ---------------
+						// Message 50 carries the type as a byte, so a client can send 200. The HUD
+						// bar draws sprite `141 + type` every frame and the equipment screen indexes
+						// `Buff.BuffName[type]`, so an invented number is a crash for everyone in the
+						// game, not just for the sender.
+						SendBuffSync(itemClient, 1, 200);
+						if (target.buff[0].Type != 0)
+						{
+							return Fail("a client sent buff type 200 and it was accepted (stored as "
+								+ target.buff[0].Type + ")");
+						}
+						// A real buff type still arrives: the gate must not drop everything.
+						SendBuffSync(itemClient, 1, 3);
+						if (target.buff[0].Type != 3)
+						{
+							return Fail("buff type 3 did not arrive (stored as " + target.buff[0].Type + ")");
+						}
 					}
 					finally
 					{
@@ -6569,6 +6586,31 @@ internal static class SelfTest
 				{
 					binaryWriter.Write(style);
 				}
+			}
+			binaryWriter.Flush();
+		}
+		byte[] buffer = stream.ToArray();
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.PacketIn.BaseStream.Write(buffer, 0, buffer.Length);
+		NetMessage.PacketIn.BaseStream.Position = 0;
+		NetMessage.GetData(client);
+	}
+
+	/// <summary>
+	/// Feeds one buff sync packet (message 50) into the host as if it arrived from that client: the
+	/// player index, then ten buff types as bytes.
+	/// </summary>
+	private static void SendBuffSync(NetClient client, byte player, int firstBuffType)
+	{
+		System.IO.MemoryStream stream = new System.IO.MemoryStream();
+		using (System.IO.BinaryWriter binaryWriter = new System.IO.BinaryWriter(stream, Encoding.UTF8))
+		{
+			binaryWriter.Write((byte)50);
+			binaryWriter.Write(player);
+			binaryWriter.Write((byte)firstBuffType);
+			for (int i = 1; i < 10; i++)
+			{
+				binaryWriter.Write((byte)0);
 			}
 			binaryWriter.Flush();
 		}

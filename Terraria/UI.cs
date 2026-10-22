@@ -5142,6 +5142,14 @@ public sealed class UI
 			{
 				num17 += ActivePlayer.pet;
 			}
+			// The bar is drawn every frame, so an icon id past the sheet is a crash on the frame
+			// after the bad buff arrives - from a save or a packet, not from this code. Load and
+			// the packet handler now drop such a type, and this keeps a third source (a mod, a
+			// future field) from turning into a crash loop on the HUD.
+			if (num17 <= 0 || num17 >= SpriteSheet<_sheetSprites>.Source.Length)
+			{
+				continue;
+			}
 			if (Main.ScreenHeightPtr == ScreenHeights.BASE)
 			{
 				SpriteSheet<_sheetSprites>.Draw(num17, num15, num16, c);

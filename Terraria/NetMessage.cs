@@ -2947,6 +2947,16 @@ public sealed class NetMessage
 			for (int num91 = 0; num91 < 10; num91++)
 			{
 				int num92 = PacketIn.ReadByte();
+				// A client can send any byte here. Buff types past this build's table have no name
+				// and no icon, and the HUD bar draws sprite `141 + type` - so a made-up number is a
+				// crash for everyone, on the host's screen as much as the sender's. Dropped at the
+				// gate, which is where every other client-supplied value is checked.
+				if (num92 >= Buff.MaxNumBuffs)
+				{
+					Program.LogWarn("Net", "client sent buff type " + num92 + ", which this build does"
+						+ " not have (" + Buff.MaxNumBuffs + " buffs) - ignored");
+					num92 = 0;
+				}
 				player12.buff[num91].Type = (ushort)num92;
 				player12.buff[num91].Time = (ushort)((num92 > 0) ? 60u : 0u);
 			}
