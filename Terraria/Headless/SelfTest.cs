@@ -132,6 +132,7 @@ internal static class SelfTest
 		RunCheck("cheat menu layout", CheckCheatMenuLayout);
 		RunCheck("npc names", CheckNpcNames);
 		RunCheck("tutorial hints", CheckTutorialHints);
+		RunCheck("crafting tables", CheckCraftingTables);
 		RunCheck("raw mod", CheckRawMod);
 		RunCheck("mod download", CheckModDownload);
 #if DEBUG
@@ -1728,13 +1729,15 @@ internal static class SelfTest
 			}
 			// Every field the importer accepts must have a property on ItemOverride, or the
 			// generated project will not compile.
-			string[] array = new string[41]
+			string[] array = new string[44]
 			{
 				"damage", "defense", "pick", "axe", "hammer", "useAnimation", "useTime", "useSound", "shoot", "shootSpeed",
 				"knockBack", "mana", "healLife", "healMana", "buffType", "buffTime", "rare", "value", "maxStack", "autoReuse",
 				"melee", "magic", "ranged", "consumable", "potion", "accessory", "noMelee", "crit",
 				"width", "height", "useStyle", "holdStyle", "scale", "isMaterial", "material", "ammo", "useAmmo",
-				"useTurn", "toolTip", "toolTip2", "createTileName"
+				"useTurn", "toolTip", "toolTip2", "createTileName",
+				// tConfig spellings of a field above, plus the one field with no property at all.
+				"stack", "color", "noUseGraphic"
 			};
 			for (int i = 0; i < array.Length; i++)
 			{
@@ -1751,6 +1754,16 @@ internal static class SelfTest
 					if (text7 != null)
 					{
 						return Fail("the converter claims '" + array[i] + "' has a property");
+					}
+					continue;
+				}
+				if (Terraria.Mods.TConfigConverter.IsEscapedField(array[i]))
+				{
+					// No property, applied through ItemOverride.Set: the project must emit the
+					// escape hatch instead of a property that does not exist.
+					if (text7 != null)
+					{
+						return Fail("'" + array[i] + "' is both a property and an escaped field");
 					}
 					continue;
 				}
@@ -13229,6 +13242,7 @@ internal static class SelfTest
 				"[Mod]\r\nName=Raw Pack\r\nVersion=1.2\r\nAuthor=Tester\r\n");
 			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "Copper Bulgeon.ini"),
 				"type=-1\r\ndamage=12\r\nuseTime=20\r\nisMaterial=true\r\n"
+				+ "stack=25\r\ncolor=10,20,30,40\r\n"
 				+ "[Items]\r\nCopper Bar=6\r\n[Tiles]\r\nAnvil=true\r\n[Amount]\r\n2\r\n");
 			WriteTinyPng(System.IO.Path.Combine(items, "Copper Bulgeon.png"));
 			// An existing item: this is an override, not a new item, and the two paths must not
@@ -13356,6 +13370,20 @@ internal static class SelfTest
 			{
 				return Fail("the raw item got no id");
 			}
+			// The tConfig spellings that mean the same as a field this build has: `stack` is
+			// MaxStack and `color` is the sprite tint. Both used to be dropped - `stack` on 119
+			// items in one real pack - so they are checked through the live item, not the table.
+			Item built = default(Item);
+			built.SetDefaults(definition.Type);
+			if (built.MaxStack != 25)
+			{
+				return Fail("'stack=25' did not reach MaxStack (got " + built.MaxStack + ")");
+			}
+			if (built.Colour.R != 10 || built.Colour.G != 20 || built.Colour.B != 30 || built.Colour.A != 40)
+			{
+				return Fail("'color=10,20,30,40' did not reach the item tint (got "
+					+ built.Colour.R + "," + built.Colour.G + "," + built.Colour.B + "," + built.Colour.A + ")");
+			}
 			// The override reaches the live item through the ordinary path.
 			int barId = Terraria.ItemLookup.Find("Copper Bar");
 			if (barId <= 0)
@@ -13372,10 +13400,32 @@ internal static class SelfTest
 			{
 				return Fail("the override was not registered");
 			}
-			// The recipes are pending, and both spellings reached the registry.
+			// The recipe is pending, and both spellings reached the registry.
 			if (Terraria.Mods.ModRecipes.Count != 2)
 			{
 				return Fail("expected 2 pending recipes, got " + Terraria.Mods.ModRecipes.Count);
+			}
+			// End to end, the way the game does it: build the recipes, then ask a player whether
+			// they are discovered. This is the exact path that threw from BitArray.Get the moment
+			// the crafting tab was opened with a mod loaded - the recipe names a mod item, and the
+			// "seen this item" table used to stop at the vanilla item count.
+			System.Collections.Generic.List<string> recipeProblems;
+			Terraria.Mods.ModRecipes.Apply(out recipeProblems);
+			Terraria.Player recipePlayer = new Terraria.Player();
+			recipePlayer.UpdateRecipes();
+			bool sawModRecipe = false;
+			for (int i = 0; i < Terraria.Recipe.NumRecipes; i++)
+			{
+				Terraria.Recipe recipe = Terraria.Main.ActiveRecipe[i];
+				if (recipe != null && recipe.CraftedItem.Type >= Terraria.Mods.ModItems.IdBase)
+				{
+					sawModRecipe = true;
+					break;
+				}
+			}
+			if (!sawModRecipe)
+			{
+				return Fail("no mod recipe reached the game's recipe table");
 			}
 			// --- signature ----------------------------------------------------
 			string first = rawMod.Signature;
@@ -14168,6 +14218,115 @@ internal static class SelfTest
 		{
 			Terraria.Input.KeyboardMouseInput.Enabled = savedEnabled;
 			Terraria.Lang.LangOption = savedLang;
+		}
+	}
+
+	// --- Crafting tables cover mod ids --------------------------------------
+
+	/// <summary>
+	/// The two tables the crafting screen reads must cover every id a mod can produce.
+	///
+	/// Both used to be sized to the vanilla build: <c>itemsFound</c> was 632 bits and a mod item's
+	/// id starts at 20000, so the first mod recipe with a mod ingredient threw
+	/// <c>ArgumentOutOfRangeException</c> from <c>BitArray.Get</c> as soon as the crafting tab was
+	/// opened - and picking a mod item up threw from <c>Set</c>. The station table was 135 bits and
+	/// a station id above it threw the same way.
+	///
+	/// The second half is the part that is easy to miss: a station this build cannot stand next to
+	/// must be refused by name, not silently accepted, or the recipe is offered and can never be
+	/// crafted.
+	/// </summary>
+	private static bool CheckCraftingTables()
+	{
+		try
+		{
+			// --- the tables are wide enough ------------------------------------
+			Terraria.Player player = new Terraria.Player();
+			if (player.itemsFound.Length <= Terraria.Mods.ModItems.IdBase)
+			{
+				return Fail("a new player's item table stops before the mod range: "
+					+ player.itemsFound.Length + " <= " + Terraria.Mods.ModItems.IdBase);
+			}
+			if (player.craftingStationsFound.Length != Terraria.Player.StationTableBits)
+			{
+				return Fail("the station table is " + player.craftingStationsFound.Length
+					+ " bits, not " + Terraria.Player.StationTableBits);
+			}
+			// The two calls that threw: recording a mod item, and asking whether it was seen.
+			int modId = Terraria.Mods.ModItems.IdBase + 7;
+			if (player.HasSeenItem(modId))
+			{
+				return Fail("a fresh player has already seen a mod item");
+			}
+			player.RememberItemForTests(modId);
+			if (!player.HasSeenItem(modId))
+			{
+				return Fail("a mod item could not be recorded as seen");
+			}
+			// An id outside the table is "not seen", never an exception.
+			if (player.HasSeenItem(int.MaxValue) || player.HasSeenItem(-1))
+			{
+				return Fail("an id outside the table was reported as seen");
+			}
+			// --- a station above the tile table is refused, not accepted --------
+			if (Terraria.Mods.ModRecipes.StationId("Work Bench") != 18)
+			{
+				return Fail("the station table lost the work bench");
+			}
+			// 217 is the Blend-O-Matic in later PC builds; this build's tile table stops at 134.
+			if (Terraria.Mods.ModRecipes.StationId("Blend-O-Matic") >= 0)
+			{
+				return Fail("a station above this build's tile table was accepted");
+			}
+			System.Collections.Generic.List<string> names = Terraria.Mods.ModRecipes.StationNames();
+			for (int i = 0; i < names.Count; i++)
+			{
+				int num = Terraria.Mods.ModRecipes.StationId(names[i]);
+				if (num < 0 || num >= Terraria.Player.StationTableBits)
+				{
+					return Fail("station '" + names[i] + "' resolves to id " + num
+						+ ", outside this build's tile table");
+				}
+			}
+			// --- a mod recipe with a mod ingredient is discovered, not a crash --
+			// This is the exact shape of the crash: UpdateRecipes asks DiscoveredRecipe, which asks
+			// about every ingredient and every station.
+			int unseen = Terraria.Mods.ModItems.IdBase + 9;
+			Terraria.Recipe recipe = new Terraria.Recipe();
+			recipe.CraftedItem.SetDefaults(1, 1);
+			// Set the id directly rather than through SetDefaults: the point is the table lookup, and
+			// a raw-mod setup that is not installed would make SetDefaults produce an empty item.
+			recipe.RequiredItem[0].Type = (short)unseen;
+			recipe.RequiredItem[0].Stack = 1;
+			recipe.NumRequiredItems = 1;
+			recipe.RequiredTile[0] = 18;
+			recipe.NumRequiredTiles = 1;
+			if (player.DiscoveredRecipe(recipe))
+			{
+				return Fail("a recipe with an unseen mod ingredient was reported as discovered");
+			}
+			player.RememberItemForTests(unseen);
+			player.craftingStationsFound.Set(18, value: true);
+			if (!player.DiscoveredRecipe(recipe))
+			{
+				return Fail("a recipe whose ingredients and station are all known was not discovered");
+			}
+			// --- and the real thing: every loaded recipe, with the real mods -----
+			// This is the exact call the crafting screen makes on its first frame. It walked the
+			// whole recipe table, so any mod recipe in it is enough to hit a table that is too
+			// small - which is why the crash happened on the recipes tab and nowhere else.
+			Terraria.Player live = new Terraria.Player();
+			live.UpdateRecipes();
+			if (Terraria.Recipe.NumRecipes > 342 && live.RecipesFound.Length < Terraria.Recipe.NumRecipes)
+			{
+				return Fail("the 'discovered' table is narrower than the recipe table: "
+					+ live.RecipesFound.Length + " < " + Terraria.Recipe.NumRecipes);
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("crafting tables check threw: " + ex.GetType().Name + ": " + ex.Message);
 		}
 	}
 

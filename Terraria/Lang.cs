@@ -14261,6 +14261,13 @@ internal sealed class Lang
 	public static string ItemAffixName(int PrefixID, int NetID)
 	{
 		string text = ItemName(NetID);
+		if (text == null)
+		{
+			// An id the name table does not cover: a mod item whose mod is gone, or an id this
+			// build never had. Returning null here reached SpriteFont.MeasureString on the pickup
+			// path and crashed the game from a line meant to draw a floating label.
+			text = "Unknown item";
+		}
 		if (PrefixID != 0)
 		{
 			if (LangOption <= 1)

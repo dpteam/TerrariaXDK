@@ -114,6 +114,14 @@ internal static class ModRecipes
 	/// "Anvil" and find "Amboss" at that index - or worse, a name that means something else.
 	/// Recipes are data files, and data files are written in English.
 	/// </summary>
+	/// <summary>
+	/// Name → tile id, for the stations this build actually has.
+	///
+	/// Every entry must be below <see cref="Player.StationTableBits"/>: a station the build cannot
+	/// recognise is worse than a missing station, because the recipe looks craftable and is not.
+	/// <see cref="StationId"/> refuses anything above the table anyway; the list is kept honest so
+	/// the refusal is not the only thing standing between a pack and an uncraftable recipe.
+	/// </summary>
 	private static readonly Dictionary<string, int> Stations = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
 	{
 		{ "Work Bench", 18 },
@@ -138,7 +146,10 @@ internal static class ModRecipes
 		{ "Dye Vat", 93 },
 		{ "Imbuing Station", 103 },
 		{ "Keg", 94 },
-		{ "Blend-O-Matic", 217 }
+		// Blend-O-Matic is tile 217 in later PC builds; this build's tile table stops at 134, so
+		// the station cannot exist here and is not listed. A pack that names it gets the standard
+		// "station is a mod tile this build does not have" note and a craftable recipe, which is
+		// better than a recipe that is offered and can never be made.
 	};
 
 	private static readonly List<ModRecipe> Pending = new List<ModRecipe>();
@@ -176,11 +187,24 @@ internal static class ModRecipes
 		return modRecipe;
 	}
 
-	/// <summary>The tile id for a station name, or -1 when this build has no such station.</summary>
+	/// <summary>
+	/// The tile id for a station name, or -1 when this build has no such station.
+	///
+	/// The range check is not decoration: this build's tile table ends at
+	/// <see cref="Player.StationTableBits"/> (135), and a station id above it can never be stood
+	/// next to - <c>AdjTiles</c> skips those tiles entirely. Returning the id anyway produced a
+	/// recipe that is offered and can never be crafted, and reading the "seen this station" flag
+	/// for it threw. Reporting "no such station" makes the caller drop the station and keep the
+	/// recipe craftable, which is the documented behaviour for mod-tile stations.
+	/// </summary>
 	internal static int StationId(string name)
 	{
 		int result;
-		return (name != null && Stations.TryGetValue(name.Trim(), out result)) ? result : -1;
+		if (name == null || !Stations.TryGetValue(name.Trim(), out result))
+		{
+			return -1;
+		}
+		return (result > 0 && result < Terraria.Player.StationTableBits) ? result : -1;
 	}
 
 	/// <summary>Every station name this build knows, for the tests and the log.</summary>

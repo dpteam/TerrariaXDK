@@ -2094,6 +2094,14 @@ public sealed class UI
 
 	public static Vector2 MeasureString(SpriteFont font, string text)
 	{
+		// The single choke point for measuring, and the place a null text used to reach
+		// SpriteFont and throw. A null here always means "a name the table does not cover", and
+		// the only thing measuring it can do is decide how wide the label is - so zero is the
+		// honest answer, not a crash in the middle of a pickup.
+		if (font == null || string.IsNullOrEmpty(text))
+		{
+			return Vector2.Zero;
+		}
 		Vector2 result = font.MeasureString(text);
 		if (NumActiveViews > 1)
 		{

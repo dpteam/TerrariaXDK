@@ -566,13 +566,41 @@ public sealed class Player
 
 	public short npcChatBubble = -1;
 
-	public BitArray itemsFound = new BitArray(632);
+	/// <summary>
+	/// How many item types the "seen this item" and "seen this station" tables hold.
+	///
+	/// The item table used to be a flat 632 - the vanilla item count - and a mod item's id starts
+	/// at 20000, so the very first mod recipe with a mod ingredient threw
+	/// <c>ArgumentOutOfRangeException</c> from <c>BitArray.Get</c> while the crafting screen was
+	/// open, and picking a mod item up threw from <c>Set</c>. Sized from the mod range instead, so
+	/// the table covers every id a mod can hand out.
+	/// </summary>
+	public const int ItemTableBits = Terraria.Mods.ModItems.IdLimit;
 
-	public BitArray craftingStationsFound = new BitArray(135);
+	/// <summary>
+	/// How many tile types the "seen this station" table holds.
+	///
+	/// 135 is this build's tile table (<c>adjTile</c> is the same size), and it is also what
+	/// <c>AdjTiles</c> checks before recording a station - so a station id above it can never be
+	/// seen, and asking for one used to throw.
+	/// </summary>
+	public const int StationTableBits = 135;
+
+	public BitArray itemsFound = new BitArray(ItemTableBits);
+
+	public BitArray craftingStationsFound = new BitArray(StationTableBits);
 
 	public BitArray RecipesFound = new BitArray(Recipe.Capacity);
 
-	public BitArray recipesNew = new BitArray(342);
+	/// <summary>
+	/// Recipes whose result the player has not looked at yet (the "new" marker in the crafting
+	/// list).
+	///
+	/// Sized like <see cref="RecipesFound"/>, not to the vanilla 342: a mod recipe's index is above
+	/// that, and setting the flag threw <c>ArgumentOutOfRangeException</c> from
+	/// <c>BitArray.Set</c> as soon as a mod recipe was discovered.
+	/// </summary>
+	public BitArray recipesNew = new BitArray(Recipe.Capacity);
 
 	private uint totalSunMoonTransitions;
 
@@ -6115,7 +6143,7 @@ public sealed class Player
 				{
 					ref Item reference = ref armor[num];
 					reference = item;
-					itemsFound.Set(item.Type, value: true);
+					RememberItem(item.Type);
 					ui.FoundPotentialArmor(item.Type);
 					item.Init();
 					return true;
@@ -6159,7 +6187,7 @@ public sealed class Player
 					{
 						ref Item reference = ref Inventory[j];
 						reference = item;
-						itemsFound.Set(item.Type, value: true);
+						RememberItem(item.Type);
 						CurrentView.itemTextLocal.NewText(ref item, item.Stack);
 						Main.PlaySound(7, XYWH.X, XYWH.Y);
 						item.Init();
@@ -6244,7 +6272,7 @@ public sealed class Player
 					{
 						ref Item reference = ref Inventory[j];
 						reference = item;
-						itemsFound.Set(item.Type, value: true);
+						RememberItem(item.Type);
 						CurrentView.itemTextLocal.NewText(ref item, item.Stack);
 						DoCoins(j);
 						Main.PlaySound(7, XYWH.X, XYWH.Y);
@@ -6263,7 +6291,7 @@ public sealed class Player
 				{
 					ref Item reference2 = ref Inventory[num5];
 					reference2 = item;
-					itemsFound.Set(item.Type, value: true);
+					RememberItem(item.Type);
 					ui.FoundPotentialArmor(item.Type);
 					CurrentView.itemTextLocal.NewText(ref item, item.Stack);
 					DoCoins(num5);
@@ -9044,7 +9072,7 @@ public sealed class Player
 					}
 					armor[i].NetDefaults(num2);
 					armor[i].SetPrefix(prefix);
-					itemsFound.Set(armor[i].Type, value: true);
+					RememberItem(armor[i].Type);
 				}
 				for (int j = 0; j < 48; j++)
 				{
@@ -9073,7 +9101,7 @@ public sealed class Player
 					}
 					Inventory[j].NetDefaults(num3, stack);
 					Inventory[j].SetPrefix(prefix2);
-					itemsFound.Set(Inventory[j].Type, value: true);
+					RememberItem(Inventory[j].Type);
 				}
 				for (int k = 0; k < 20; k++)
 				{
@@ -9102,7 +9130,7 @@ public sealed class Player
 					}
 					bank.ItemSet[k].NetDefaults(num4, stack2);
 					bank.ItemSet[k].SetPrefix(prefix3);
-					itemsFound.Set(bank.ItemSet[k].Type, value: true);
+					RememberItem(bank.ItemSet[k].Type);
 				}
 				for (int l = 0; l < 20; l++)
 				{
@@ -9131,7 +9159,7 @@ public sealed class Player
 					}
 					safe.ItemSet[l].NetDefaults(num5, stack3);
 					safe.ItemSet[l].SetPrefix(prefix4);
-					itemsFound.Set(safe.ItemSet[l].Type, value: true);
+					RememberItem(safe.ItemSet[l].Type);
 				}
 				for (int m = 0; m < 10; m++)
 				{
@@ -9153,9 +9181,11 @@ public sealed class Player
 				{
 					int count = binaryReader.ReadUInt16();
 					itemsFound = new BitArray(binaryReader.ReadBytes(count));
-					if (itemsFound.Length < 632)
+					// A save from a build with fewer items has fewer bits; grow to what this build
+					// needs, or the first mod item picked up throws.
+					if (itemsFound.Length < ItemTableBits)
 					{
-						itemsFound.Length = 632;
+						itemsFound.Length = ItemTableBits;
 					}
 					count = binaryReader.ReadUInt16();
 					RecipesFound = new BitArray(binaryReader.ReadBytes(count));
@@ -9173,9 +9203,9 @@ public sealed class Player
 					{
 						count = binaryReader.ReadUInt16();
 						craftingStationsFound = new BitArray(binaryReader.ReadBytes(count));
-						if (craftingStationsFound.Length < 135)
+						if (craftingStationsFound.Length < StationTableBits)
 						{
-							craftingStationsFound.Length = 135;
+							craftingStationsFound.Length = StationTableBits;
 						}
 					}
 					else
@@ -10420,18 +10450,52 @@ public sealed class Player
 		return IsNearCraftingStation(r);
 	}
 
+	/// <summary>
+	/// Records that this item type has been seen, for the "discovered recipes" check.
+	///
+	/// Bounds-checked rather than trusting the caller: the id can come from a save written by a
+	/// build with a different table, and an id outside it is "not seen", never a crash. The
+	/// unchecked version threw on every mod item, which is how a mod recipe crashed the crafting
+	/// screen.
+	/// </summary>
+	private void RememberItem(int type)
+	{
+		if (type > 0 && type < itemsFound.Length)
+		{
+			itemsFound.Set(type, value: true);
+		}
+	}
+
+	/// <summary>True when this item type has been seen. An id outside the table has not.</summary>
+	public bool HasSeenItem(int type)
+	{
+		return type > 0 && type < itemsFound.Length && itemsFound.Get(type);
+	}
+
+	/// <summary>Records a seen item, for the self-test. Same path the pickup code uses.</summary>
+	internal void RememberItemForTests(int type)
+	{
+		RememberItem(type);
+	}
+
+	/// <summary>True when this crafting station has been stood next to. Same rules as items.</summary>
+	public bool HasSeenStation(int type)
+	{
+		return type > 0 && type < craftingStationsFound.Length && craftingStationsFound.Get(type);
+	}
+
 	public bool DiscoveredRecipe(Recipe r)
 	{
 		for (int num = r.NumRequiredItems - 1; num >= 0; num--)
 		{
-			if (!itemsFound.Get(r.RequiredItem[num].Type))
+			if (!HasSeenItem(r.RequiredItem[num].Type))
 			{
 				return false;
 			}
 		}
 		for (int num2 = r.NumRequiredTiles - 1; num2 >= 0; num2--)
 		{
-			if (!craftingStationsFound.Get(r.RequiredTile[num2]))
+			if (!HasSeenStation(r.RequiredTile[num2]))
 			{
 				return false;
 			}
@@ -10446,9 +10510,10 @@ public sealed class Player
 		// screen at all.
 		for (int num = Recipe.NumRecipes - 1; num >= 0; num--)
 		{
-			// A save from a smaller recipe list leaves the array short; discovering past its end
-			// throws, and a recipe index without a flag is not worth a crash.
-			if (num >= RecipesFound.Length)
+			// A save from a smaller recipe list leaves the arrays short; discovering past their
+			// end throws, and a recipe index without a flag is not worth a crash. Both arrays are
+			// checked: they are grown together but read separately.
+			if (num >= RecipesFound.Length || num >= recipesNew.Length)
 			{
 				continue;
 			}

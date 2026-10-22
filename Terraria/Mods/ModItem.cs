@@ -197,6 +197,12 @@ public sealed class ModItem
 		set { Set("noMelee", value ? "true" : "false"); }
 	}
 
+	/// <summary>The item fires a projectile and draws nothing itself.</summary>
+	public bool NoUseGraphic
+	{
+		set { Set("noUseGraphic", value ? "true" : "false"); }
+	}
+
 	/// <summary>Counts as a crafting material.</summary>
 	public bool Material
 	{

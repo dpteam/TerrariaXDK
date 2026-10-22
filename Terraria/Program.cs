@@ -191,6 +191,11 @@ internal static class Program
 		catch
 		{
 		}
+		// The conversion resolves item names, and the table it needs is built by calling
+		// Item.SetDefaults for every id in the build - about 140 ms, measured. Left to first use it
+		// lands in the middle of the conversion, which in the menu is a visible hitch; the game
+		// warms it on the loading screen, and here there is no screen, so it is warmed up front.
+		Terraria.ItemLookup.Warm();
 		string pack = null;
 		string output = null;
 		string name = null;

@@ -145,4 +145,27 @@ internal static class ItemLookup
 			return Map().Count;
 		}
 	}
+
+	/// <summary>How long the table took to build, in milliseconds. For the log.</summary>
+	internal static long BuildMs { get; private set; }
+
+	/// <summary>
+	/// Builds the table now, on purpose.
+	///
+	/// It is built by calling <c>Item.SetDefaults</c> for every id in the build, which is tens of
+	/// milliseconds of work. Doing that on first use means the first hover over the crafting tab,
+	/// or the first file of a pack conversion, pays for it in one frame - the hitch. Called from
+	/// the loading screen instead, where the game already shows a progress bar and a pause is
+	/// invisible.
+	///
+	/// Safe to call more than once: the map is cached, and a second call is a no-op.
+	/// </summary>
+	internal static void Warm()
+	{
+		long timestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+		int num = Count;
+		BuildMs = (System.Diagnostics.Stopwatch.GetTimestamp() - timestamp) * 1000L
+			/ System.Diagnostics.Stopwatch.Frequency;
+		Program.Log("[ItemLookup] " + num + " item names indexed in " + BuildMs + " ms");
+	}
 }

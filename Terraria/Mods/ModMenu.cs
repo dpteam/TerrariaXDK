@@ -227,10 +227,12 @@ internal static class ModMenu
 	private static TConfigConverter.Job _job;
 
 	/// <summary>
-	/// How many files one frame may convert. Small on purpose: a pack of two hundred items takes a
-	/// few seconds, and the screen has to keep drawing for the bar to mean anything.
+	/// Hard ceiling on files per frame. The real limit is time: <see cref="TConfigConverter.Job.Step"/>
+	/// stops once the frame's budget is spent, so this only stops a run of tiny files from spinning
+	/// the frame away. It used to be the only limit, and four files per frame was both too slow for
+	/// small ones and too much for big ones - the "it hiccups" report.
 	/// </summary>
-	private const int FilesPerFrame = 4;
+	private const int FilesPerFrame = 16;
 
 	/// <summary>Advances the running conversion, and finishes it when the last file is done.</summary>
 	private static void UpdateJob()

@@ -65,6 +65,17 @@ internal static class TConfigConverter
 		/// </summary>
 		public readonly List<Terraria.Mods.RawMod.IgnoredPart> Ignored = new List<Terraria.Mods.RawMod.IgnoredPart>();
 
+		/// <summary>Total time spent converting files, in milliseconds. For the log and the report.</summary>
+		public long ConvertMs;
+
+		/// <summary>
+		/// The single slowest file, in milliseconds, and its name. This is the number that answers
+		/// "why did it hiccup": a budgeted loop can only be as smooth as its worst file.
+		/// </summary>
+		public long SlowestFileMs;
+
+		public string SlowestFile = "";
+
 		/// <summary>
 		/// Things the player should look at: dropped fields, unknown names, and files that threw.
 		/// Kept apart from <see cref="Errors"/> by severity, not by source.
@@ -285,14 +296,25 @@ internal static class TConfigConverter
 			return true;
 		}
 
-		/// <summary>Converts up to <paramref name="maxFiles"/> files. Returns how many it did.</summary>
+		/// <summary>
+		/// Converts files until either <paramref name="maxFiles"/> is reached or the frame's time
+		/// budget is spent. Returns how many it did.
+		///
+		/// Time, not just a count: a pack is a pile of other people's files, and one of them can be
+		/// four hundred lines while the next is eight. A fixed "four files per frame" therefore
+		/// stalls on the big ones and wastes the frame on the small ones - which is what "it
+		/// hiccups" is. The count stays as a hard ceiling so a pathological run of tiny files
+		/// cannot spin the whole frame away either.
+		/// </summary>
 		internal int Step(int maxFiles)
 		{
 			int num = 0;
+			System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
 			while (_index < _files.Count && num < maxFiles)
 			{
 				string text = _files[_index];
 				CurrentFile = Path.GetFileNameWithoutExtension(text);
+				long num2 = stopwatch.ElapsedMilliseconds;
 				try
 				{
 					if (Raw)
@@ -312,13 +334,32 @@ internal static class TConfigConverter
 				}
 				_index++;
 				num++;
+				long num3 = stopwatch.ElapsedMilliseconds - num2;
+				if (num3 > Result.SlowestFileMs)
+				{
+					Result.SlowestFileMs = num3;
+					Result.SlowestFile = Path.GetFileName(text);
+				}
+				// The budget is checked after at least one file, so progress always happens: a file
+				// that alone exceeds the budget still moves the bar instead of freezing it.
+				if (stopwatch.ElapsedMilliseconds >= FrameBudgetMs)
+				{
+					break;
+				}
 			}
+			Result.ConvertMs += stopwatch.ElapsedMilliseconds;
 			if (Done)
 			{
 				CurrentFile = "";
 			}
 			return num;
 		}
+
+		/// <summary>
+		/// How long one frame may spend converting. 4 ms is a quarter of a 60 Hz frame, which leaves
+		/// the rest of the update and the draw room to run - the screen keeps moving at full rate.
+		/// </summary>
+		internal const int FrameBudgetMs = 4;
 
 		/// <summary>Writes the project. False with a reason when there is nothing to write.</summary>
 		internal bool Finish(out string error)
@@ -442,6 +483,16 @@ internal static class TConfigConverter
 					.Append(result.UnsupportedFields.ToString(CultureInfo.InvariantCulture)).Append(" dropped, ")
 					.Append(result.FailedFiles.ToString(CultureInfo.InvariantCulture)).Append(" failed file(s)\n");
 				stringBuilder.Append("output: ").Append(result.OutputDirectory ?? "(not written)").Append('\n');
+				// The timing answers "why did it stutter": the loop is budgeted per frame, so the
+				// only thing that can still stall one is a single slow file.
+				stringBuilder.Append("time: ").Append(result.ConvertMs.ToString(CultureInfo.InvariantCulture))
+					.Append(" ms total, slowest file ").Append(result.SlowestFileMs.ToString(CultureInfo.InvariantCulture))
+					.Append(" ms");
+				if (result.SlowestFile.Length > 0)
+				{
+					stringBuilder.Append(" ('").Append(result.SlowestFile).Append("')");
+				}
+				stringBuilder.Append('\n');
 			}
 			if (result.Errors.Count > 0)
 			{
@@ -527,7 +578,8 @@ internal static class TConfigConverter
 				// that the mod API has no property for (consumable is recorded as an error there),
 				// and emitting a property that does not exist would produce a project that cannot
 				// build.
-				if (!ItemOverrides.IsSupportedField(line.Key) || PropertyName(line.Key) == null)
+				if (!ItemOverrides.IsSupportedField(line.Key)
+					|| (PropertyName(line.Key) == null && !IsEscapedField(line.Key)))
 				{
 					result.UnsupportedFields++;
 					result.Warnings.Add("'" + text + "': field '" + line.Key + "' has no equivalent, dropped");
@@ -536,11 +588,12 @@ internal static class TConfigConverter
 				// A value that cannot become a C# literal is quoted by Literal() and would make the
 				// generated project fail to compile at that line. Catching it here is better: the
 				// project builds, and the player is told which field was nonsense.
-				if (!IsUsableValue(line.Key, line.Value))
+				string valueProblem = ValueProblem(line.Key, line.Value);
+				if (valueProblem != null)
 				{
 					result.UnsupportedFields++;
 					result.Warnings.Add("'" + text + "': field '" + line.Key + "' has the value '"
-						+ line.Value + "', which is not a number - dropped");
+						+ line.Value + "', which " + valueProblem + " - dropped");
 					continue;
 				}
 				list.Add(line);
@@ -562,6 +615,15 @@ internal static class TConfigConverter
 			body.Append("\t\t{\n");
 			foreach (KeyValuePair<string, string> item2 in list)
 			{
+				if (IsEscapedField(item2.Key))
+				{
+					// No property exists for this one; the escape hatch takes the raw value and the
+					// field table interprets it, so both output kinds keep the field.
+					body.Append("\t\t\t").Append(text2).Append(".Set(").Append(Quote(item2.Key.ToLowerInvariant()))
+						.Append(", ").Append(Quote(item2.Value)).Append(");\n");
+					result.Fields++;
+					continue;
+				}
 				body.Append("\t\t\t").Append(text2).Append('.').Append(PropertyName(item2.Key))
 					.Append(" = ").Append(Literal(item2.Key, item2.Value)).Append(";\n");
 				result.Fields++;
@@ -1019,11 +1081,22 @@ internal static class TConfigConverter
 				continue;
 			}
 			string text5 = PropertyName(keyValuePair.Key);
-			if (text5 == null || !IsUsableValue(keyValuePair.Key, keyValuePair.Value))
+			string valueProblem2 = ValueProblem(keyValuePair.Key, keyValuePair.Value);
+			if ((text5 == null && !IsEscapedField(keyValuePair.Key)) || valueProblem2 != null)
 			{
 				result.UnsupportedFields++;
 				result.Warnings.Add("'" + text + "': field '" + keyValuePair.Key + "' with value '"
-					+ keyValuePair.Value + "' has no equivalent - dropped");
+					+ keyValuePair.Value + "' " + (valueProblem2 ?? "has no equivalent") + " - dropped");
+				continue;
+			}
+			if (IsEscapedField(keyValuePair.Key))
+			{
+				body.Append("\t\t\t").Append(text4).Append(".Set(")
+					.Append(Quote(keyValuePair.Key.ToLowerInvariant())).Append(", ")
+					.Append(Quote(keyValuePair.Value)).Append(");\n");
+				fieldMap[keyValuePair.Key] = keyValuePair.Value;
+				num++;
+				result.Fields++;
 				continue;
 			}
 			body.Append("\t\t\t").Append(text4).Append('.').Append(text5)
@@ -1159,11 +1232,12 @@ internal static class TConfigConverter
 				result.Warnings.Add("'" + text + "': field '" + sectionLine.Key + "' has no equivalent, dropped");
 				continue;
 			}
-			if (!IsUsableValue(sectionLine.Key, sectionLine.Value))
+			string valueProblem3 = ValueProblem(sectionLine.Key, sectionLine.Value);
+			if (valueProblem3 != null)
 			{
 				result.UnsupportedFields++;
 				result.Warnings.Add("'" + text + "': field '" + sectionLine.Key + "' has the value '"
-					+ sectionLine.Value + "', which is not a number - dropped");
+					+ sectionLine.Value + "', which " + valueProblem3 + " - dropped");
 				continue;
 			}
 			stringBuilder.Append(sectionLine.Key).Append('=').Append(sectionLine.Value).Append('\n');
@@ -1385,25 +1459,104 @@ internal static class TConfigConverter
 	/// project they asked for is then unusable and the reason is buried in a compiler message.
 	/// So the bad field is dropped here and named in the report instead.
 	/// </summary>
-	private static bool IsUsableValue(string field, string value)
+	/// <summary>
+	/// Why a field's value cannot be used, or null when it can.
+	///
+	/// One function for both outputs, so the raw mod and the project cannot disagree about which
+	/// fields survive, and so the report names the real problem. "has the value 'True', which is
+	/// not a number" was the message for a *boolean* field, and "createTileName ... is not a
+	/// number" for a tile name - both true statements that pointed the player at the wrong thing.
+	/// </summary>
+	internal static string ValueProblem(string field, string value)
 	{
 		string text = (value ?? string.Empty).Trim();
 		if (text.Length == 0)
 		{
-			return false;
+			return "is empty";
+		}
+		string text2 = (field ?? string.Empty).Trim().ToLowerInvariant();
+		if (text2 == "createtilename")
+		{
+			return "needs mod tiles, which this build does not have";
+		}
+		if (text2 == "createwallname")
+		{
+			return "needs mod walls, which this build does not have";
+		}
+		if (text2 == "light" || text2 == "wetlight")
+		{
+			return "has no equivalent in this build (items do not glow here)";
+		}
+		if (text2 == "setname")
+		{
+			return "renames the item, which this build cannot do";
+		}
+		if (text2 == "projectile")
+		{
+			return "names a projectile, and this build has no projectile table to resolve it";
+		}
+		if (text2 == "useammoname" || text2 == "ammoname")
+		{
+			return "names an ammo type, and this build has no ammo table to resolve it";
+		}
+		if (text2 == "pretendtype")
+		{
+			return "makes the item behave as another type, which this build cannot do";
+		}
+		if (text2 == "headslot" || text2 == "bodyslot" || text2 == "legslot" || text2 == "hasarms")
+		{
+			return "needs a drawn armour sprite, which this build cannot load from a pack";
 		}
 		if (IsText(field))
 		{
 			// Any non-empty text is a valid tooltip.
-			return true;
+			return null;
 		}
 		if (IsBoolean(field))
 		{
 			bool result;
-			return bool.TryParse(text, out result);
+			return bool.TryParse(text, out result) ? null : "is not true or false";
+		}
+		if (IsColour(field))
+		{
+			int r;
+			int g;
+			int b;
+			int a;
+			return Terraria.Mods.ItemOverrides.TryParseColour(text, out r, out g, out b, out a)
+				? null : "is not R,G,B or R,G,B,A with 0..255 values";
 		}
 		double result2;
-		return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out result2);
+		return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out result2)
+			? null : "is not a number";
+	}
+
+	/// <summary>
+	/// True for a field whose value is a colour rather than a number: <c>color=180,100,45,80</c>.
+	/// </summary>
+	private static bool IsColour(string field)
+	{
+		return string.Equals((field ?? string.Empty).Trim(), "color", StringComparison.OrdinalIgnoreCase);
+	}
+
+	/// <summary>
+	/// True for a field the C# API has no property for, and which is applied through
+	/// <c>ItemOverride.Set(field, value)</c> instead. <c>color</c> is the only one: a tint is a
+	/// <c>Color</c>, and the generated project would have to build one - the escape hatch exists
+	/// for exactly this, and it keeps the two output kinds from drifting apart.
+	/// </summary>
+	internal static bool IsEscapedField(string field)
+	{
+		return IsColour(field);
+	}
+
+	/// <summary>
+	/// True when the field's value can be used. Kept for the call sites that only need the answer;
+	/// <see cref="ValueProblem"/> is what the report uses.
+	/// </summary>
+	private static bool IsUsableValue(string field, string value)
+	{
+		return ValueProblem(field, value) == null;
 	}
 
 	/// <summary>
@@ -1493,6 +1646,11 @@ internal static class TConfigConverter
 			return "Ammo";
 		case "useammo":
 			return "UseAmmo";
+		case "stack":
+			// tConfig's name for MaxStack. 119 items in the packs on this machine use it.
+			return "MaxStack";
+		case "nousegraphic":
+			return "NoUseGraphic";
 		default:
 			return null;
 		}
@@ -1535,9 +1693,24 @@ internal static class TConfigConverter
 		return text == "ShootSpeed" || text == "Knockback" || text == "Scale";
 	}
 
+	/// <summary>
+	/// True when the field takes true/false rather than a number.
+	///
+	/// The list has to match <c>ItemOverrides.ApplyField</c>: every case there that calls
+	/// <c>bool.TryParse</c> belongs here. <c>consumable</c> was missing, so the raw converter
+	/// dropped it with "is not a number" - a field this build does support, lost for a wrong
+	/// reason, on 90+ items in one pack.
+	/// </summary>
 	private static bool IsBoolean(string field)
 	{
 		string text = PropertyName(field);
+		if (text == null)
+		{
+			// Fields the raw form supports but ItemOverride has no property for: the value kind is
+			// still the one ApplyField expects, so the check has to know it.
+			string text2 = (field ?? string.Empty).Trim().ToLowerInvariant();
+			return text2 == "consumable" || text2 == "ismaterial" || text2 == "material";
+		}
 		return text == "AutoReuse" || text == "Melee" || text == "Magic" || text == "Ranged"
 			|| text == "Potion" || text == "Accessory" || text == "NoMelee" || text == "Material"
 			|| text == "CanUseTurn";

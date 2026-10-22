@@ -1164,6 +1164,10 @@ public sealed class Main : Game
 			// system default so the splash rating logos below are unaffected (they follow the
 			// region, not the language), and so the tables are filled either way.
 			Terraria.Language.ApplySaved();
+			// Warm the name→id table here, on the loading screen: it is built by calling
+			// Item.SetDefaults for every id, and paying for that on first use showed up as a
+			// one-frame freeze the first time the crafting tab was opened or a pack was converted.
+			Terraria.ItemLookup.Warm();
 			if (text != null)
 			{
 				SplashTextures[0] = Content.Load<Texture2D>(text);

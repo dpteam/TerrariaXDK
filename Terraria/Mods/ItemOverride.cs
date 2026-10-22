@@ -191,6 +191,15 @@ public sealed class ItemOverride
 		set { Set("noMelee", value); }
 	}
 
+	/// <summary>
+	/// The item fires a projectile and draws nothing itself. tConfig writes this as
+	/// <c>noUseGraphic</c>; the item field is <c>NoUseGraphic</c>.
+	/// </summary>
+	public bool NoUseGraphic
+	{
+		set { Set("noUseGraphic", value ? "true" : "false"); }
+	}
+
 	/// <summary>Critical strike chance in percent.</summary>
 	public int Crit
 	{

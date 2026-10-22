@@ -113,9 +113,9 @@ dotnet build TerrariaXDK.csproj -v q --nologo     # 0 ошибок
 ```
 
 **Число проверок зависит от конфигурации, и это нормально:** Debug-сборка содержит
-`debug kit`, `debug console` и `debug host console` (они под `#if DEBUG`), поэтому даёт 101
-проверку, Release — 98. `tools\build.ps1` по умолчанию собирает Release, то есть CI проверяет
-98; отладочный код проверяется только в Debug-конфигурации. Не «исправляйте» это, добавляя
+`debug kit`, `debug console` и `debug host console` (они под `#if DEBUG`), поэтому даёт 102
+проверки, Release — 99. `tools\build.ps1` по умолчанию собирает Release, то есть CI проверяет
+99; отладочный код проверяется только в Debug-конфигурации. Не «исправляйте» это, добавляя
 отладочные проверки в Release: их там быть не должно.
 
 Код возврата `--selftest` — через `Start-Process -PassThru`:

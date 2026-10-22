@@ -39,13 +39,16 @@ internal static class ItemOverrides
 	/// tConfig pack's <c>width</c> means the same thing whether it is changing a sword or defining
 	/// one, and two tables would drift apart.
 	/// </summary>
-	private static readonly string[] SupportedFields = new string[41]
+	private static readonly string[] SupportedFields = new string[44]
 	{
 		"damage", "defense", "pick", "axe", "hammer", "useAnimation", "useTime", "useSound", "shoot", "shootSpeed",
 		"knockBack", "mana", "healLife", "healMana", "buffType", "buffTime", "rare", "value", "maxStack", "autoReuse",
 		"melee", "magic", "ranged", "consumable", "potion", "accessory", "noMelee", "crit",
 		"width", "height", "useStyle", "holdStyle", "scale", "isMaterial", "material", "ammo", "useAmmo",
-		"useTurn", "toolTip", "toolTip2", "createTileName"
+		"useTurn", "toolTip", "toolTip2", "createTileName",
+		// tConfig spellings that mean the same as a field above: `stack` is MaxStack, `color` is
+		// the sprite tint, `noUseGraphic` is the item that only fires a projectile.
+		"stack", "color", "noUseGraphic"
 	};
 
 	public static bool IsSupportedField(string field)
@@ -355,6 +358,68 @@ internal static class ItemOverrides
 				item.UseAmmo = (byte)result;
 			}
 			break;
+		case "stack":
+			// tConfig writes `stack` where the item field is `maxStack`. Same meaning, different
+			// name, and 119 items in the packs on this machine lost their stack size to it.
+			if (int.TryParse(value, out result))
+			{
+				item.MaxStack = (short)result;
+			}
+			break;
+		case "color":
+			// `color=180,100,45,80` is R,G,B,A - the sprite tint, not a packed integer.
+			if (TryParseColour(value, out int num, out int num2, out int num3, out int num4))
+			{
+				item.Colour = new Microsoft.Xna.Framework.Color(num, num2, num3, num4);
+			}
+			break;
+		case "nousegraphic":
+			// The item fires a projectile and draws nothing itself.
+			if (bool.TryParse(value, out flag))
+			{
+				item.NoUseGraphic = flag;
+			}
+			break;
 		}
+	}
+
+	/// <summary>
+	/// Reads <c>R,G,B</c> or <c>R,G,B,A</c> with 0..255 components. Alpha defaults to opaque, which
+	/// is what a pack that writes three numbers means.
+	/// </summary>
+	internal static bool TryParseColour(string value, out int R, out int G, out int B, out int A)
+	{
+		R = 255;
+		G = 255;
+		B = 255;
+		A = 255;
+		if (string.IsNullOrEmpty(value))
+		{
+			return false;
+		}
+		string[] array = value.Split(',');
+		if (array.Length < 3 || array.Length > 4)
+		{
+			return false;
+		}
+		int[] array2 = new int[4] { 255, 255, 255, 255 };
+		for (int i = 0; i < array.Length; i++)
+		{
+			int result;
+			if (!int.TryParse(array[i].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out result))
+			{
+				return false;
+			}
+			if (result < 0 || result > 255)
+			{
+				return false;
+			}
+			array2[i] = result;
+		}
+		R = array2[0];
+		G = array2[1];
+		B = array2[2];
+		A = array2[3];
+		return true;
 	}
 }
