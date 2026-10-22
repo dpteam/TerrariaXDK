@@ -10421,6 +10421,15 @@ public sealed class UI
 			{
 				DrawInventoryCursor(num2, y, inventoryScale);
 				toolTip.Init();
+				// A buff type outside this build's table cannot be named or drawn. It reaches here
+				// from a save written with a mod, or from a pack whose buffType did not fit - and
+				// indexing BuffName[] or the sprite sheet with it crashed the equipment screen.
+				// The slot is drawn empty instead: the buff is unknown, which is the truth.
+				if (num3 <= 0 || num3 >= Terraria.Buff.MaxNumBuffs)
+				{
+					SpriteSheet<_sheetSprites>.DrawTL(442, num2, y, c2, inventoryScale);
+					continue;
+				}
 				extraInfo = ((!Buff.IsDebuff(num3)) ? "<f c='#C0FFC0'>" : "<f c='#FFC0C0'>");
 				if (num3 == 40)
 				{
@@ -10441,7 +10450,12 @@ public sealed class UI
 				{
 					num4 += ActivePlayer.pet;
 				}
-				DrawInventoryItem(num4, num2, y, Color.White);
+				// The icon is "sprite 141 + buff type", so an unknown buff type would index past
+				// the sheet. Same cause as the name lookup above; the slot simply stays empty.
+				if (num4 > 0 && num4 < SpriteSheet<_sheetSprites>.Source.Length)
+				{
+					DrawInventoryItem(num4, num2, y, Color.White);
+				}
 			}
 			num2 += num;
 		}

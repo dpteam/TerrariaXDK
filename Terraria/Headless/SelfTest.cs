@@ -134,6 +134,7 @@ internal static class SelfTest
 		RunCheck("tutorial hints", CheckTutorialHints);
 		RunCheck("crafting tables", CheckCraftingTables);
 		RunCheck("mod sheets", CheckModSheets);
+		RunCheck("item field widths", CheckItemFieldWidths);
 		RunCheck("raw mod", CheckRawMod);
 		RunCheck("mod download", CheckModDownload);
 #if DEBUG
@@ -14365,6 +14366,127 @@ internal static class SelfTest
 		catch (Exception ex)
 		{
 			return Fail("crafting tables check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	// --- Item fields hold numbers, not truncations --------------------------
+
+	/// <summary>
+	/// A pack value that does not fit the item field must be refused, not cast.
+	///
+	/// Every assignment used to be <c>(byte)result</c> or <c>(short)result</c>, and a narrowing
+	/// cast truncates silently: <c>(byte)20043</c> is 75, a different item. For an ammo type that
+	/// means the weapon consumes something else; for a buff type it means the equipment screen
+	/// indexes <c>Buff.BuffName[]</c> and the sprite table past their ends and crashes. Neither is
+	/// visible as "a bad number in a pack".
+	///
+	/// This is the same class as the crafting tables: a field sized for the vanilla build, handed
+	/// a mod value.
+	/// </summary>
+	private static bool CheckItemFieldWidths()
+	{
+		try
+		{
+			int bowId = Terraria.ItemLookup.Find("Copper Bow");
+			if (bowId <= 0)
+			{
+				return Fail("the test cannot find Copper Bow");
+			}
+			// --- a value too large for the field is refused, and the item is untouched ---
+			// The vanilla value first: comparing the overridden item with itself would pass
+			// whatever the code did.
+			Item bow = default(Item);
+			bow.SetDefaults(bowId);
+			int vanillaDamage = bow.Damage;
+			int vanillaAmmo = bow.UseAmmo;
+			byte vanillaBuff = bow.BuffType;
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "damage", "999999");
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.Damage != vanillaDamage)
+			{
+				return Fail("a damage value too large for a short was not refused: " + bow.Damage
+					+ " (vanilla " + vanillaDamage + ")");
+			}
+			// --- an ammo type whose id does not fit the one-byte field is refused ---
+			// A vanilla id above 255 is the real case: this build has 632 items, and the field
+			// holds one byte. (byte)500 is 244 - a different item - which is exactly the silent
+			// truncation that made this worth fixing.
+			Terraria.Mods.ItemOverrides.Clear();
+			string highName = Terraria.Lang.ItemName(500);
+			if (string.IsNullOrEmpty(highName))
+			{
+				return Fail("the test cannot name item 500");
+			}
+			int highId = Terraria.ItemLookup.Find(highName);
+			if (highId <= 255)
+			{
+				return Fail("item 500 resolved to " + highId + ", which fits in a byte - the test proves nothing");
+			}
+			Terraria.Mods.ItemOverrides.Set(bowId, "useAmmoName", highName);
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.UseAmmo == (byte)highId)
+			{
+				return Fail("an item id above 255 was truncated into the one-byte ammo field");
+			}
+			if (bow.UseAmmo != vanillaAmmo)
+			{
+				return Fail("a refused ammo name still changed the field: " + bow.UseAmmo);
+			}
+			// And the refusal is *reported*: a silent one leaves the player with a field that
+			// "just does not work". ItemOverrides.Errors used to be collected and never read.
+			bool saidWhy = false;
+			for (int i = 0; i < Terraria.Mods.ItemOverrides.LoadErrors.Count; i++)
+			{
+				if (Terraria.Mods.ItemOverrides.LoadErrors[i].IndexOf("one byte", StringComparison.Ordinal) >= 0)
+				{
+					saidWhy = true;
+				}
+			}
+			if (!saidWhy)
+			{
+				return Fail("an ammo type that does not fit the field was refused without a reason");
+			}
+			// --- a buff type past this build's table is refused ---
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "buffType", (Terraria.Buff.MaxNumBuffs + 5).ToString());
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.BuffType >= Terraria.Buff.MaxNumBuffs || bow.BuffType != vanillaBuff)
+			{
+				return Fail("a buff type past the buff table was accepted: " + bow.BuffType);
+			}
+			// --- and the ordinary values still work ---
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "damage", "17");
+			Terraria.Mods.ItemOverrides.Set(bowId, "buffType", "3");
+			Terraria.Mods.ItemOverrides.Set(bowId, "useAmmoName", "Wooden Arrow");
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.Damage != 17)
+			{
+				return Fail("a normal damage value was not applied");
+			}
+			if (bow.BuffType != 3)
+			{
+				return Fail("a normal buff type was not applied");
+			}
+			int arrow = Terraria.ItemLookup.Find("Wooden Arrow");
+			if (arrow <= 0 || bow.UseAmmo != arrow)
+			{
+				return Fail("a normal ammo name was not applied (got " + bow.UseAmmo + ")");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("item field width check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Mods.ItemOverrides.Clear();
 		}
 	}
 

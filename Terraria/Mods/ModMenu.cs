@@ -784,9 +784,13 @@ internal static class ModMenu
 			UI.DrawStringCC(UI.SmallFont, Texts.Get("ui.mods.hint.restart"), rectangle.Center.X, num7 + (int)((18 + num8) * num), new Color(255, 210, 120));
 			num8 += 18;
 		}
-		if (ModLoader.LoadErrors.Count > 0)
+		// Both kinds of error count: a mod that failed to load, and a field inside a loaded mod
+		// that could not be applied. They used to be two separate lists with only one of them
+		// shown, so "0 errors" could sit above a mod whose fields were all refused.
+		int errorCount = ModLoader.LoadErrors.Count + Terraria.Mods.ItemOverrides.LoadErrors.Count;
+		if (errorCount > 0)
 		{
-			UI.DrawStringCC(UI.SmallFont, Texts.Format("ui.mods.errors", ModLoader.LoadErrors.Count), rectangle.Center.X, num7 + (int)((18 + num8) * num), new Color(255, 120, 120));
+			UI.DrawStringCC(UI.SmallFont, Texts.Format("ui.mods.errors", errorCount), rectangle.Center.X, num7 + (int)((18 + num8) * num), new Color(255, 120, 120));
 		}
 		if (_pending != null)
 		{
