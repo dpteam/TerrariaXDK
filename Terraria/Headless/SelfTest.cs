@@ -13981,11 +13981,12 @@ internal static class SelfTest
 	// --- Tutorial hints -----------------------------------------------------
 
 	/// <summary>
-	/// The tutorial must not teach buttons a keyboard player does not have.
+	/// The tutorial must not teach buttons a keyboard player does not have - in any language.
 	///
-	/// The text comes from the console build and is full of button glyphs. The rewrite is a phrase
-	/// table (see <see cref="TutorialHints"/>), so the risk is a step nobody wrote a rule for -
-	/// which is exactly what this check finds, by walking every step instead of trusting the table.
+	/// The rewrite is keyed by step and glyph (see <see cref="TutorialHints"/>), so the risk is a
+	/// step nobody mapped. This walks every step of every shipped language and fails on any glyph
+	/// that survived, which is why a missing entry is a failing check rather than a button icon on
+	/// screen.
 	/// </summary>
 	private static bool CheckTutorialHints()
 	{
@@ -13994,53 +13995,68 @@ internal static class SelfTest
 		try
 		{
 			Terraria.Input.KeyboardMouseInput.Enabled = true;
-			Terraria.Lang.LangOption = 1;
-			if (Terraria.TutorialHints.RuleCount < 10)
+			if (Terraria.TutorialHints.RuleCount < 30)
 			{
-				return Fail("the tutorial hint table lost its rules");
+				return Fail("the tutorial hint table lost its steps");
 			}
 			int num = 0;
-			for (int i = 0; i < (int)Terraria.Tutorial.NUM_TUTORIALS; i++)
+			// Every language, because the same steps carry glyphs in all five and the table is
+			// shared: a step mapped for English is mapped for German too, and this proves it.
+			for (int lang = 1; lang <= 5; lang++)
 			{
-				string raw = Terraria.Lang.TutorialLocale((Terraria.Tutorial)i);
-				if (raw == null)
+				Terraria.Lang.LangOption = lang;
+				for (int i = 0; i < (int)Terraria.Tutorial.NUM_TUTORIALS; i++)
 				{
-					continue;
-				}
-				num++;
-				string desktop = Terraria.TutorialHints.Translate(raw);
-				if (Terraria.TutorialHints.HasGlyph(desktop))
-				{
-					return Fail("tutorial step " + (Terraria.Tutorial)i
-						+ " still shows a gamepad glyph: '" + desktop + "'");
-				}
-				if (Environment.GetEnvironmentVariable("TXDK_DUMP_TUTORIAL") != null)
-				{
-					Console.WriteLine("    " + (Terraria.Tutorial)i + ": " + desktop.Replace("\n", " "));
+					string raw = Terraria.Lang.TutorialLocale((Terraria.Tutorial)i);
+					if (raw == null)
+					{
+						continue;
+					}
+					num++;
+					string desktop = Terraria.TutorialHints.Translate(raw, i);
+					if (Terraria.TutorialHints.HasGlyph(desktop))
+					{
+						return Fail("tutorial step " + (Terraria.Tutorial)i + " in language " + lang
+							+ " still shows a gamepad glyph: '" + desktop + "'");
+					}
+					// A rewrite must not blank a step: an empty tutorial line is worse than a
+					// button icon, because the player has nothing to read at all.
+					if (desktop.Trim().Length == 0)
+					{
+						return Fail("tutorial step " + (Terraria.Tutorial)i + " in language " + lang
+							+ " became empty");
+					}
+					// Debug aid: TXDK_DUMP_TUTORIAL=2 prints the German steps, and so on.
+					if (Environment.GetEnvironmentVariable("TXDK_DUMP_TUTORIAL") == lang.ToString())
+					{
+						Console.WriteLine("    [" + lang + "] " + (Terraria.Tutorial)i + ": " + desktop.Replace("\n", " "));
+					}
 				}
 			}
-			if (num < 70)
+			if (num < 350)
 			{
-				return Fail("only " + num + " tutorial steps have text");
+				return Fail("only " + num + " tutorial steps have text across five languages");
 			}
 			// The commonest sentence must have become a key that actually does the job: the
 			// tutorial's "continue" listens for B, and the right button is B's desktop binding.
-			string cont = Terraria.TutorialHints.Translate("<c>Press \u008d to continue.");
+			Terraria.Lang.LangOption = 1;
+			string cont = Terraria.TutorialHints.Translate("<c>Press \u008d to continue.", (int)Terraria.Tutorial.INTRO_2);
 			if (cont.IndexOf("RMB", StringComparison.Ordinal) < 0)
 			{
 				return Fail("the 'continue' line was not rewritten: '" + cont + "'");
 			}
-			// The glyph table's other languages are untouched: no rules, no rewriting, no risk of
-			// a half-matched German sentence.
-			Terraria.Lang.LangOption = 2;
-			string german = Terraria.Lang.TutorialLocale(Terraria.Tutorial.INTRO_2);
-			if (german != null && Terraria.TutorialHints.Translate(german) != german)
+			// A sentence that talks about the button as a button is replaced wholesale, not by
+			// swapping one character: "press A or B until you switch to the Crafting section"
+			// cannot survive as "press RMB or RMB until...".
+			string crafting = Terraria.TutorialHints.Translate(
+				Terraria.Lang.TutorialLocale(Terraria.Tutorial.CRAFTING), (int)Terraria.Tutorial.CRAFTING);
+			if (crafting.IndexOf("tab", StringComparison.OrdinalIgnoreCase) < 0)
 			{
-				return Fail("a non-English tutorial string was rewritten");
+				return Fail("the crafting step does not point at the tab: '" + crafting + "'");
 			}
 			// With keyboard and mouse support off the console text is correct as it stands.
 			Terraria.Input.KeyboardMouseInput.Enabled = false;
-			if (Terraria.TutorialHints.Translate("<c>Press \u008d to continue.") != "<c>Press \u008d to continue.")
+			if (Terraria.TutorialHints.Translate("<c>Press \u008d to continue.", (int)Terraria.Tutorial.INTRO_2) != "<c>Press \u008d to continue.")
 			{
 				return Fail("the tutorial was rewritten with keyboard support off");
 			}
