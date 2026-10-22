@@ -62,6 +62,14 @@
 - [x] Настройка «Enable Cheats» в игре: пункт в меню настроек, применяется сразу и
       сохраняется в `Settings.ini`; при выключении сбрасывает активные читы.
 - [x] Плашка «CHEATS ACTIVE» в HUD и запрет отправки в лидерборды при читах.
+- [x] **Отладочная консоль на хосте (Debug only).** `CheatConsole.CanRunHere` =
+      `CheatState.IsAvailable || DebugHostConsole`, где второй — `NetMode == 2` под
+      `#if DEBUG`; сам `CheatState.IsAvailable` не тронут, поэтому Release не содержит ни
+      команд, ни флага (проверено поиском строк в Release-`exe`). Новые команды:
+      `!spawnnpc <id|имя> [count]` (через `Terraria/NpcLookup.cs`) и `!invasion <goblins|snow>`.
+      Читы-флаги (`god`/`noclip`/`infmana`/`infbuff`) на хосте отказывают с причиной, потому
+      что их эффект гейтится на одиночную игру. Покрыто тестами `npc names` и
+      `debug host console`; меню поверх команд — `IDEAS.md`, «Меню Debug вместо меню Cheats».
 - [x] Виртуальная клавиатура для геймпада (`Terraria/Input/VirtualKeyboard.cs`):
       открывается из чата по `A`, полная сетка символов + страница знаков.
 - [x] Меню модов в игре: список `Storage/Mods`, вкл/выкл через `disabled.txt`, `R` —

@@ -87,7 +87,16 @@ internal static class Texts
 		Add(dictionary, "chat.debugworld.help", "build a room of chests sorted by category next to you");
 		Add(dictionary, "chat.debugworld.done", "debug room built: chests are behind the crafting stations");
 		Add(dictionary, "chat.debugworld.failed", "could not build the debug room: {0}");
+		Add(dictionary, "chat.debugnpc.help", "spawn an NPC by id or name, e.g. !spawnnpc Green Slime 3");
+		Add(dictionary, "chat.debugnpc.usage", "Usage: !spawnnpc <id|name> [count]");
+		Add(dictionary, "chat.debugnpc.unknown", "no NPC called '{0}' in this build");
+		Add(dictionary, "chat.debugnpc.spawned", "spawned {0}x {1}");
+		Add(dictionary, "chat.debuginvasion.help", "start an invasion: goblins or snow");
+		Add(dictionary, "chat.debuginvasion.usage", "Usage: !invasion <goblins|snow>");
+		Add(dictionary, "chat.debuginvasion.started", "invasion {0} started");
 #endif
+		Add(dictionary, "chat.cheats.host.local.only",
+			"!{0} only works in single player: its effect is gated there. World commands (spawn, time, invasions) do work while hosting.");
 		Add(dictionary, "chat.host.not.hosting", "Commands only work while hosting a multiplayer world.");
 		Add(dictionary, "chat.host.forbidden", "{0} may not use {1}.");
 		Add(dictionary, "chat.host.you", "You");

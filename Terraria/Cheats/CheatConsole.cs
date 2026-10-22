@@ -20,12 +20,24 @@ internal static class CheatConsole
 		public readonly string Help;
 		public readonly Action<string[]> Run;
 
-		public Command(string name, string args, string help, Action<string[]> run)
+		/// <summary>
+		/// True when the command only means anything in single player.
+		///
+		/// A debug build may run the console while hosting (see <see cref="DebugHostConsole"/>), and
+		/// the world commands - spawn, time, invasions - do something there. The player-flag ones do
+		/// not: <c>CheatState.GodModeActive</c> and friends are gated on single player, so setting
+		/// the flag online would answer "on" and change nothing. Saying so is better than a switch
+		/// that silently does nothing.
+		/// </summary>
+		public readonly bool SinglePlayerOnly;
+
+		public Command(string name, string args, string help, Action<string[]> run, bool singlePlayerOnly = false)
 		{
 			Name = name;
 			Args = args;
 			Help = help;
 			Run = run;
+			SinglePlayerOnly = singlePlayerOnly;
 		}
 	}
 
@@ -35,10 +47,10 @@ internal static class CheatConsole
 	{
 		return new List<Command>
 		{
-			new Command("god", "[on|off]", "chat.cheats.help.god", delegate(string[] a) { CheatState.GodMode = Toggle(a, CheatState.GodMode); Echo(Texts.Get("chat.cheats.god"), CheatState.GodMode); }),
-			new Command("noclip", "[on|off]", "chat.cheats.help.noclip", delegate(string[] a) { CheatState.NoClip = Toggle(a, CheatState.NoClip); Echo(Texts.Get("chat.cheats.noclip"), CheatState.NoClip); }),
-			new Command("infmana", "[on|off]", "chat.cheats.help.mana", delegate(string[] a) { CheatState.InfiniteMana = Toggle(a, CheatState.InfiniteMana); Echo(Texts.Get("chat.cheats.mana"), CheatState.InfiniteMana); }),
-			new Command("infbuff", "[on|off]", "chat.cheats.help.buffs", delegate(string[] a) { CheatState.InfiniteBuffs = Toggle(a, CheatState.InfiniteBuffs); Echo(Texts.Get("chat.cheats.buffs"), CheatState.InfiniteBuffs); }),
+			new Command("god", "[on|off]", "chat.cheats.help.god", delegate(string[] a) { CheatState.GodMode = Toggle(a, CheatState.GodMode); Echo(Texts.Get("chat.cheats.god"), CheatState.GodMode); }, singlePlayerOnly: true),
+			new Command("noclip", "[on|off]", "chat.cheats.help.noclip", delegate(string[] a) { CheatState.NoClip = Toggle(a, CheatState.NoClip); Echo(Texts.Get("chat.cheats.noclip"), CheatState.NoClip); }, singlePlayerOnly: true),
+			new Command("infmana", "[on|off]", "chat.cheats.help.mana", delegate(string[] a) { CheatState.InfiniteMana = Toggle(a, CheatState.InfiniteMana); Echo(Texts.Get("chat.cheats.mana"), CheatState.InfiniteMana); }, singlePlayerOnly: true),
+			new Command("infbuff", "[on|off]", "chat.cheats.help.buffs", delegate(string[] a) { CheatState.InfiniteBuffs = Toggle(a, CheatState.InfiniteBuffs); Echo(Texts.Get("chat.cheats.buffs"), CheatState.InfiniteBuffs); }, singlePlayerOnly: true),
 			new Command("heal", "", "chat.cheats.help.heal", delegate(string[] a)
 			{
 				Player player = UI.MainUI.ActivePlayer;
@@ -129,9 +141,121 @@ internal static class CheatConsole
 					return;
 				}
 				Echo(Texts.Get("chat.debugworld.done"), value: true);
+			}),
+			// Spawning by name: the ids are what the wiki and the debug world use, and nobody
+			// remembers that the Eye of Cthulhu is 4. Accepts either, so an existing habit and a
+			// readable name both work.
+			new Command("spawnnpc", "<id|name> [count]", "chat.debugnpc.help", delegate(string[] a)
+			{
+				if (a.Length == 0)
+				{
+					Main.NewText(Texts.Get("chat.debugnpc.usage"), 255, 200, 120);
+					return;
+				}
+				// A name with spaces is the normal case ("Green Slime"), so everything up to the
+				// last argument is the name and the last one may be a count.
+				int count = 1;
+				int nameEnd = a.Length;
+				if (a.Length > 1 && int.TryParse(a[a.Length - 1], out count))
+				{
+					nameEnd = a.Length - 1;
+				}
+				if (count < 1)
+				{
+					count = 1;
+				}
+				if (count > 20)
+				{
+					count = 20;
+				}
+				string text = string.Join(" ", a, 0, nameEnd);
+				int type = NpcLookup.Find(text);
+				if (type <= 0)
+				{
+					Main.NewText(Texts.Format("chat.debugnpc.unknown", text), 255, 120, 120);
+					return;
+				}
+				Player player = UI.MainUI.ActivePlayer;
+				for (int i = 0; i < count; i++)
+				{
+					NPC.SpawnOnPlayer(player, type);
+				}
+				Echo(Texts.Format("chat.debugnpc.spawned", count, Lang.NpcName(type)), value: true);
+			}),
+			// Invasions by name. This build has two (the pirates arrived in 1.2, which is not this
+			// game), so the list is short and says so instead of pretending.
+			new Command("invasion", "<goblins|snow>", "chat.debuginvasion.help", delegate(string[] a)
+			{
+				string text = (a.Length == 0) ? "" : a[0].ToLowerInvariant();
+				int num;
+				if (text == "goblins" || text == "goblin" || text == "1")
+				{
+					num = 1;
+				}
+				else if (text == "snow" || text == "frost" || text == "2")
+				{
+					num = 2;
+				}
+				else
+				{
+					Main.NewText(Texts.Get("chat.debuginvasion.usage"), 255, 200, 120);
+					return;
+				}
+				Main.StartInvasion(num);
+				Echo(Texts.Format("chat.debuginvasion.started", num), value: true);
 			})
 #endif
 		};
+	}
+
+	/// <summary>
+	/// Debug builds only: the console also runs while this machine is hosting.
+	///
+	/// The reason it exists at all is the bug report "reproduce it on the server": cheats are
+	/// forbidden online on purpose, but *debugging* a world someone else is standing in is exactly
+	/// when you need to spawn an NPC or start an invasion. A release build has neither the commands
+	/// nor this flag - the preprocessor removes both, so "debug mode, switched off" can never be
+	/// turned back on by editing a file.
+	/// </summary>
+	private static bool DebugHostConsole
+	{
+		get
+		{
+#if DEBUG
+			return Main.NetMode == 2;
+#else
+			return false;
+#endif
+		}
+	}
+
+	/// <summary>
+	/// Whether the console may run on this machine at all.
+	///
+	/// The single gate for both the single-player cheats and the Debug-build host console, so a
+	/// new caller cannot half-open one of them.
+	/// </summary>
+	internal static bool CanRunHere => CheatState.IsAvailable || DebugHostConsole;
+
+	/// <summary>
+	/// True when a command is one whose effect is gated on single player. Exposed so the self-test
+	/// can check the classification without running the command (running it would touch the UI).
+	/// </summary>
+	internal static bool IsSinglePlayerOnly(string name)
+	{
+		if (string.IsNullOrEmpty(name))
+		{
+			return false;
+		}
+		string text = name.TrimStart('!', '/').ToLowerInvariant();
+		for (int i = 0; i < Commands.Count; i++)
+		{
+			if (Commands[i].Name == text)
+			{
+				return Commands[i].SinglePlayerOnly;
+			}
+		}
+		return false;
 	}
 
 	/// <summary>True when the text should be treated as a cheat command.</summary>
@@ -161,7 +285,8 @@ internal static class CheatConsole
 	public static bool TryExecute(string text, out string error)
 	{
 		error = null;
-		if (!CheatState.IsAvailable)
+		bool flag = DebugHostConsole;
+		if (!CanRunHere)
 		{
 			// Reported as "handled": this is a local command, so it must never be broadcast
 			// as chat, and the player has to see why nothing happened.
@@ -181,19 +306,28 @@ internal static class CheatConsole
 		Array.Copy(array, 1, array2, 0, array2.Length);
 		for (int i = 0; i < Commands.Count; i++)
 		{
-			if (Commands[i].Name == text2)
+			if (Commands[i].Name != text2)
 			{
-				try
-				{
-					Commands[i].Run(array2);
-				}
-				catch (Exception ex)
-				{
-					error = Texts.Format("chat.cheats.failed", ex.Message);
-					Main.NewText(error, 255, 120, 120);
-				}
+				continue;
+			}
+			if (flag && Commands[i].SinglePlayerOnly)
+			{
+				// The flag would be set and nothing would happen, because the effects are gated on
+				// single player. Saying that is the difference between "broken" and "by design".
+				error = Texts.Format("chat.cheats.host.local.only", text2);
+				Main.NewText(error, 255, 200, 120);
 				return true;
 			}
+			try
+			{
+				Commands[i].Run(array2);
+			}
+			catch (Exception ex)
+			{
+				error = Texts.Format("chat.cheats.failed", ex.Message);
+				Main.NewText(error, 255, 120, 120);
+			}
+			return true;
 		}
 		error = Texts.Format("chat.cheats.unknown", text2);
 		Main.NewText(error, 255, 120, 120);

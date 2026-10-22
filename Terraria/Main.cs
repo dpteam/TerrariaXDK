@@ -2626,7 +2626,10 @@ public sealed class Main : Game
 		}
 		ChatLineSet[0].Color = new Color(R, G, B);
 		ChatLineSet[0].Text = Text;
-		ChatLineSet[0].Size = UI.BoldSmallFont.MeasureString(Text);
+		// The font is null until content has loaded, and this is reachable before that: a network
+		// event or a mod message that arrives during startup used to crash the whole game from a
+		// line meant to print a warning. The line is still recorded; only its width is unknown.
+		ChatLineSet[0].Size = (UI.BoldSmallFont == null) ? Vector2.Zero : UI.BoldSmallFont.MeasureString(Text);
 		ChatLineSet[0].ShowTime = 600;
 		PlaySound(12);
 	}

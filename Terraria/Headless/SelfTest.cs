@@ -130,11 +130,13 @@ internal static class SelfTest
 		RunCheck("achievement stats", CheckAchievementStats);
 		RunCheck("every text key used", CheckTextKeysUsed);
 		RunCheck("cheat menu layout", CheckCheatMenuLayout);
+		RunCheck("npc names", CheckNpcNames);
 		RunCheck("raw mod", CheckRawMod);
 		RunCheck("mod download", CheckModDownload);
 #if DEBUG
 		RunCheck("debug kit", CheckDebugKit);
 		RunCheck("debug console", CheckDebugConsole);
+		RunCheck("debug host console", CheckDebugHostConsole);
 #endif
 		RunCheck("hud settings", CheckHudSettings);
 		RunCheck("direct connect", CheckDirectConnect);
@@ -13790,6 +13792,164 @@ internal static class SelfTest
 			return result;
 		}
 	}
+
+	// --- NPC names ----------------------------------------------------------
+
+	/// <summary>
+	/// "Spawn the Eye of Cthulhu" should not require knowing that it is 4.
+	///
+	/// There is no name→id table for NPCs in this build - only <see cref="Lang.NpcName"/>, which is
+	/// a switch over ids, so the reverse has to be built. The check is that it round-trips: every
+	/// name it knows must resolve to an id whose name is that name, or a command would spawn
+	/// something other than what the player typed.
+	/// </summary>
+	private static bool CheckNpcNames()
+	{
+		try
+		{
+			Terraria.NpcLookup.Clear();
+			if (Terraria.NpcLookup.Count < 50)
+			{
+				return Fail("the NPC name table holds only " + Terraria.NpcLookup.Count + " names");
+			}
+			int slime = Terraria.NpcLookup.Find("Blue Slime");
+			if (slime <= 0)
+			{
+				return Fail("'Blue Slime' did not resolve");
+			}
+			if (Terraria.Lang.NpcName(slime) != "Blue Slime")
+			{
+				return Fail("'Blue Slime' resolved to id " + slime + ", which is '"
+					+ Terraria.Lang.NpcName(slime) + "'");
+			}
+			// A name that exists only as a legacy negative id is refused rather than resolved:
+			// those ids are not spawnable, so accepting one would produce a command that does
+			// nothing. "Green Slime" is exactly that case in this build.
+			if (Terraria.NpcLookup.Find("Green Slime") != 0)
+			{
+				return Fail("a legacy-only NPC name resolved to an id that cannot be spawned");
+			}
+			// A number is an id: the existing !spawn command takes one, and so do the wiki and the
+			// debug world, so refusing numbers would break a working habit.
+			if (Terraria.NpcLookup.Find("4") != 4)
+			{
+				return Fail("a numeric NPC id was not accepted");
+			}
+			if (Terraria.NpcLookup.Find("999") != 0)
+			{
+				return Fail("an out-of-range numeric id was accepted");
+			}
+			if (Terraria.NpcLookup.Find("Definitely Not An NPC") != 0)
+			{
+				return Fail("an unknown NPC name resolved to something");
+			}
+			if (Terraria.NpcLookup.Find("") != 0 || Terraria.NpcLookup.Find(null) != 0)
+			{
+				return Fail("an empty NPC name resolved to something");
+			}
+			// Round-trip every name, so a duplicate or a typo in the table is caught here rather
+			// than by a player who typed a name the game itself shows.
+			System.Collections.Generic.List<string> names = Terraria.NpcLookup.Names();
+			for (int i = 0; i < names.Count; i++)
+			{
+				int num = Terraria.NpcLookup.Find(names[i]);
+				if (num <= 0 || Terraria.Lang.NpcName(num) != names[i])
+				{
+					return Fail("'" + names[i] + "' round-tripped to id " + num + " ('"
+						+ Terraria.Lang.NpcName(num) + "')");
+				}
+			}
+			// Case does not matter: nobody types "blue slime" with a capital B.
+			if (Terraria.NpcLookup.Find("blue slime") != slime)
+			{
+				return Fail("the NPC name lookup became case-sensitive");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("npc name check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+#if DEBUG
+	// --- Debug console while hosting ----------------------------------------
+
+	/// <summary>
+	/// A Debug build may run the console while hosting, because "reproduce it on the server" is
+	/// exactly when a developer needs to spawn something. Release must not: the flag that allows it
+	/// does not exist there.
+	///
+	/// The second half is the part that is easy to get wrong: the player-flag commands must refuse
+	/// rather than answer "on" and change nothing, because their effects are gated on single player.
+	/// </summary>
+	private static bool CheckDebugHostConsole()
+	{
+		int savedNetMode = Terraria.Main.NetMode;
+		bool savedGod = Terraria.Cheats.CheatState.GodMode;
+		try
+		{
+			Terraria.Cheats.CheatState.GodMode = false;
+			// --- the gate itself ----------------------------------------------
+			// Single player: cheats work. Hosting in a Debug build: the console works, but the
+			// player-flag cheats are classified as single-player-only. A client: nothing.
+			Terraria.Main.NetMode = 0;
+			if (!Terraria.Cheats.CheatConsole.CanRunHere)
+			{
+				return Fail("the console refused to run in single player");
+			}
+			Terraria.Main.NetMode = 2;
+			if (Terraria.Cheats.CheatState.IsAvailable)
+			{
+				return Fail("cheats became available while hosting - the gate must not have moved");
+			}
+			if (!Terraria.Cheats.CheatConsole.CanRunHere)
+			{
+				return Fail("a Debug host could not run the console");
+			}
+			Terraria.Main.NetMode = 1;
+			if (Terraria.Cheats.CheatConsole.CanRunHere)
+			{
+				return Fail("a joined client could run the console");
+			}
+			// --- the classification -------------------------------------------
+			// The four player-flag toggles are the ones whose effect is gated on single player, so
+			// a host must be told rather than answered "on" while nothing happens.
+			string[] local = new string[4] { "god", "noclip", "infmana", "infbuff" };
+			for (int i = 0; i < local.Length; i++)
+			{
+				if (!Terraria.Cheats.CheatConsole.IsSinglePlayerOnly(local[i]))
+				{
+					return Fail("'" + local[i] + "' is not classified as single-player only");
+				}
+				if (!Terraria.Cheats.CheatConsole.IsSinglePlayerOnly("!" + local[i]))
+				{
+					return Fail("'" + local[i] + "' was not recognised with its '!' prefix");
+				}
+			}
+			// The world commands are the ones that do work while hosting, so they must not be
+			// classified as local - that would refuse the useful half.
+			string[] world = new string[3] { "time", "killall", "meteor" };
+			for (int j = 0; j < world.Length; j++)
+			{
+				if (Terraria.Cheats.CheatConsole.IsSinglePlayerOnly(world[j]))
+				{
+					return Fail("'" + world[j] + "' was classified as single-player only");
+				}
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("debug host console check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Main.NetMode = savedNetMode;
+			Terraria.Cheats.CheatState.GodMode = savedGod;
+		}
+	}
+#endif
 
 	// --- Cheat menu ---------------------------------------------------------
 
