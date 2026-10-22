@@ -14060,6 +14060,23 @@ internal static class SelfTest
 			{
 				return Fail("the tutorial was rewritten with keyboard support off");
 			}
+			Terraria.Input.KeyboardMouseInput.Enabled = true;
+			// The tutorial's "switch between the categories" step must be satisfiable by a mouse
+			// click on a tab, and must not be satisfiable by a key that changes nothing. What the
+			// step watches is this rule, so this is what has to be right.
+			if (Terraria.UI.IsCategorySwitch((int)Terraria.Recipe.Category.STRUCTURES, (int)Terraria.Recipe.Category.STRUCTURES))
+			{
+				return Fail("re-selecting the active category counts as a switch");
+			}
+			if (!Terraria.UI.IsCategorySwitch((int)Terraria.Recipe.Category.STRUCTURES, (int)Terraria.Recipe.Category.WEAPONS))
+			{
+				return Fail("changing the category does not count as a switch");
+			}
+			if (Terraria.UI.IsCategorySwitch((int)Terraria.Recipe.Category.STRUCTURES, 9)
+				|| Terraria.UI.IsCategorySwitch((int)Terraria.Recipe.Category.STRUCTURES, -1))
+			{
+				return Fail("an invalid category counts as a switch");
+			}
 			return true;
 		}
 		catch (Exception ex)

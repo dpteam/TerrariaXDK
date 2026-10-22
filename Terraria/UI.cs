@@ -714,8 +714,18 @@ public sealed class UI
 
 	public sbyte CraftingRecipeY;
 
-	private sbyte craftingIngredientX;
+	/// <summary>
+	/// How many times the crafting category actually changed.
+	///
+	/// The tutorial has a step that says "switch between the categories", and it used to watch for
+	/// a shoulder-button press. That is not the same event: with a mouse the tabs are clicked, and
+	/// the left trigger's desktop binding is the grapple key - so pressing it advanced the step
+	/// while the category stayed put. Counting the change itself works for every device and cannot
+	/// be satisfied without doing the thing.
+	/// </summary>
+	public int TotalCategorySwitches;
 
+	private sbyte craftingIngredientX;
 	private sbyte craftingIngredientY;
 
 	private float craftingRecipeScrollX;
@@ -12601,11 +12611,33 @@ public sealed class UI
 	/// buttons and the mouse, so a click and a button press cannot leave the panel in different
 	/// states (the recipe list is rebuilt from these three fields only).
 	/// </summary>
+	/// <summary>
+	/// Whether moving from one crafting category to another counts as a switch.
+	///
+	/// Pure, because the answer is the whole rule the tutorial depends on: out of range is refused,
+	/// and re-selecting the active category is not switching. Kept out of
+	/// <see cref="SelectCraftingCategory"/> so a test can exercise it without a live screen.
+	/// </summary>
+	internal static bool IsCategorySwitch(int current, int next)
+	{
+		return next >= 0 && next <= 5 && next != current;
+	}
+
 	private void SelectCraftingCategory(int Category)
 	{
-		if (Category < 0 || Category > 5)
+		if (!IsCategorySwitch((int)craftingCategory, Category))
 		{
-			return;
+			// Either out of range (refused) or already active (not a switch). The counter is what
+			// the tutorial's "switch between the categories" step watches, so counting a no-op
+			// would let that step pass without doing anything - which is the bug it replaces.
+			if (Category < 0 || Category > 5)
+			{
+				return;
+			}
+		}
+		else
+		{
+			TotalCategorySwitches++;
 		}
 		Recipe.FindRecipes(this, (Recipe.Category)Category, craftingShowCraftable);
 		craftingCategory = (Recipe.Category)Category;

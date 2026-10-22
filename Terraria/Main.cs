@@ -3076,11 +3076,10 @@ public sealed class Main : Game
 			}
 			break;
 		case Tutorial.CRAFT_CATEGORIES:
-			if (UI.MainUI.IsButtonTriggered(Buttons.LeftTrigger) || UI.MainUI.IsButtonTriggered(Buttons.RightTrigger))
-			{
-				TutorialVar++;
-			}
-			if (TutorialVar != 0 && TutorialInputDelay == 0)
+			// State, not a key press: the step is "switch between the categories", so it has to
+			// count the switch. Watching the shoulder buttons meant a grapple key press (the left
+			// trigger's desktop binding) finished the step without changing anything.
+			if (TutorialInputDelay == 0 && UI.MainUI.TotalCategorySwitches > TutorialVar)
 			{
 				NextTutorial();
 			}
@@ -3435,7 +3434,7 @@ public sealed class Main : Game
 			TutorialVar = UI.MainUI.TotalTorchesCrafted;
 			break;
 		case Tutorial.CRAFT_CATEGORIES:
-			TutorialVar = 0u;
+			TutorialVar = (uint)UI.MainUI.TotalCategorySwitches;
 			break;
 		case Tutorial.CRAFTING_EXIT:
 			TutorialMaskB = false;
