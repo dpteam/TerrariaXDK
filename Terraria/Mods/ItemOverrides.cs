@@ -54,13 +54,12 @@ internal static class ItemOverrides
 	private static readonly HashSet<string> Reported = new HashSet<string>(StringComparer.Ordinal);
 
 	/// <summary>
-	/// True when the named field can be applied. Kept explicit on purpose: silently ignoring
-	/// unknown fields is how broken conversions go unnoticed.
-	/// </summary>
-	/// <summary>
 	/// Fields that can be applied to an item. One table for both overrides and new items: a
 	/// tConfig pack's <c>width</c> means the same thing whether it is changing a sword or defining
 	/// one, and two tables would drift apart.
+	///
+	/// Kept explicit on purpose: silently ignoring unknown fields is how broken conversions go
+	/// unnoticed.
 	/// </summary>
 	private static readonly string[] SupportedFields = new string[46]
 	{
@@ -85,6 +84,19 @@ internal static class ItemOverrides
 			}
 		}
 		return false;
+	}
+
+	/// <summary>
+	/// The field names, for the test that walks all of them with hostile values.
+	///
+	/// Read-only so the test cannot edit the table it is checking.
+	/// </summary>
+	internal static IList<string> FieldNames
+	{
+		get
+		{
+			return Array.AsReadOnly(SupportedFields);
+		}
 	}
 
 	/// <summary>Registers an override for an existing item type.</summary>
@@ -141,13 +153,38 @@ internal static class ItemOverrides
 	///
 	/// <paramref name="note"/> is for the fields where the reason deserves a sentence: an item id
 	/// cannot live in a byte, so a mod item can never be an ammo type in this build.
+	///
+	/// <paramref name="min"/> is for the fields whose range starts above zero. <c>maxStack = 0</c>
+	/// is the one that matters: it is inside the <c>short</c> range, so a width check alone would
+	/// accept it, and an item whose <c>MaxStack</c> is zero is deleted the moment it is picked up.
 	/// </summary>
-	private static int Fit(int itemType, string field, int value, int current, int max = 255, string note = null)
+	private static int Fit(int itemType, string field, int value, int current, int max = 255, string note = null, int min = 0)
 	{
-		if (value < 0 || value > max)
+		if (value < min || value > max)
 		{
-			RecordError("item " + itemType + ": '" + field + "' is " + value + ", outside 0.." + max
+			RecordError("item " + itemType + ": '" + field + "' is " + value + ", outside " + min + ".." + max
 				+ (note ?? "") + " - left as it was");
+			return current;
+		}
+		return value;
+	}
+
+	/// <summary>
+	/// The float counterpart of <see cref="Fit"/>: refuses NaN, infinity and absurd magnitudes.
+	///
+	/// A float has no width to overflow, so the failure looks different - and is worse. <c>1e999</c>
+	/// parses as infinity and <c>NaN</c> parses as NaN, and both travel into a sprite's scale and
+	/// into rectangles. NaN in a rectangle is not "a big number": it is a draw call that either
+	/// throws or draws nothing, and it reads as a rendering bug in the game rather than a bad line
+	/// in a pack.
+	/// </summary>
+	private static float FitFloat(int itemType, string field, float value, float current, float max)
+	{
+		if (float.IsNaN(value) || float.IsInfinity(value) || value < -max || value > max)
+		{
+			RecordError("item " + itemType + ": '" + field + "' is " + value.ToString(CultureInfo.InvariantCulture)
+				+ ", outside -" + max.ToString(CultureInfo.InvariantCulture) + ".."
+				+ max.ToString(CultureInfo.InvariantCulture) + " - left as it was");
 			return current;
 		}
 		return value;
@@ -217,13 +254,13 @@ internal static class ItemOverrides
 		case "shootspeed":
 			if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result2))
 			{
-				item.ShootSpeed = result2;
+				item.ShootSpeed = FitFloat(item.Type, field, result2, item.ShootSpeed, 1000f);
 			}
 			break;
 		case "knockback":
 			if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result2))
 			{
-				item.Knockback = result2;
+				item.Knockback = FitFloat(item.Type, field, result2, item.Knockback, 1000f);
 			}
 			break;
 		case "mana":
@@ -275,7 +312,7 @@ internal static class ItemOverrides
 		case "maxstack":
 			if (int.TryParse(value, out result))
 			{
-				item.MaxStack = (short)Fit(item.Type, field, result, item.MaxStack, 32767);
+				item.MaxStack = (short)Fit(item.Type, field, result, item.MaxStack, 32767, null, 1);
 			}
 			break;
 		case "autoreuse":
@@ -383,7 +420,7 @@ internal static class ItemOverrides
 		case "scale":
 			if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result2))
 			{
-				item.Scale = result2;
+				item.Scale = FitFloat(item.Type, field, result2, item.Scale, 1000f);
 			}
 			break;
 		case "ismaterial":
@@ -416,7 +453,7 @@ internal static class ItemOverrides
 			// name, and 119 items in the packs on this machine lost their stack size to it.
 			if (int.TryParse(value, out result))
 			{
-				item.MaxStack = (short)Fit(item.Type, field, result, item.MaxStack, 32767);
+				item.MaxStack = (short)Fit(item.Type, field, result, item.MaxStack, 32767, null, 1);
 			}
 			break;
 		case "color":

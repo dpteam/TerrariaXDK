@@ -135,6 +135,7 @@ internal static class SelfTest
 		RunCheck("crafting tables", CheckCraftingTables);
 		RunCheck("mod sheets", CheckModSheets);
 		RunCheck("item field widths", CheckItemFieldWidths);
+		RunCheck("item fields hostile", CheckItemFieldsHostile);
 		RunCheck("raw mod", CheckRawMod);
 		RunCheck("mod download", CheckModDownload);
 #if DEBUG
@@ -14458,6 +14459,15 @@ internal static class SelfTest
 			{
 				return Fail("a buff type past the buff table was accepted: " + bow.BuffType);
 			}
+			// --- maxStack 0 is inside the short range but makes an item that cannot be held ---
+			Terraria.Mods.ItemOverrides.Clear();
+			Terraria.Mods.ItemOverrides.Set(bowId, "maxStack", "0");
+			bow = default(Item);
+			bow.SetDefaults(bowId);
+			if (bow.MaxStack < 1)
+			{
+				return Fail("a maxStack of 0 was accepted, which deletes the item when it is picked up");
+			}
 			// --- and the ordinary values still work ---
 			Terraria.Mods.ItemOverrides.Clear();
 			Terraria.Mods.ItemOverrides.Set(bowId, "damage", "17");
@@ -14488,6 +14498,104 @@ internal static class SelfTest
 		{
 			Terraria.Mods.ItemOverrides.Clear();
 		}
+	}
+
+	// --- Every supported field survives a hostile value --------------------
+
+	/// <summary>
+	/// A pack can say anything, and the field table is the only thing between that and the game.
+	///
+	/// This walks every field with the values a broken pack actually contains - empty, negative,
+	/// absurdly large, not a number, a boolean where a number belongs, four thousand characters of
+	/// tooltip - and requires that creating the item neither throws nor leaves it undescribable.
+	/// The point is not that each field is applied; it is that no field can be the reason the game
+	/// dies.
+	///
+	/// This is the check that would have caught <c>(byte)20043</c> and the <c>buffType</c> index
+	/// before a player did.
+	/// </summary>
+	private static bool CheckItemFieldsHostile()
+	{
+		try
+		{
+			int bowId = Terraria.ItemLookup.Find("Copper Bow");
+			if (bowId <= 0)
+			{
+				return Fail("the test cannot find Copper Bow");
+			}
+			string longText = new string('x', 4000);
+			string[] hostile = new string[17]
+			{
+				"", "abc", "-1", "0", "1", "255", "256", "32767", "32768",
+				"65535", "65536", "2147483647", "-2147483648", "1e999", "NaN", "true", longText
+			};
+			IList<string> fields = Terraria.Mods.ItemOverrides.FieldNames;
+			if (fields.Count < 40)
+			{
+				return Fail("the field table is unexpectedly small: " + fields.Count);
+			}
+			Terraria.Mods.ItemOverrides.Clear();
+			int tried = 0;
+			for (int i = 0; i < fields.Count; i++)
+			{
+				for (int j = 0; j < hostile.Length; j++)
+				{
+					// Overrides accumulate on purpose: by the last field the item carries every bad
+					// value at once, which is harsher than any single pack.
+					Terraria.Mods.ItemOverrides.Set(bowId, fields[i], hostile[j]);
+					Item bow = default(Item);
+					bow.SetDefaults(bowId);
+					tried++;
+					string name = Terraria.Lang.ItemName(bow.Type);
+					if (string.IsNullOrEmpty(name))
+					{
+						return Fail("field '" + fields[i] + "' = '" + Show(hostile[j])
+							+ "' left the item unnamed");
+					}
+					if (bow.BuffType >= Terraria.Buff.MaxNumBuffs)
+					{
+						return Fail("field '" + fields[i] + "' = '" + Show(hostile[j])
+							+ "' left a buff type past the table: " + bow.BuffType);
+					}
+					if (bow.MaxStack < 1)
+					{
+						return Fail("field '" + fields[i] + "' = '" + Show(hostile[j])
+							+ "' left a max stack of " + bow.MaxStack);
+					}
+					if (float.IsNaN(bow.Scale) || float.IsInfinity(bow.Scale)
+						|| float.IsNaN(bow.Knockback) || float.IsInfinity(bow.Knockback)
+						|| float.IsNaN(bow.ShootSpeed) || float.IsInfinity(bow.ShootSpeed))
+					{
+						return Fail("field '" + fields[i] + "' = '" + Show(hostile[j])
+							+ "' left a non-finite number on the item");
+					}
+				}
+			}
+			if (Terraria.Mods.ItemOverrides.LoadErrors.Count == 0)
+			{
+				return Fail("no hostile value was refused - the values are not reaching the checks");
+			}
+			Console.WriteLine("       hostile field values tried: " + tried);
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("a hostile field value threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Mods.ItemOverrides.Clear();
+		}
+	}
+
+	/// <summary>Shortens a hostile value for a failure message; the tooltip one is 4000 chars.</summary>
+	private static string Show(string value)
+	{
+		if (value == null)
+		{
+			return "(null)";
+		}
+		return (value.Length <= 24) ? value : (value.Substring(0, 24) + "...");
 	}
 
 	// --- Mod sprite sheets ------------------------------------------------
