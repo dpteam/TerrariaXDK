@@ -315,6 +315,13 @@ internal static class Texts
 		Add(dictionary, "ui.mods.kind.xdk", "[TerrariaXDK] ");
 		Add(dictionary, "ui.mods.kind.tconfig", "[tConfig] ");
 		Add(dictionary, "ui.mods.kind.raw", "[Raw] ");
+		Add(dictionary, "ui.keyboard.hint", "Y - letters    X - delete    B - back    Start - confirm");
+		Add(dictionary, "ui.keyboard.hint.symbols", "Y - symbols    X - delete    B - back    Start - confirm");
+		Add(dictionary, "ui.keyboard.hint.mouse", "Type directly, Enter - confirm, Esc - cancel, or click a key");
+		Add(dictionary, "ui.keyboard.space", "space");
+		Add(dictionary, "ui.keyboard.del", "del");
+		Add(dictionary, "ui.keyboard.caps", "caps");
+		Add(dictionary, "ui.keyboard.caps.on", "CAPS");
 		Add(dictionary, "ui.mods.raw.detail", "{0} item(s), v{1} - no compiler needed");
 		Add(dictionary, "ui.mods.raw.detail.skipped", "{0} item(s), {1} file(s) unusable, v{2}");
 		Add(dictionary, "ui.mods.raw.detail.refused", "{0} item(s), {1} refused, v{2}");

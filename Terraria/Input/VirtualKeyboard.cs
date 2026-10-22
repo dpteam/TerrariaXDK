@@ -862,18 +862,23 @@ internal static class VirtualKeyboard
 			}
 		}
 		int num6 = page.Length;
-		DrawCell(num3, num4, 0, num6, "space", _row == num6 && _col == 0, wide: true);
-		DrawCell(num3, num4, 2, num6, "del", _row == num6 && _col == 2);
-		DrawCell(num3, num4, 3, num6, _shift ? "CAPS" : "caps", _row == num6 && _col == 3);
+		DrawCell(num3, num4, 0, num6, Texts.Get("ui.keyboard.space"), _row == num6 && _col == 0, wide: true);
+		DrawCell(num3, num4, 2, num6, Texts.Get("ui.keyboard.del"), _row == num6 && _col == 2);
+		DrawCell(num3, num4, 3, num6, _shift ? Texts.Get("ui.keyboard.caps.on") : Texts.Get("ui.keyboard.caps"),
+			_row == num6 && _col == 3);
 		DrawCell(num3, num4, 4, num6, "OK", _row == num6 && _col == 4);
 		DrawCell(num3, num4, 5, num6, "X", _row == num6 && _col == 5);
-		string text3 = _symbols ? "Y - letters    X - delete    B - back    Start - confirm" : "Y - symbols    X - delete    B - back    Start - confirm";
+		// The two hint lines are sentences, so they go through the text table: this keyboard is a
+		// port feature, and an English sentence under a German UI is exactly what the table exists
+		// to prevent. The cell labels above are words too ("space", "del", "caps"), which is why
+		// they moved as well; "OK" and "X" stay, being letters on a key.
+		string text3 = Texts.Get(_symbols ? "ui.keyboard.hint.symbols" : "ui.keyboard.hint");
 		UI.DrawStringCC(UI.SmallFont, text3, num3 + (int)((float)num2 * num / 2f), num4 + (int)(((float)(num6 + 1) * CellHeight + 12f) * num), new Color(150, 160, 180));
 		if (KeyboardMouseInput.Enabled)
 		{
 			// A keyboard-and-mouse player can type, but the hint should not claim the pad is the
 			// only way in.
-			UI.DrawStringCC(UI.SmallFont, "Type directly, Enter - confirm, Esc - cancel, or click a key",
+			UI.DrawStringCC(UI.SmallFont, Texts.Get("ui.keyboard.hint.mouse"),
 				num3 + (int)((float)num2 * num / 2f), num4 + (int)(((float)(num6 + 1) * CellHeight + 30f) * num), new Color(120, 190, 140));
 		}
 	}

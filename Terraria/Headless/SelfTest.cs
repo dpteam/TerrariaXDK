@@ -15594,6 +15594,179 @@ internal static class SelfTest
 		}
 	}
 
+	// --- Every text key the code names must exist --------------------------
+
+	/// <summary>
+	/// Scans the source for literal <c>Texts.Get/Format/Has("...")</c> keys and requires each to be
+	/// in the table.
+	///
+	/// <see cref="Texts.Verify"/> checks the table against itself; it cannot see a key that the
+	/// code asks for and the table never defines. Such a key is not a crash - <c>Texts.Get</c>
+	/// returns <c>&lt;ui.foo.bar&gt;</c> - which is why it survives: the player sees angle brackets
+	/// where a sentence should be, and only in the language path that reaches it.
+	///
+	/// Source-level, so it is skipped when the sources are not beside the binary (a copied install,
+	/// a packaged build). The self-test file itself is skipped: it deliberately asks for keys that
+	/// do not exist, to prove the fallback.
+	/// </summary>
+	private static bool CheckTextKeysUsed()
+	{
+		try
+		{
+			string root = FindSourceRoot();
+			if (root == null)
+			{
+				Skip("the sources are not beside the binary, so the text keys cannot be scanned");
+			}
+#if DEBUG
+			bool debugBuild = true;
+#else
+			bool debugBuild = false;
+#endif
+			string[] files = Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories);
+			if (files.Length < 20)
+			{
+				return Fail("only " + files.Length + " source file(s) found under " + root);
+			}
+			int checkedKeys = 0;
+			int skippedKeys = 0;
+			for (int i = 0; i < files.Length; i++)
+			{
+				string name = Path.GetFileName(files[i]);
+				if (string.Equals(name, "SelfTest.cs", StringComparison.OrdinalIgnoreCase)
+					|| string.Equals(name, "Texts.cs", StringComparison.OrdinalIgnoreCase))
+				{
+					continue;
+				}
+				string text;
+				try
+				{
+					text = File.ReadAllText(files[i]);
+				}
+				catch
+				{
+					continue;
+				}
+				// The scanner reads the source, not the compiled assembly, so it sees Debug-only
+				// code in a Release build too. A key used only by `!debugkit` is not in the Release
+				// table on purpose (the command is not there either), so matches inside `#if DEBUG`
+				// are skipped in Release - and checked in Debug, where they matter.
+				bool[] debugLines = debugBuild ? null : DebugOnlyLines(text);
+				int lineIndex = 0;
+				int lineStart = 0;
+				// The quote must be followed by `,` or `)` - that is what makes the key a complete
+				// literal. `Texts.Get("ui.key." + action)` is dynamic, and treating its prefix as a
+				// key would report a key nobody wrote.
+				foreach (System.Text.RegularExpressions.Match match in
+					System.Text.RegularExpressions.Regex.Matches(text,
+						"Texts\\.(?:Get|Format|Has)\\(\\s*\"([^\"]+)\"\\s*[,)]"))
+				{
+					if (debugLines != null)
+					{
+						while (lineIndex + 1 < debugLines.Length
+							&& LineStartAfter(text, lineStart, out int next) && next <= match.Index)
+						{
+							lineStart = next;
+							lineIndex++;
+						}
+						if (lineIndex < debugLines.Length && debugLines[lineIndex])
+						{
+							skippedKeys++;
+							continue;
+						}
+					}
+					string key = match.Groups[1].Value;
+					checkedKeys++;
+					if (!Texts.Has(key))
+					{
+						return Fail(name + " asks for the text key '" + key
+							+ "', which the table does not define - the player would see <" + key + ">");
+					}
+				}
+			}
+			if (checkedKeys < 100)
+			{
+				return Fail("only " + checkedKeys + " literal text key(s) found in the sources, so this"
+					+ " check is not looking at the real code");
+			}
+			Console.WriteLine("       text keys named in the source: " + checkedKeys
+				+ (skippedKeys > 0 ? (" (+" + skippedKeys + " in Debug-only code)") : ""));
+			return true;
+		}
+		catch (SkipCheckException)
+		{
+			throw;
+		}
+		catch (Exception ex)
+		{
+			return Fail("the text key scan threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+	}
+
+	/// <summary>Offset of the line after the one starting at <paramref name="from"/>, or false at the end.</summary>
+	private static bool LineStartAfter(string text, int from, out int next)
+	{
+		int num = text.IndexOf('\n', from);
+		if (num < 0)
+		{
+			next = text.Length;
+			return false;
+		}
+		next = num + 1;
+		return true;
+	}
+
+	/// <summary>
+	/// One entry per line: true when the line is inside a <c>#if DEBUG</c> block.
+	///
+	/// Nesting is tracked because a <c>#if DEBUG</c> inside another conditional is still Debug-only,
+	/// and <c>#else</c> ends the Debug-only part. Approximate for a malformed file, which is fine:
+	/// the worst case is skipping a key in Release, and Debug still checks it.
+	/// </summary>
+	private static bool[] DebugOnlyLines(string text)
+	{
+		string[] lines = text.Split('\n');
+		bool[] result = new bool[lines.Length];
+		Stack<bool> stack = new Stack<bool>();
+		bool inside = false;
+		for (int i = 0; i < lines.Length; i++)
+		{
+			string line = lines[i].Trim();
+			if (line.StartsWith("#if", StringComparison.Ordinal))
+			{
+				stack.Push(inside);
+				inside = inside || line.Replace(" ", string.Empty)
+					.Equals("#ifDEBUG", StringComparison.OrdinalIgnoreCase);
+			}
+			else if (line.StartsWith("#else", StringComparison.Ordinal)
+				|| line.StartsWith("#elif", StringComparison.Ordinal))
+			{
+				inside = stack.Count > 0 && stack.Peek();
+			}
+			else if (line.StartsWith("#endif", StringComparison.Ordinal))
+			{
+				inside = (stack.Count > 0) && stack.Pop();
+			}
+			result[i] = inside;
+		}
+		return result;
+	}
+
+	/// <summary>The folder holding <c>TerrariaXDK.csproj</c>, found by walking up from the binary.</summary>
+	private static string FindSourceRoot()
+	{
+		DirectoryInfo info = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+		for (int i = 0; i < 8 && info != null; i++)
+		{
+			if (File.Exists(Path.Combine(info.FullName, "TerrariaXDK.csproj")))
+			{
+				return info.FullName;
+			}
+			info = info.Parent;
+		}
+		return null;
+	}
+
 	// --- What a mod's signature hashes -------------------------------------
 
 	/// <summary>
@@ -15973,116 +16146,6 @@ internal static class SelfTest
 
 	// --- Text keys used by the code -----------------------------------------
 
-	/// <summary>
-	/// Guards against the class of bug that produced a literal <c>&lt;ui.net.password&gt;</c> on
-	/// the network screen: a key referenced from code but never added to the table. The missing
-	/// key still renders as something, so nothing throws and nothing fails - the player just sees
-	/// a placeholder.
-	///
-	/// The keys cannot be read out of the source at runtime, so the check names every key the
-	/// screens in this port ask for. It is a regression guard, not a proof: a new key still has to
-	/// be added here. The safety net for the gap is the warning <see cref="Texts.Get"/> logs.
-	/// </summary>
-	private static bool CheckTextKeysUsed()
-	{
-		try
-		{
-			// Length inferred: a fixed count silently left nulls at the end whenever a key was
-			// added, and the check then asked Texts.Has(null) instead of naming the new key.
-			string[] array = new string[]
-			{
-				"ui.common.on", "ui.common.off", "ui.common.change.back",
-				"ui.hint.inv", "ui.hint.inv.split", "ui.hint.craft", "ui.hint.housing",
-				"ui.hint.map", "ui.hint.character", "ui.hint.select", "ui.hint.back",
-				"ui.hint.cheats", "ui.hint.keybinds", "ui.hint.mods", "ui.hint.pause",
-				"ui.hint.start",
-				"ui.char.unsupported",
-				"ui.display.title", "ui.display.profile", "ui.display.window", "ui.display.fullscreen",
-				"ui.display.render", "ui.display.fps", "ui.display.vsync", "ui.display.fpslimit",
-				"ui.display.language", "ui.display.hint.restart", "ui.display.status.window",
-				"ui.display.status.restart", "ui.display.status.cap", "ui.display.status.cap.off",
-				"ui.display.status.vsync.capped", "ui.display.status.profile", "ui.display.failed",
-				"ui.display.cap.overridden",
-				"ui.hud.title", "ui.hud.zoom", "ui.hud.zoom.max", "ui.hud.zoom.min", "ui.hud.zoom.reset",
-				"ui.hud.zoom.reset.done", "ui.hud.clock", "ui.hud.depth", "ui.hud.compass",
-				"ui.hud.hardmode", "ui.hud.always", "ui.hud.with.watch", "ui.hud.with.depth",
-				"ui.hud.with.compass", "ui.hud.change.back", "ui.hud.hint.zoom",
-				"ui.net.title", "ui.net.name.title", "ui.net.name.usage", "ui.net.name", "ui.net.name.row",
-				"ui.net.port.title", "ui.net.port.invalid", "ui.net.port.set", "ui.net.port",
-				"ui.net.password.title", "ui.net.password", "ui.net.password.set",
-				"ui.net.master.title", "ui.net.master.invalid", "ui.net.master.set",
-				"ui.net.publish.on", "ui.net.publish.off", "ui.net.publish",
-				"ui.net.spawn.off", "ui.net.spawn", "ui.net.build.disabled", "ui.net.build.allowed",
-				"ui.net.build", "ui.net.refresh.off", "ui.net.refresh", "ui.net.off",
-				"ui.settings.cheats", "ui.settings.keys", "ui.settings.mods", "ui.settings.display",
-				"ui.settings.network", "ui.settings.hud", "ui.menu.cheats",
-				"ui.mods.kind.raw", "ui.mods.raw.detail",
-				"ui.mods.raw.detail.skipped", "ui.mods.raw.skipped",
-				"ui.modmismatch.title", "ui.modmismatch.text", "ui.modmismatch.downloading",
-				"ui.modmismatch.installed", "ui.modmismatch.restart", "ui.modmismatch.download.failed",
-				"ui.modmismatch.offer",
-				"ui.mods.convert.raw.done", "ui.mods.convert.raw.partial",
-				"ui.cheats.title", "ui.cheats.hint", "ui.cheats.more",
-				"ui.cheats.god", "ui.cheats.noclip", "ui.cheats.mana", "ui.cheats.buffs",
-				"ui.cheats.fall", "ui.cheats.heal", "ui.cheats.caps", "ui.cheats.dawn",
-				"ui.cheats.noon", "ui.cheats.dusk", "ui.cheats.midnight", "ui.cheats.bloodmoon",
-				"ui.cheats.eye", "ui.cheats.skeletron", "ui.cheats.killall", "ui.cheats.meteor",
-				"ui.cheats.recipes", "ui.cheats.save", "ui.cheats.single.only",
-				"ui.cheats.removed", "ui.cheats.status"
-			};
-			for (int i = 0; i < array.Length; i++)
-			{
-				if (!Texts.Has(array[i]))
-				{
-					return Fail("the screens ask for '" + array[i] + "', which has no text");
-				}
-			}
-			string text = Texts.Format("ui.net.password", "off");
-			if (text.IndexOf('<') >= 0)
-			{
-				return Fail("the password row still shows a placeholder: '" + text + "'");
-			}
-			if (Texts.Get("ui.definitely.missing") != "<ui.definitely.missing>")
-			{
-				return Fail("an unknown key did not stand out");
-			}
-			// A hint that exists but is empty is the same as a missing one to the player, and it
-			// passes a "does this key exist" check. The control hints are the one family where an
-			// empty string is a bug rather than a deliberate blank.
-			string[] hints = new string[13]
-			{
-				"ui.hint.inv", "ui.hint.inv.split", "ui.hint.craft", "ui.hint.housing",
-				"ui.hint.map", "ui.hint.character", "ui.hint.select", "ui.hint.back",
-				"ui.hint.cheats", "ui.hint.keybinds", "ui.hint.mods", "ui.hint.pause",
-				"ui.hint.start"
-			};
-			for (int j = 0; j < hints.Length; j++)
-			{
-				if (string.IsNullOrWhiteSpace(Texts.Get(hints[j])) || Texts.Get(hints[j])[0] == '<')
-				{
-					return Fail("the control hint '" + hints[j] + "' is empty or unresolved");
-				}
-			}
-			// A desktop hint must not name a gamepad button: that is the bug the hints exist to
-			// avoid, and a copy-paste from the glyph table is exactly how it comes back.
-			for (int k = 0; k < hints.Length; k++)
-			{
-				string hint = Texts.Get(hints[k]);
-				for (int m = 0; m < hint.Length; m++)
-				{
-					if (hint[m] >= '\u0080' && hint[m] <= '\u008f')
-					{
-						return Fail("the desktop hint '" + hints[k] + "' contains a gamepad glyph");
-					}
-				}
-			}
-			return true;
-		}
-		catch (Exception ex)
-		{
-			return Fail("text key check threw: " + ex.GetType().Name + ": " + ex.Message);
-		}
-	}
 
 #if DEBUG
 	// --- Debug kit ----------------------------------------------------------

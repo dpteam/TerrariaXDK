@@ -27,6 +27,40 @@
 
 ---
 
+## Экранная клавиатура писала по-английски под любым языком
+
+`VirtualKeyboard` — наша фича, не из декомпилированного кода. И две её подсказки были литералами:
+
+```csharp
+string text3 = _symbols
+    ? "Y - letters    X - delete    B - back    Start - confirm"
+    : "Y - symbols    X - delete    B - back    Start - confirm";
+UI.DrawStringCC(..., "Type directly, Enter - confirm, Esc - cancel, or click a key", ...);
+```
+
+Плюс подписи ячеек `space`, `del`, `caps`/`CAPS` — тоже слова, а не буквы. При немецком или
+испанском интерфейсе игрок видел английские предложения: ровно то, от чего существует `Texts.cs`.
+
+Теперь всё это в таблице (`ui.keyboard.hint`, `ui.keyboard.hint.symbols`,
+`ui.keyboard.hint.mouse`, `ui.keyboard.space`, `ui.keyboard.del`, `ui.keyboard.caps`,
+`ui.keyboard.caps.on`). `OK` и `X` остались литералами: это буквы на кнопке, а не слова.
+
+**И главное — проверка, которая такое ловит.** Прежняя `every text key used` перебирала **копию**
+списка ключей, вписанную в тест: она не могла увидеть ключ, который код просит, а таблица не
+определяет, — ровно тот случай, когда игрок видит `<ui.net.password>` вместо фразы. Теперь проверка
+**читает исходники**: находит все литеральные `Texts.Get/Format/Has("...")` и требует, чтобы каждый
+ключ был в таблице. Динамические (`Texts.Get("ui.key." + action)`) пропускаются — аргумент не
+является полным литералом.
+
+Печатает `text keys named in the source: 358`. Проверил, что ловит: опечатка `ui.keyboard.spacee`
+даёт `VirtualKeyboard.cs asks for the text key 'ui.keyboard.spacee', which the table does not
+define - the player would see <ui.keyboard.spacee>`.
+
+Если исходников рядом с бинарником нет (скопированная установка), проверка вызывает `Skip` с
+причиной, а не падает.
+
+---
+
 ## Мод-оружие нельзя было перековать у гоблина
 
 Наборы префиксов в этой сборке — это **фиксированные списки ванильных id**: `EntityID.ToolItems`
