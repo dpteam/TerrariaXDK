@@ -303,7 +303,7 @@ internal static class ModRecipes
 					if (item2.Type <= 0)
 					{
 						problems.Add("'" + modRecipe.Result + "': ingredient '"
-							+ modRecipe.IngredientNames[j].Key + "' does not exist");
+							+ modRecipe.IngredientNames[j].Key + "' does not exist in this build");
 						flag = true;
 						break;
 					}

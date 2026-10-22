@@ -154,6 +154,11 @@ internal static class ModLoader
 		for (int i = 0; i < recipeProblems.Count; i++)
 		{
 			Log("[Recipes] " + recipeProblems[i]);
+			// Also counted, not only logged. The menu used to say "0 load error(s)" over a pack
+			// whose recipes had all been dropped - the player had no reason to open the log, and
+			// the one number they were shown was wrong. `Errors` is what the menu counts; the line
+			// above is what the log keeps.
+			Errors.Add("recipe: " + recipeProblems[i]);
 		}
 		if (num > 0)
 		{
