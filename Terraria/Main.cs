@@ -209,7 +209,7 @@ public sealed class Main : Game
 
 	public static bool[] ProjHostile = new bool[120];
 
-	public static Recipe[] ActiveRecipe = new Recipe[342];
+	public static Recipe[] ActiveRecipe = new Recipe[Recipe.Capacity];
 
 	public static Chest[] Shop = new Chest[10];
 

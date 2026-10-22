@@ -91,9 +91,14 @@ internal static class TConfigImporter
 	private static bool ApplyItemFile(string path)
 	{
 		string text = Path.GetFileNameWithoutExtension(path);
-		// Resolve the name to an existing item the same way the game does.
+		// By name, through the real table. SetDefaults(string) only knows the two dozen legacy
+		// console items, so almost every pack item was reported as "unknown" and skipped.
+		int type = Terraria.ItemLookup.Find(text);
 		Item item = default(Item);
-		item.SetDefaults(text);
+		if (type > 0)
+		{
+			item.SetDefaults(type);
+		}
 		if (item.Type <= 0)
 		{
 			SkippedItems++;
@@ -144,6 +149,68 @@ internal static class TConfigImporter
 			return null;
 		}
 		return ParseLines(lines);
+	}
+
+	/// <summary>
+	/// Reads a pack INI **with its sections**, as <c>[section] key = value</c> pairs.
+	///
+	/// The lenient reader drops the section name, which is fine for item fields (they are unique)
+	/// and wrong for recipes: a tConfig item file carries its recipe in <c>[Items]</c>,
+	/// <c>[Tiles]</c>, <c>[Amount]</c> and <c>[needWater]</c>, and without the section
+	/// <c>Copper Bar=6</c> is indistinguishable from a field called "Copper Bar". That is exactly
+	/// why the first converter reported every ingredient as "no equivalent field".
+	///
+	/// An unsectioned line is returned with an empty section, so a flat file still reads.
+	/// </summary>
+	internal static List<SectionLine> ReadIniSections(string path, out string error)
+	{
+		error = null;
+		string[] lines;
+		try
+		{
+			lines = File.ReadAllLines(path);
+		}
+		catch (Exception ex)
+		{
+			error = "cannot read the file (" + ex.GetType().Name + ": " + ex.Message + ")";
+			return null;
+		}
+		List<SectionLine> list = new List<SectionLine>();
+		string section = "";
+		for (int i = 0; i < lines.Length; i++)
+		{
+			string text = lines[i].Trim();
+			if (text.Length == 0 || text[0] == ';' || text[0] == '#')
+			{
+				continue;
+			}
+			if (text[0] == '[' && text[text.Length - 1] == ']')
+			{
+				section = text.Substring(1, text.Length - 2).Trim();
+				continue;
+			}
+			int num = text.IndexOf('=');
+			if (num <= 0)
+			{
+				continue;
+			}
+			SectionLine sectionLine = default(SectionLine);
+			sectionLine.Section = section;
+			sectionLine.Key = text.Substring(0, num).Trim();
+			sectionLine.Value = text.Substring(num + 1).Trim();
+			list.Add(sectionLine);
+		}
+		return list;
+	}
+
+	/// <summary>One line of a pack INI, with the section it appeared under.</summary>
+	internal struct SectionLine
+	{
+		public string Section;
+
+		public string Key;
+
+		public string Value;
 	}
 
 	/// <summary>

@@ -570,7 +570,7 @@ public sealed class Player
 
 	public BitArray craftingStationsFound = new BitArray(135);
 
-	public BitArray RecipesFound = new BitArray(342);
+	public BitArray RecipesFound = new BitArray(Recipe.Capacity);
 
 	public BitArray recipesNew = new BitArray(342);
 
@@ -9160,10 +9160,14 @@ public sealed class Player
 					count = binaryReader.ReadUInt16();
 					RecipesFound = new BitArray(binaryReader.ReadBytes(count));
 					recipesNew = new BitArray(binaryReader.ReadBytes(count));
-					if (RecipesFound.Length < 342)
+					// A save from a build with fewer recipes has fewer bits. Grow to what this build
+					// needs: a mod recipe's "discovered" flag lives at its index, and reading past
+					// the end of the array throws.
+					int needed = Math.Max(342, Recipe.NumRecipes);
+					if (RecipesFound.Length < needed)
 					{
-						RecipesFound.Length = 342;
-						recipesNew.Length = 342;
+						RecipesFound.Length = needed;
+						recipesNew.Length = needed;
 					}
 					if (num >= 3)
 					{
@@ -10437,8 +10441,17 @@ public sealed class Player
 
 	public void UpdateRecipes()
 	{
-		for (int num = 341; num >= 0; num--)
+		// Down to zero over every registered recipe, including mods'. The bound used to be the
+		// vanilla 341, so a mod recipe was never "discovered" and never showed up in the crafting
+		// screen at all.
+		for (int num = Recipe.NumRecipes - 1; num >= 0; num--)
 		{
+			// A save from a smaller recipe list leaves the array short; discovering past its end
+			// throws, and a recipe index without a flag is not worth a crash.
+			if (num >= RecipesFound.Length)
+			{
+				continue;
+			}
 			if (!RecipesFound.Get(num) && DiscoveredRecipe(Main.ActiveRecipe[num]))
 			{
 				RecipesFound.Set(num, value: true);

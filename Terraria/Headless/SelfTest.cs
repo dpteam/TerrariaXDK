@@ -66,6 +66,7 @@ internal static class SelfTest
 		RunCheck("host and two clients", CheckHostAndTwoClients);
 		RunCheck("connect timeout", CheckConnectTimeout);
 		RunCheck("network config", CheckNetworkConfig);
+		RunCheck("mod recipes", CheckModRecipes);
 		RunCheck("mod items", CheckModItems);
 		RunCheck("mod loader", CheckModLoader);
 		RunCheck("cheat gating", CheckCheatGating);
@@ -79,6 +80,7 @@ internal static class SelfTest
 		RunCheck("key bindings", CheckKeyBindings);
 		RunCheck("settings persistence", CheckSettingsPersistence);
 		RunCheck("tconfig import", CheckTConfigImport);
+
 		RunCheck("tconfig convert", CheckTConfigConvert);
 		RunCheck("tconfig resilience", CheckTConfigResilience);
 		RunCheck("mod load order", CheckModLoadOrder);
@@ -745,6 +747,11 @@ internal static class SelfTest
 		{
 			// The one number that says whether a mod's declared items actually registered.
 			Console.WriteLine("       new items from mods: " + Terraria.Mods.ModItems.Count);
+		}
+		if (Recipe.NumRecipes > 0)
+		{
+			Console.WriteLine("       recipes: " + Recipe.NumRecipes
+				+ " (vanilla " + Recipe.MaxNumRecipes + ")");
 		}
 		for (int i = 0; i < Terraria.Mods.ModLoader.LoadErrors.Count; i++)
 		{
@@ -1875,6 +1882,166 @@ internal static class SelfTest
 			catch
 			{
 			}
+		}
+	}
+
+	// --- Mod recipes --------------------------------------------------------
+
+	/// <summary>
+	/// Recipes declared by mods: the result, the ingredients, the station, and the refusals.
+	///
+	/// This is what makes a converted pack playable: the item exists, and there is a way to make
+	/// it. Three things are load-bearing. The recipe must land past the vanilla range (the array
+	/// was a fixed 342 and every loop said so). The ingredient must be resolved by name through
+	/// the real table - <c>SetDefaults(string)</c> knows only the two dozen legacy console items,
+	/// so "Copper Bar" would silently resolve to nothing. And a recipe naming an item or station
+	/// this build does not have must be refused, because a recipe that produces nothing is worse
+	/// than a missing one.
+	/// </summary>
+	private static bool CheckModRecipes()
+	{
+		int savedRecipes = Recipe.NumRecipes;
+		int savedVanilla342 = Main.ActiveRecipe.Length;
+		try
+		{
+			Terraria.Mods.ModRecipes.Clear();
+			// The ingredient is a real item whose name is NOT in SetDefaults(string) - that is the
+			// case that used to fail.
+			if (Terraria.ItemLookup.Find("Copper Bar") <= 0)
+			{
+				return Fail("the name lookup cannot resolve 'Copper Bar'");
+			}
+			if (Terraria.ItemLookup.Find("Copper Shortsword") <= 0)
+			{
+				return Fail("the name lookup cannot resolve a legacy console item");
+			}
+			string error;
+			// --- a good recipe -----------------------------------------------
+			Terraria.Mods.ModRecipe good = Terraria.Mods.ModRecipes.Register("TestMod", "Copper Shortsword", out error);
+			if (good == null)
+			{
+				return Fail("a recipe for a real item was refused: " + error);
+			}
+			good.Amount = 2;
+			good.Category = Recipe.Category.WEAPONS;
+			if (!good.AddIngredient("Copper Bar", 6))
+			{
+				return Fail("adding a real ingredient failed");
+			}
+			if (!good.AddIngredient("Wood", 1))
+			{
+				return Fail("adding a second ingredient failed");
+			}
+			if (!good.AddStation("Anvil"))
+			{
+				return Fail("adding a known station failed");
+			}
+			// --- a recipe that cannot work ------------------------------------
+			Terraria.Mods.ModRecipe badItem = Terraria.Mods.ModRecipes.Register("TestMod", "Copper Pickaxe", out error);
+			badItem.AddIngredient("No Such Item", 1);
+			Terraria.Mods.ModRecipe badStation = Terraria.Mods.ModRecipes.Register("TestMod", "Copper Axe", out error);
+			badStation.AddIngredient("Copper Bar", 1);
+			badStation.AddStation("Fabricator Of Doom");
+			Terraria.Mods.ModRecipe noIngredients = Terraria.Mods.ModRecipes.Register("TestMod", "Copper Hammer", out error);
+
+			int before = Recipe.NumRecipes;
+			List<string> problems;
+			int added = Terraria.Mods.ModRecipes.Apply(out problems);
+			if (added != 1)
+			{
+				return Fail("expected exactly 1 usable recipe, got " + added);
+			}
+			if (Recipe.NumRecipes != before + 1)
+			{
+				return Fail("the recipe count went from " + before + " to " + Recipe.NumRecipes);
+			}
+			if (problems.Count != 3)
+			{
+				return Fail("expected 3 refused recipes to be reported, got " + problems.Count
+					+ ": " + string.Join("; ", problems.ToArray()));
+			}
+			// The refusals must name the reason, or the author cannot fix them.
+			bool namedItem = false;
+			bool namedStation = false;
+			bool namedEmpty = false;
+			for (int i = 0; i < problems.Count; i++)
+			{
+				if (problems[i].IndexOf("No Such Item", StringComparison.Ordinal) >= 0)
+				{
+					namedItem = true;
+				}
+				if (problems[i].IndexOf("Fabricator Of Doom", StringComparison.Ordinal) >= 0)
+				{
+					namedStation = true;
+				}
+				if (problems[i].IndexOf("no ingredients", StringComparison.OrdinalIgnoreCase) >= 0)
+				{
+					namedEmpty = true;
+				}
+			}
+			if (!namedItem || !namedStation || !namedEmpty)
+			{
+				return Fail("a refusal did not say why: " + string.Join("; ", problems.ToArray()));
+			}
+			// --- what landed in the array -------------------------------------
+			Recipe recipe = Main.ActiveRecipe[Recipe.NumRecipes - 1];
+			if (recipe.CraftedItem.Type != Terraria.ItemLookup.Find("Copper Shortsword"))
+			{
+				return Fail("the recipe makes item type " + recipe.CraftedItem.Type);
+			}
+			if (recipe.CraftedItem.Stack != 2)
+			{
+				return Fail("the recipe produces " + recipe.CraftedItem.Stack + " instead of 2");
+			}
+			if (recipe.NumRequiredItems != 2)
+			{
+				return Fail("the recipe has " + recipe.NumRequiredItems + " ingredient(s)");
+			}
+			if (recipe.RequiredItem[0].Type != Terraria.ItemLookup.Find("Copper Bar")
+				|| recipe.RequiredItem[0].Stack != 6)
+			{
+				return Fail("the first ingredient is wrong: type " + recipe.RequiredItem[0].Type
+					+ " x" + recipe.RequiredItem[0].Stack);
+			}
+			if (recipe.NumRequiredTiles != 1 || recipe.RequiredTile[0] != 16)
+			{
+				return Fail("the anvil requirement did not land: " + recipe.NumRequiredTiles
+					+ " tile(s), first " + recipe.RequiredTile[0]);
+			}
+			if (recipe.RecipeCategory != Recipe.Category.WEAPONS)
+			{
+				return Fail("the category did not land: " + recipe.RecipeCategory);
+			}
+			// The array must be able to hold it, and the vanilla range must be untouched.
+			if (Main.ActiveRecipe.Length < Recipe.MaxNumRecipes + 1)
+			{
+				return Fail("the recipe array is only " + Main.ActiveRecipe.Length + " long");
+			}
+			// Every station name the game knows resolves; a typo does not.
+			if (Terraria.Mods.ModRecipes.StationId("Work Bench") != 18)
+			{
+				return Fail("'Work Bench' does not resolve to tile 18");
+			}
+			if (Terraria.Mods.ModRecipes.StationId("Workbench") != 18)
+			{
+				return Fail("the 'Workbench' spelling does not resolve - packs write it both ways");
+			}
+			if (Terraria.Mods.ModRecipes.StationId("Fabricator Of Doom") >= 0)
+			{
+				return Fail("an unknown station resolved to a tile");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("mod recipes check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			// Put the recipe table back: later checks count recipes and the array must not grow
+			// with every run.
+			Recipe.NumRecipes = savedRecipes;
+			Terraria.Mods.ModRecipes.Clear();
 		}
 	}
 
@@ -7044,11 +7211,11 @@ internal static class SelfTest
 				}
 			}
 			// Non-ASCII must survive, since player names and messages are not English-only.
-			byte[] cyrillic = HostModeration.BuildChatPayload("РїСЂРёРІРµС‚", 1, 2, 3);
+			byte[] cyrillic = HostModeration.BuildChatPayload("Р С—РЎР‚Р С‘Р Р†Р ВµРЎвЂљ", 1, 2, 3);
 			using (System.IO.MemoryStream stream2 = new System.IO.MemoryStream(cyrillic, 4, cyrillic.Length - 4))
 			{
 				using System.IO.BinaryReader reader2 = new System.IO.BinaryReader(stream2, Encoding.UTF8);
-				if (reader2.ReadString() != "РїСЂРёРІРµС‚")
+				if (reader2.ReadString() != "Р С—РЎР‚Р С‘Р Р†Р ВµРЎвЂљ")
 				{
 					return Fail("a non-ASCII chat line did not round-trip");
 				}

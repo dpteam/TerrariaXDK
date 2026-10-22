@@ -52,6 +52,12 @@ internal static class TConfigConverter
 		/// <summary>Sprite files copied into the project, one per new item.</summary>
 		public int SpritesCopied;
 
+		/// <summary>Recipes emitted into the project.</summary>
+		public int Recipes;
+
+		/// <summary>Recipes the pack described but that could not be built (unknown station, no ingredients).</summary>
+		public int RecipesSkipped;
+
 		/// <summary>
 		/// Things the player should look at: dropped fields, unknown names, and files that threw.
 		/// Kept apart from <see cref="Errors"/> by severity, not by source.
@@ -302,7 +308,7 @@ internal static class TConfigConverter
 		// That is a bug in those items, but it must not take a whole pack down with it.
 		try
 		{
-			item.SetDefaults(text);
+			item.SetDefaults(Terraria.ItemLookup.Find(text));
 		}
 		catch (Exception ex)
 		{
@@ -325,7 +331,7 @@ internal static class TConfigConverter
 		}
 		List<KeyValuePair<string, string>> list = new List<KeyValuePair<string, string>>();
 		string error;
-		List<KeyValuePair<string, string>> lines = TConfigImporter.ReadIni(iniPath, out error);
+		List<TConfigImporter.SectionLine> lines = TConfigImporter.ReadIniSections(iniPath, out error);
 		if (lines == null)
 		{
 			// A file the player asked to convert that could not be read is a failure to report,
@@ -336,8 +342,17 @@ internal static class TConfigConverter
 		}
 		try
 		{
-			foreach (KeyValuePair<string, string> line in lines)
+			for (int i = 0; i < lines.Count; i++)
 			{
+				TConfigImporter.SectionLine sectionLine = lines[i];
+				// Recipe sections are not item fields: they describe how the item is made. Without
+				// this check every ingredient was reported as "no equivalent field", which is what
+				// produced 450 warnings on one pack and hid the real ones.
+				if (IsRecipeSection(sectionLine.Section))
+				{
+					continue;
+				}
+				KeyValuePair<string, string> line = new KeyValuePair<string, string>(sectionLine.Key, sectionLine.Value);
 				// PropertyName is the second half of the check: ItemOverrides can accept a field
 				// that the mod API has no property for (consumable is recorded as an error there),
 				// and emitting a property that does not exist would produce a project that cannot
@@ -368,24 +383,276 @@ internal static class TConfigConverter
 				+ " (" + ex2.GetType().Name + ": " + ex2.Message + ")");
 			return;
 		}
-		if (list.Count == 0)
+		if (list.Count > 0)
+		{
+			string text2 = UniqueIdentifier(Identifier(text, upperFirst: false), used);
+			body.Append("\t\t// ").Append(text).Append('\n');
+			body.Append("\t\tItemOverride ").Append(text2).Append(" = Context.Item(").Append(Quote(text)).Append(");\n");
+			body.Append("\t\tif (").Append(text2).Append(" != null)\n");
+			body.Append("\t\t{\n");
+			foreach (KeyValuePair<string, string> item2 in list)
+			{
+				body.Append("\t\t\t").Append(text2).Append('.').Append(PropertyName(item2.Key))
+					.Append(" = ").Append(Literal(item2.Key, item2.Value)).Append(";\n");
+				result.Fields++;
+			}
+			body.Append("\t\t}\n\n");
+			result.Items++;
+		}
+		else
 		{
 			result.Warnings.Add("'" + text + "': nothing to convert");
+		}
+		AppendRecipe(body, iniPath, text, item, null, used, result);
+	}
+
+	/// <summary>
+	/// True for the sections a tConfig item file uses to describe its recipe.
+	///
+	/// A pack writes the recipe in the item's own file: <c>[Items]</c> for ingredients,
+	/// <c>[Tiles]</c> for the station, <c>[Amount]</c> for the output count and
+	/// <c>[needWater]</c> for the water requirement. They are not fields of the item and must not
+	/// be treated as such.
+	/// </summary>
+	internal static bool IsRecipeSection(string section)
+	{
+		if (string.IsNullOrEmpty(section))
+		{
+			return false;
+		}
+		return section.Equals("Items", StringComparison.OrdinalIgnoreCase)
+			|| section.Equals("Tiles", StringComparison.OrdinalIgnoreCase)
+			|| section.Equals("Amount", StringComparison.OrdinalIgnoreCase)
+			|| section.Equals("needWater", StringComparison.OrdinalIgnoreCase)
+			|| section.Equals("Recipe", StringComparison.OrdinalIgnoreCase);
+	}
+
+	/// <summary>
+	/// Emits a <c>Context.AddRecipe</c> block when the pack describes one.
+	///
+	/// Every ingredient and station is checked here rather than at load time: a project that
+	/// compiles and then silently skips its recipe is the failure mode this avoids. An unknown
+	/// ingredient is reported by name, which is the only way the author can fix it.
+	/// </summary>
+	private static void AppendRecipe(StringBuilder body, string iniPath, string itemName, Item item,
+		Dictionary<string, string> fields, HashSet<string> used, Result result)
+	{
+		string error;
+		List<TConfigImporter.SectionLine> lines = TConfigImporter.ReadIniSections(iniPath, out error);
+		if (lines == null)
+		{
 			return;
 		}
-		string text2 = UniqueIdentifier(Identifier(text, upperFirst: false), used);
-		body.Append("\t\t// ").Append(text).Append('\n');
-		body.Append("\t\tItemOverride ").Append(text2).Append(" = Context.Item(").Append(Quote(text)).Append(");\n");
-		body.Append("\t\tif (").Append(text2).Append(" != null)\n");
-		body.Append("\t\t{\n");
-		foreach (KeyValuePair<string, string> item2 in list)
+		List<KeyValuePair<string, int>> ingredients = new List<KeyValuePair<string, int>>();
+		List<string> stations = new List<string>();
+		int amount = 1;
+		bool needsWater = false;
+		for (int i = 0; i < lines.Count; i++)
 		{
-			body.Append("\t\t\t").Append(text2).Append('.').Append(PropertyName(item2.Key))
-				.Append(" = ").Append(Literal(item2.Key, item2.Value)).Append(";\n");
-			result.Fields++;
+			TConfigImporter.SectionLine sectionLine = lines[i];
+			if (sectionLine.Section.Equals("Items", StringComparison.OrdinalIgnoreCase))
+			{
+				int num;
+				if (!int.TryParse(sectionLine.Value, out num) || num <= 0)
+				{
+					result.RecipesSkipped++;
+					result.Warnings.Add("'" + itemName + "': ingredient '" + sectionLine.Key
+						+ "' has the count '" + sectionLine.Value + "', which is not a number");
+					continue;
+				}
+				Item ingredient = default(Item);
+				// By name through the real table; SetDefaults(string) knows only the legacy items.
+				int ingredientType = Terraria.ItemLookup.Find(sectionLine.Key);
+				if (ingredientType > 0)
+				{
+					ingredient.SetDefaults(ingredientType);
+				}
+				if (ingredient.Type <= 0)
+				{
+					// The ingredient may be another item this same pack defines; those exist in
+					// the generated mod but not in this build, so it cannot be verified here. The
+					// generated code checks it at load time and logs.
+					result.Warnings.Add("'" + itemName + "': ingredient '" + sectionLine.Key
+						+ "' is not an item in this build - kept in the recipe, verified when the mod loads");
+				}
+				ingredients.Add(new KeyValuePair<string, int>(sectionLine.Key, num));
+			}
+			else if (sectionLine.Section.Equals("Tiles", StringComparison.OrdinalIgnoreCase))
+			{
+				if (!IsTrue(sectionLine.Value))
+				{
+					continue;
+				}
+				if (Terraria.Mods.ModRecipes.StationId(sectionLine.Key) < 0)
+				{
+					result.RecipesSkipped++;
+					result.Warnings.Add("'" + itemName + "': crafting station '" + sectionLine.Key
+						+ "' does not exist in this build - recipe not converted");
+					return;
+				}
+				stations.Add(sectionLine.Key);
+			}
+			else if (sectionLine.Section.Equals("Amount", StringComparison.OrdinalIgnoreCase))
+			{
+				int num2;
+				if (int.TryParse(sectionLine.Value, out num2) && num2 > 0)
+				{
+					amount = num2;
+				}
+			}
+			else if (sectionLine.Section.Equals("needWater", StringComparison.OrdinalIgnoreCase))
+			{
+				needsWater = IsTrue(sectionLine.Value);
+			}
+		}
+		if (ingredients.Count == 0)
+		{
+			return;
+		}
+		if (ingredients.Count > 12)
+		{
+			result.RecipesSkipped++;
+			result.Warnings.Add("'" + itemName + "': " + ingredients.Count
+				+ " ingredients, but a recipe holds at most 12 - recipe not converted");
+			return;
+		}
+		string text = UniqueIdentifier(Identifier("recipe " + itemName, upperFirst: false), used);
+		body.Append("\t\t// ").Append(itemName).Append(": recipe\n");
+		body.Append("\t\tModRecipe ").Append(text).Append(" = Context.AddRecipe(").Append(Quote(itemName)).Append(");\n");
+		body.Append("\t\tif (").Append(text).Append(" != null)\n");
+		body.Append("\t\t{\n");
+		body.Append("\t\t\t").Append(text).Append(".Amount = ").Append(amount.ToString(CultureInfo.InvariantCulture)).Append(";\n");
+		string text2 = CategoryFor(item, fields);
+		if (text2 != null)
+		{
+			body.Append("\t\t\t").Append(text).Append(".Category = Terraria.Recipe.Category.").Append(text2).Append(";\n");
+		}
+		if (needsWater)
+		{
+			body.Append("\t\t\t").Append(text).Append(".NeedsWater = true;\n");
+		}
+		for (int j = 0; j < ingredients.Count; j++)
+		{
+			body.Append("\t\t\t").Append(text).Append(".AddIngredient(").Append(Quote(ingredients[j].Key))
+				.Append(", ").Append(ingredients[j].Value.ToString(CultureInfo.InvariantCulture)).Append(");\n");
+		}
+		for (int k = 0; k < stations.Count; k++)
+		{
+			body.Append("\t\t\t").Append(text).Append(".AddStation(").Append(Quote(stations[k])).Append(");\n");
 		}
 		body.Append("\t\t}\n\n");
-		result.Items++;
+		result.Recipes++;
+	}
+
+	/// <summary>
+	/// Which crafting tab the recipe belongs in.
+	///
+	/// A guess, and an honest one: tConfig does not say, and the categories are the game's own
+	/// UI grouping rather than anything mechanical. Getting it wrong puts the recipe in the wrong
+	/// tab, which is a nuisance, not a bug - so the cheap inference from the item's own flags is
+	/// good enough, and the author can edit one line.
+	/// </summary>
+	private static string CategoryFor(Item item, Dictionary<string, string> fields)
+	{
+		// The parsed fields win over the live item: for a new item the live object is a blank
+		// template (its stats exist only in the file), and a blank item's slots read as 0, which
+		// put every new sword in the ARMOR tab.
+		int num;
+		if (ReadInt(fields, "damage", item.Damage, out num) && num > 0)
+		{
+			return "WEAPONS";
+		}
+		if (ReadBool(fields, "melee", item.IsMelee) || ReadBool(fields, "magic", item.IsMagic)
+			|| ReadBool(fields, "ranged", item.IsRanged))
+		{
+			return "WEAPONS";
+		}
+		if (ReadInt(fields, "defense", item.Defense, out num) && num > 0)
+		{
+			return "ARMOR";
+		}
+		if (ReadBool(fields, "potion", item.IsPotion))
+		{
+			return "POTIONS";
+		}
+		if (ReadInt(fields, "pick", item.PickPower, out num) && num > 0)
+		{
+			return "TOOLS";
+		}
+		if (ReadInt(fields, "axe", item.AxePower, out num) && num > 0)
+		{
+			return "TOOLS";
+		}
+		if (ReadInt(fields, "hammer", item.HammerPower, out num) && num > 0)
+		{
+			return "TOOLS";
+		}
+		// Only reachable for an existing item with no fields of its own: fall back to the live
+		// object's slots.
+		if (fields == null || fields.Count == 0)
+		{
+			if (item.HeadSlot >= 0 || item.BodySlot >= 0 || item.LegSlot >= 0)
+			{
+				return "ARMOR";
+			}
+		}
+		return "MISC";
+	}
+
+	private static bool ReadInt(Dictionary<string, string> fields, string name, int fallback, out int value)
+	{
+		value = fallback;
+		if (fields == null)
+		{
+			return false;
+		}
+		string text;
+		if (!fields.TryGetValue(name, out text))
+		{
+			return false;
+		}
+		int num;
+		if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out num))
+		{
+			return false;
+		}
+		value = num;
+		return true;
+	}
+
+	private static bool ReadBool(Dictionary<string, string> fields, string name, bool fallback)
+	{
+		if (fields == null)
+		{
+			return fallback;
+		}
+		string text;
+		if (!fields.TryGetValue(name, out text))
+		{
+			return fallback;
+		}
+		bool result;
+		return bool.TryParse(text, out result) ? result : fallback;
+	}
+
+	/// <summary>tConfig writes booleans as True/False; a bare flag means true.</summary>
+	private static bool IsTrue(string value)
+	{
+		if (string.IsNullOrEmpty(value))
+		{
+			return false;
+		}
+		string text = value.Trim();
+		if (text.Length == 0)
+		{
+			return true;
+		}
+		bool result;
+		if (bool.TryParse(text, out result))
+		{
+			return result;
+		}
+		return text == "1";
 	}
 
 	/// <summary>
@@ -409,8 +676,8 @@ internal static class TConfigConverter
 			return;
 		}
 		string error;
-		List<KeyValuePair<string, string>> list = TConfigImporter.ReadIni(iniPath, out error);
-		if (list == null)
+		List<TConfigImporter.SectionLine> lines = TConfigImporter.ReadIniSections(iniPath, out error);
+		if (lines == null)
 		{
 			result.FailedFiles++;
 			result.Errors.Add("'" + text + "': " + Path.GetFileName(iniPath) + ": " + error);
@@ -443,11 +710,19 @@ internal static class TConfigConverter
 		body.Append("\t\tif (").Append(text4).Append(" != null)\n");
 		body.Append("\t\t{\n");
 		int num = 0;
-		for (int i = 0; i < list.Count; i++)
+		// The converted fields, so the recipe's category is inferred from what the pack said
+		// rather than from a blank item template.
+		Dictionary<string, string> fieldMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		for (int i = 0; i < lines.Count; i++)
 		{
-			KeyValuePair<string, string> keyValuePair = list[i];
+			KeyValuePair<string, string> keyValuePair = new KeyValuePair<string, string>(lines[i].Key, lines[i].Value);
 			// "type" is the tConfig marker for "this is a new item"; it is not a field of the item.
 			if (string.Equals(keyValuePair.Key, "type", StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+			// The recipe lives in the same file, in its own sections.
+			if (IsRecipeSection(lines[i].Section))
 			{
 				continue;
 			}
@@ -461,6 +736,7 @@ internal static class TConfigConverter
 			}
 			body.Append("\t\t\t").Append(text4).Append('.').Append(text5)
 				.Append(" = ").Append(Literal(keyValuePair.Key, keyValuePair.Value)).Append(";\n");
+			fieldMap[keyValuePair.Key] = keyValuePair.Value;
 			num++;
 			result.Fields++;
 		}
@@ -471,6 +747,11 @@ internal static class TConfigConverter
 		{
 			result.Warnings.Add("'" + text + "': no fields converted, the item will exist with default stats");
 		}
+		// The item's own recipe, from the same file. A new item with no recipe is nearly
+		// unobtainable - it exists, but there is no way to make it - so this is the part that
+		// makes the conversion useful rather than merely correct.
+		Item definition = default(Item);
+		AppendRecipe(body, iniPath, text, definition, fieldMap, used, result);
 	}
 
 	/// <summary>

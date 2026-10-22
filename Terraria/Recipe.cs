@@ -106,6 +106,15 @@ public sealed class Recipe
 
 	public const int MaxNumRecipes = 342;
 
+	/// <summary>
+	/// Total slots in <c>Main.ActiveRecipe</c>: the vanilla recipes plus room for mods.
+	///
+	/// The vanilla array was exactly 342 and every loop said so, which is why a mod could not add
+	/// a recipe at all. Loops now run to <see cref="NumRecipes"/>, so the size only has to be big
+	/// enough - and the "discovered recipes" bit array is sized from the same constant.
+	/// </summary>
+	public static int Capacity => MaxNumRecipes + Terraria.Mods.ModRecipes.Capacity;
+
 	public static Recipe NewRecipe = new Recipe();
 
 	public Item CraftedItem;
@@ -235,7 +244,9 @@ public sealed class Recipe
 	{
 		int num = 1024;
 		ActiveUI.ActivePlayer.UpdateRecipes();
-		for (int i = 0; i < 342; i++)
+		// Up to NumRecipes, not the vanilla 342: a mod recipe past that index would simply never
+		// appear in the crafting screen, and nothing would say why.
+		for (int i = 0; i < NumRecipes; i++)
 		{
 			Recipe recipe = Main.ActiveRecipe[i];
 			if (RecipeCategory != recipe.RecipeCategory)
@@ -2723,6 +2734,27 @@ public sealed class Recipe
 		NewRecipe.RequiredItem[2].SetDefaults(391, 20);
 		NewRecipe.RequiredTile[0] = 134;
 		AddRecipe();
+		for (int i = 0; i < NumRecipes; i++)
+		{
+			for (int j = 0; j < 12 && Main.ActiveRecipe[i].RequiredItem[j].Type > 0; j++)
+			{
+				Main.ActiveRecipe[i].RequiredItem[j].CheckMaterial();
+			}
+			Main.ActiveRecipe[i].CraftedItem.CheckMaterial();
+		}
+	}
+
+	/// <summary>
+	/// Recomputes which items count as crafting materials.
+	///
+	/// <see cref="SetupRecipes"/> runs before mods load, so an item used only by a mod recipe was
+	/// never marked as a material - and the crafting guide then refuses to show it as an
+	/// ingredient. Called once more after mod recipes are added.
+	/// </summary>
+	internal static void RecheckMaterials()
+	{
+		// CheckMaterial mutates the item it is called on, so it has to be called on the array
+		// element itself - a copy would be marked and thrown away.
 		for (int i = 0; i < NumRecipes; i++)
 		{
 			for (int j = 0; j < 12 && Main.ActiveRecipe[i].RequiredItem[j].Type > 0; j++)

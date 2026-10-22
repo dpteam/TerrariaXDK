@@ -142,6 +142,20 @@ internal static class ModLoader
 		// Ids and sprite sheets after every mod has loaded: ids are assigned in sorted order, so
 		// the order the mods happened to load in cannot change them.
 		Terraria.Mods.ModItems.Finalize(GraphicsDevice);
+		// Recipes after the ids: a recipe names its result and its ingredients, and a mod item has
+		// no id until Finalize has run.
+		List<string> recipeProblems;
+		int num = Terraria.Mods.ModRecipes.Apply(out recipeProblems);
+		for (int i = 0; i < recipeProblems.Count; i++)
+		{
+			Log("[Recipes] " + recipeProblems[i]);
+		}
+		if (num > 0)
+		{
+			// New ingredients may be materials only because a mod recipe uses them.
+			Recipe.RecheckMaterials();
+			Log("[Recipes] " + num + " recipe(s) from mods");
+		}
 		RecomputeSignature();
 		Log($"Loaded {LoadedMods.Count} mod(s), signature {Signature}");
 	}

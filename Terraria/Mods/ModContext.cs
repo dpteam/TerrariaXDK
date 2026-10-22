@@ -118,7 +118,15 @@ public sealed class ModContext
 			return null;
 		}
 		Item item = default(Item);
-		item.SetDefaults(name);
+		// By name, through the real table: SetDefaults(string) only knows the two dozen legacy
+		// console items, so "Copper Bar" would silently produce an empty item.
+		int type = ItemLookup.Find(name);
+		if (type <= 0)
+		{
+			Log("unknown item '" + name + "'; no override applied");
+			return null;
+		}
+		item.SetDefaults(type);
 		if (item.Type <= 0)
 		{
 			Log("unknown item '" + name + "'; no override applied");
@@ -147,6 +155,32 @@ public sealed class ModContext
 			Log("cannot define item '" + name + "': " + error);
 		}
 		return modItem;
+	}
+
+	/// <summary>
+	/// Declares a crafting recipe. Returns null when the result name is empty, and logs why.
+	///
+	/// The recipe is resolved after every mod has loaded, because a mod item has no id until then.
+	/// Ingredients and stations are added by name:
+	/// <code>
+	/// ModRecipe recipe = Context.AddRecipe("Copper Bulgeon");
+	/// recipe.Amount = 1;
+	/// recipe.AddIngredient("Copper Bar", 6);
+	/// recipe.AddIngredient("Wood", 1);
+	/// recipe.AddStation("Anvil");
+	/// </code>
+	/// An unknown ingredient or station is reported when the recipe is built, and the recipe is
+	/// skipped: offering a recipe that produces nothing is worse than not offering it.
+	/// </summary>
+	public ModRecipe AddRecipe(string resultItemName)
+	{
+		string error;
+		ModRecipe modRecipe = ModRecipes.Register(Name, resultItemName, out error);
+		if (modRecipe == null)
+		{
+			Log("cannot add a recipe for '" + resultItemName + "': " + error);
+		}
+		return modRecipe;
 	}
 
 	private string Resolve(string relativePath)

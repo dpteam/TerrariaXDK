@@ -284,6 +284,33 @@ internal static class ModItems
 		return true;
 	}
 
+	/// <summary>
+	/// The id of a mod item by its display name, or 0.
+	///
+	/// Asked before the vanilla table because a mod item's name is not in <see cref="Lang.ItemName"/>'s
+	/// compiled switch - and the name lookup caches the vanilla table, which is built before mods
+	/// load. Without this, a recipe for a mod item could never be built.
+	/// </summary>
+	internal static int FindByName(string name)
+	{
+		if (string.IsNullOrEmpty(name))
+		{
+			return 0;
+		}
+		string text = name.Trim();
+		lock (Sync)
+		{
+			foreach (KeyValuePair<int, ModItem> item in ById)
+			{
+				if (string.Equals(item.Value.Name, text, StringComparison.OrdinalIgnoreCase))
+				{
+					return item.Key;
+				}
+			}
+		}
+		return 0;
+	}
+
 	/// <summary>The display name, or null when the id is not a mod item this build knows.</summary>
 	internal static string NameOf(int id)
 	{
