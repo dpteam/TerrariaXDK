@@ -242,12 +242,8 @@ internal sealed class RawMod
 		{
 			Overrides++;
 		}
-		else
-		{
-			_problems.Add("'" + text + "': nothing to change");
-		}
 		// An existing item can carry a recipe too: a pack that makes a vanilla item craftable is
-		// as legitimate as one that adds a new item.
+		// as legitimate as one that adds a new item - and such a file has no fields at all.
 		Dictionary<string, string> dictionary = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 		for (int j = 0; j < list.Count; j++)
 		{
@@ -256,7 +252,11 @@ internal sealed class RawMod
 				dictionary[list[j].Key] = list[j].Value;
 			}
 		}
-		AppendRecipe(list, text, dictionary);
+		bool flag2 = AppendRecipe(list, text, dictionary);
+		if (num2 == 0 && !flag2)
+		{
+			_problems.Add("'" + text + "': nothing to change");
+		}
 	}
 
 	/// <summary>Copies the item's fields onto a new definition, reporting what has no equivalent.</summary>
@@ -283,11 +283,21 @@ internal sealed class RawMod
 	}
 
 	/// <summary>
-	/// Registers the file's recipe, if it has one. The sections are the ones tConfig uses:
-	/// <c>[Items]</c> for ingredients, <c>[Tiles]</c> for stations, <c>[Amount]</c> for the output
-	/// count, <c>[needWater]</c> for the water requirement.
+	/// Registers the file's recipe, if it has one.
+	///
+	/// Two spellings exist in real packs and both must work, because the older one is what the
+	/// wiki documents and the newer one is what recent packs actually write:
+	/// <code>
+	/// [Items]                 [Recipe]
+	/// Copper Bar=6            Items=6 Copper Bar, 2 Wood
+	/// [Tiles]                 Tiles=Work Bench
+	/// Anvil=true              Amount=1
+	/// </code>
+	/// The <c>[Recipe]</c> form puts the whole recipe in three lines with comma-separated lists,
+	/// so it was silently invisible to a reader that only knew the section-per-thing form: those
+	/// items existed and could never be crafted.
 	/// </summary>
-	private void AppendRecipe(List<TConfigImporter.SectionLine> lines, string itemName, Dictionary<string, string> fields)
+	private bool AppendRecipe(List<TConfigImporter.SectionLine> lines, string itemName, Dictionary<string, string> fields)
 	{
 		List<KeyValuePair<string, int>> list = new List<KeyValuePair<string, int>>();
 		List<string> list2 = new List<string>();
@@ -296,10 +306,44 @@ internal sealed class RawMod
 		for (int i = 0; i < lines.Count; i++)
 		{
 			TConfigImporter.SectionLine sectionLine = lines[i];
+			if (sectionLine.Section.Equals("Recipe", StringComparison.OrdinalIgnoreCase))
+			{
+				if (sectionLine.Key.Equals("Items", StringComparison.OrdinalIgnoreCase))
+				{
+					List<KeyValuePair<string, int>> list3 = ParseCountedList(sectionLine.Value, itemName);
+					for (int j = 0; j < list3.Count; j++)
+					{
+						if (list.Count >= MaxIngredients)
+						{
+							_problems.Add("'" + itemName + "': more than " + MaxIngredients
+								+ " ingredients - the recipe is not added");
+							return false;
+						}
+						list.Add(list3[j]);
+					}
+				}
+				else if (sectionLine.Key.Equals("Tiles", StringComparison.OrdinalIgnoreCase))
+				{
+					AddStations(list2, sectionLine.Value, itemName);
+				}
+				else if (sectionLine.Key.Equals("Amount", StringComparison.OrdinalIgnoreCase))
+				{
+					int result;
+					if (int.TryParse(sectionLine.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result) && result > 0)
+					{
+						num = result;
+					}
+				}
+				else if (sectionLine.Key.Equals("needWater", StringComparison.OrdinalIgnoreCase))
+				{
+					flag = IsTrue(sectionLine.Value);
+				}
+				continue;
+			}
 			if (sectionLine.Section.Equals("Items", StringComparison.OrdinalIgnoreCase))
 			{
-				int result;
-				if (!int.TryParse(sectionLine.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result) || result <= 0)
+				int result2;
+				if (!int.TryParse(sectionLine.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result2) || result2 <= 0)
 				{
 					_problems.Add("'" + itemName + "': ingredient '" + sectionLine.Key + "' has the count '"
 						+ sectionLine.Value + "', which is not a number");
@@ -309,9 +353,9 @@ internal sealed class RawMod
 				{
 					_problems.Add("'" + itemName + "': more than " + MaxIngredients
 						+ " ingredients - the recipe is not added");
-					return;
+					return false;
 				}
-				list.Add(new KeyValuePair<string, int>(sectionLine.Key, result));
+				list.Add(new KeyValuePair<string, int>(sectionLine.Key, result2));
 			}
 			else if (sectionLine.Section.Equals("Tiles", StringComparison.OrdinalIgnoreCase))
 			{
@@ -319,23 +363,14 @@ internal sealed class RawMod
 				{
 					continue;
 				}
-				if (ModRecipes.StationId(sectionLine.Key) < 0)
-				{
-					// The station is usually a tile the pack itself would add, and this build has no
-					// mod tiles. Dropping the station keeps the item obtainable; dropping the recipe
-					// would make it exist and be impossible to make.
-					_problems.Add("'" + itemName + "': station '" + sectionLine.Key
-						+ "' is a mod tile this build does not have - the recipe is added without it");
-					continue;
-				}
-				list2.Add(sectionLine.Key);
+				AddStations(list2, sectionLine.Key, itemName);
 			}
 			else if (sectionLine.Section.Equals("Amount", StringComparison.OrdinalIgnoreCase))
 			{
-				int result2;
-				if (int.TryParse(sectionLine.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result2) && result2 > 0)
+				int result3;
+				if (int.TryParse(sectionLine.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result3) && result3 > 0)
 				{
-					num = result2;
+					num = result3;
 				}
 			}
 			else if (sectionLine.Section.Equals("needWater", StringComparison.OrdinalIgnoreCase))
@@ -345,14 +380,14 @@ internal sealed class RawMod
 		}
 		if (list.Count == 0)
 		{
-			return;
+			return false;
 		}
 		string error;
 		ModRecipe modRecipe = ModRecipes.Register(Name, itemName, out error);
 		if (modRecipe == null)
 		{
 			_problems.Add("'" + itemName + "': " + error);
-			return;
+			return false;
 		}
 		modRecipe.Amount = num;
 		modRecipe.NeedsWater = flag;
@@ -366,6 +401,75 @@ internal sealed class RawMod
 			modRecipe.AddStation(list2[k]);
 		}
 		Recipes++;
+		return true;
+	}
+
+	/// <summary>
+	/// Adds station names from a comma-separated list, dropping the ones this build has no tile
+	/// for. <c>False</c>/<c>True</c> are skipped: some packs write the flag into the same line.
+	/// </summary>
+	private void AddStations(List<string> stations, string value, string itemName)
+	{
+		if (string.IsNullOrEmpty(value))
+		{
+			return;
+		}
+		string[] array = value.Split(',');
+		for (int i = 0; i < array.Length; i++)
+		{
+			string text = array[i].Trim();
+			if (text.Length == 0 || IsTrue(text) || text.Equals("false", StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+			if (ModRecipes.StationId(text) < 0)
+			{
+				// The station is usually a tile the pack itself would add, and this build has no
+				// mod tiles. Dropping the station keeps the item obtainable; dropping the recipe
+				// would make it exist and be impossible to make.
+				_problems.Add("'" + itemName + "': station '" + text
+					+ "' is a mod tile this build does not have - the recipe is added without it");
+				continue;
+			}
+			stations.Add(text);
+		}
+	}
+
+	/// <summary>
+	/// Parses tConfig's newer ingredient list: <c>6 Copper Bar, 2 Wood</c>. The count comes
+	/// first, the name is everything after the first space, so an item whose name contains a
+	/// space still works.
+	/// </summary>
+	private List<KeyValuePair<string, int>> ParseCountedList(string value, string itemName)
+	{
+		List<KeyValuePair<string, int>> list = new List<KeyValuePair<string, int>>();
+		if (string.IsNullOrEmpty(value))
+		{
+			return list;
+		}
+		string[] array = value.Split(',');
+		for (int i = 0; i < array.Length; i++)
+		{
+			string text = array[i].Trim();
+			if (text.Length == 0)
+			{
+				continue;
+			}
+			int num = text.IndexOf(' ');
+			if (num <= 0)
+			{
+				_problems.Add("'" + itemName + "': ingredient '" + text + "' has no count, dropped");
+				continue;
+			}
+			int result;
+			if (!int.TryParse(text.Substring(0, num).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out result) || result <= 0)
+			{
+				_problems.Add("'" + itemName + "': ingredient '" + text + "' has no count, dropped");
+				continue;
+			}
+			list.Add(new KeyValuePair<string, int>(text.Substring(num + 1).Trim(), result));
+		}
+		return list;
 	}
 
 	/// <summary>

@@ -1619,6 +1619,11 @@ internal static class SelfTest
 			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Shortsword.ini"), "damage=12\r\nuseTime=17\r\nautoReuse=True\r\nbogusField=1\r\n");
 			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Pickaxe.ini"), "pick=45\r\n");
 			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Not A Real Item.ini"), "damage=5\r\n");
+			// The newer recipe spelling: one line per list, counts before names. It used to be
+			// skipped as "not an item field", so those items converted into a mod that could
+			// never craft them.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(text2, "Copper Bar.ini"),
+				"[Recipe]\r\nItems=3 Copper Ore, 1 Wood\r\nTiles=Work Bench\r\nAmount=2\r\n");
 			string error;
 			Terraria.Mods.TConfigConverter.Result result = Terraria.Mods.TConfigConverter.Convert(
 				System.IO.Path.Combine(text, "TestPack"), text3, null, out error);
@@ -1648,6 +1653,19 @@ internal static class SelfTest
 			if (!text4.Contains(".Pick = 45;"))
 			{
 				return Fail("the generated source dropped the second item");
+			}
+			// The [Recipe] style: ingredients with counts, the station, the output count.
+			if (result.Recipes != 1)
+			{
+				return Fail("expected 1 converted recipe, got " + result.Recipes);
+			}
+			if (!text4.Contains("Context.AddRecipe(\"Copper Bar\")")
+				|| !text4.Contains(".AddIngredient(\"Copper Ore\", 3);")
+				|| !text4.Contains(".AddIngredient(\"Wood\", 1);")
+				|| !text4.Contains(".AddStation(\"Work Bench\");")
+				|| !text4.Contains(".Amount = 2;"))
+			{
+				return Fail("the [Recipe] style was not converted into a recipe");
 			}
 			string text5 = System.IO.File.ReadAllText(result.ProjectFile);
 			if (!text5.Contains("<TargetFramework>net40</TargetFramework>") || !text5.Contains("TerrariaXDK"))
@@ -12993,6 +13011,9 @@ internal static class SelfTest
 			// An existing item: this is an override, not a new item, and the two paths must not
 			// be confused - a pack that changes a sword must not invent a second one.
 			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "Copper Bar.ini"), "value=1234\r\n");
+			// The other recipe spelling, which real packs use: one line per list, count first.
+			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "Copper Ore.ini"),
+				"[Recipe]\r\nItems=2 Stone Block, 1 Wood\r\nTiles=Work Bench\r\nAmount=3\r\n");
 			// A file with no sprite and no matching item: reported, and it must not stop the rest.
 			System.IO.File.WriteAllText(System.IO.Path.Combine(items, "Imaginary Thing.ini"), "damage=3\r\n");
 
@@ -13035,9 +13056,9 @@ internal static class SelfTest
 			{
 				return Fail("expected 1 override, got " + rawMod.Overrides);
 			}
-			if (rawMod.Recipes != 1)
+			if (rawMod.Recipes != 2)
 			{
-				return Fail("expected 1 recipe, got " + rawMod.Recipes);
+				return Fail("expected 2 recipes (both spellings), got " + rawMod.Recipes);
 			}
 			if (rawMod.Problems.Count == 0)
 			{
@@ -13085,10 +13106,10 @@ internal static class SelfTest
 			{
 				return Fail("the override was not registered");
 			}
-			// The recipe is pending, and names the station and the amount the file gave.
-			if (Terraria.Mods.ModRecipes.Count != 1)
+			// The recipes are pending, and both spellings reached the registry.
+			if (Terraria.Mods.ModRecipes.Count != 2)
 			{
-				return Fail("expected 1 pending recipe, got " + Terraria.Mods.ModRecipes.Count);
+				return Fail("expected 2 pending recipes, got " + Terraria.Mods.ModRecipes.Count);
 			}
 			// --- signature ----------------------------------------------------
 			string first = rawMod.Signature;

@@ -525,6 +525,38 @@ internal static class TConfigConverter
 		for (int i = 0; i < lines.Count; i++)
 		{
 			TConfigImporter.SectionLine sectionLine = lines[i];
+			if (sectionLine.Section.Equals("Recipe", StringComparison.OrdinalIgnoreCase))
+			{
+				// The newer tConfig spelling: the whole recipe on three lines, with comma-separated
+				// lists. Without this branch those items converted into a mod that could never
+				// craft them - the file was read, the sections were skipped as "not item fields",
+				// and nothing said the recipe had been dropped.
+				if (sectionLine.Key.Equals("Items", StringComparison.OrdinalIgnoreCase))
+				{
+					List<KeyValuePair<string, int>> parsed = ParseCountedList(sectionLine.Value, itemName, result);
+					for (int j = 0; j < parsed.Count; j++)
+					{
+						ingredients.Add(parsed[j]);
+					}
+				}
+				else if (sectionLine.Key.Equals("Tiles", StringComparison.OrdinalIgnoreCase))
+				{
+					AddStations(stations, sectionLine.Value, itemName, result);
+				}
+				else if (sectionLine.Key.Equals("Amount", StringComparison.OrdinalIgnoreCase))
+				{
+					int parsedAmount;
+					if (int.TryParse(sectionLine.Value, out parsedAmount) && parsedAmount > 0)
+					{
+						amount = parsedAmount;
+					}
+				}
+				else if (sectionLine.Key.Equals("needWater", StringComparison.OrdinalIgnoreCase))
+				{
+					needsWater = IsTrue(sectionLine.Value);
+				}
+				continue;
+			}
 			if (sectionLine.Section.Equals("Items", StringComparison.OrdinalIgnoreCase))
 			{
 				int num;
@@ -619,6 +651,69 @@ internal static class TConfigConverter
 		}
 		body.Append("\t\t}\n\n");
 		result.Recipes++;
+	}
+
+	/// <summary>
+	/// Parses tConfig's newer ingredient list: <c>6 Copper Bar, 2 Wood</c>. The count comes first
+	/// and the name is everything after the first space, so an item whose name contains a space
+	/// still works.
+	/// </summary>
+	private static List<KeyValuePair<string, int>> ParseCountedList(string value, string itemName, Result result)
+	{
+		List<KeyValuePair<string, int>> list = new List<KeyValuePair<string, int>>();
+		if (string.IsNullOrEmpty(value))
+		{
+			return list;
+		}
+		string[] array = value.Split(',');
+		for (int i = 0; i < array.Length; i++)
+		{
+			string text = array[i].Trim();
+			if (text.Length == 0)
+			{
+				continue;
+			}
+			int num = text.IndexOf(' ');
+			int count;
+			if (num <= 0 || !int.TryParse(text.Substring(0, num).Trim(), out count) || count <= 0)
+			{
+				result.RecipesSkipped++;
+				result.Warnings.Add("'" + itemName + "': ingredient '" + text + "' has no count, dropped");
+				continue;
+			}
+			list.Add(new KeyValuePair<string, int>(text.Substring(num + 1).Trim(), count));
+		}
+		return list;
+	}
+
+	/// <summary>
+	/// Adds station names from a comma-separated list, keeping only the ones this build has a
+	/// tile for. A station it does not have is reported and dropped, not a reason to lose the
+	/// recipe: an item that exists and cannot be made is worse than one made without a bench.
+	/// </summary>
+	private static void AddStations(List<string> stations, string value, string itemName, Result result)
+	{
+		if (string.IsNullOrEmpty(value))
+		{
+			return;
+		}
+		string[] array = value.Split(',');
+		for (int i = 0; i < array.Length; i++)
+		{
+			string text = array[i].Trim();
+			if (text.Length == 0 || text.Equals("true", StringComparison.OrdinalIgnoreCase)
+				|| text.Equals("false", StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+			if (Terraria.Mods.ModRecipes.StationId(text) < 0)
+			{
+				result.Warnings.Add("'" + itemName + "': station '" + text
+					+ "' is a mod tile this build does not have - the recipe is converted without it");
+				continue;
+			}
+			stations.Add(text);
+		}
 	}
 
 	/// <summary>
