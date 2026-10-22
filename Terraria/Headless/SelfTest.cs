@@ -9592,6 +9592,30 @@ internal static class SelfTest
 			{
 				return Fail("placeholders were not filled: '" + Texts.Format("chat.cheats.gave", 3, 5) + "'");
 			}
+			// The mod menu's per-mod detail lines. They are chosen by counting refused items and
+			// unusable files, and a wrong arity here prints "{2}" at the player - the same class of
+			// mistake as "Kicked .", just on a screen nobody tests by hand.
+			if (Texts.Format("ui.mods.raw.detail", 208, "1.0") != "208 item(s), v1.0 - no compiler needed")
+			{
+				return Fail("the raw-mod detail line is '" + Texts.Format("ui.mods.raw.detail", 208, "1.0") + "'");
+			}
+			if (Texts.Format("ui.mods.raw.detail.refused", 208, 1, "1.0").IndexOf("refused", StringComparison.Ordinal) < 0)
+			{
+				return Fail("the refused-item detail line does not say how many were refused");
+			}
+			if (Texts.Format("ui.mods.raw.detail.refused.skipped", 208, 1, 3, "1.0").IndexOf("{3}", StringComparison.Ordinal) >= 0)
+			{
+				return Fail("the refused+skipped detail line has a placeholder that is not filled");
+			}
+			// The debug room's two messages: "built" carries a count, "partial" carries two.
+			if (Texts.Format("chat.debugworld.done", 1308).IndexOf("{0}", StringComparison.Ordinal) >= 0)
+			{
+				return Fail("the debug-room message does not fill its count");
+			}
+			if (Texts.Format("chat.debugworld.partial", 100, 1308).IndexOf("{1}", StringComparison.Ordinal) >= 0)
+			{
+				return Fail("the partial debug-room message does not fill both counts");
+			}
 			// Too few arguments must leave the placeholder visible. "Kicked ." reads like a bug
 			// in the command; "Kicked {0}." points straight at the broken translation.
 			if (Texts.Format("chat.cheats.gave", 3) != "gave 3 x{1}")
@@ -13569,6 +13593,55 @@ internal static class SelfTest
 			if (rawMod.IgnoredFileCount != 3)
 			{
 				return Fail("expected 3 unusable file(s) to be counted, got " + rawMod.IgnoredFileCount);
+			}
+			// --- and the item the pack declared but the game refused is counted apart -----
+			// `Imaginary Thing` above has no sprite and no matching item, so it is refused. The
+			// count is separate from Problems (which also lists every field without an equivalent)
+			// because it is the one number the menu can show: "208 item(s)" over a pack that
+			// declared 209 is a number the player cannot act on.
+			if (rawMod.RefusedItems != 1)
+			{
+				return Fail("expected 1 refused item, got " + rawMod.RefusedItems
+					+ " (Problems has " + rawMod.Problems.Count + " line(s))");
+			}
+			// A field without an equivalent is not a refused item: that is a normal conversion.
+			if (rawMod.RefusedItems > rawMod.Problems.Count)
+			{
+				return Fail("more refused items than reported problems");
+			}
+			// --- the case that happens in real packs: a new item with a vanilla name --------
+			// `Purple Dye`, `Harp`, `Shotgun` and `Excalibur` in the packs on this machine. The
+			// item must be refused (or every name-based reference to the vanilla one would find
+			// this one) and counted, and its recipe must not survive as a recipe for the vanilla
+			// item.
+			string collisionPack = System.IO.Path.Combine(root, "Collision Pack");
+			string collisionItems = System.IO.Path.Combine(collisionPack, "Item");
+			System.IO.Directory.CreateDirectory(collisionItems);
+			System.IO.File.WriteAllText(System.IO.Path.Combine(collisionPack, "mod.ini"),
+				"[Mod]\r\nName=Collision Pack\r\nVersion=1.0\r\n");
+			System.IO.File.WriteAllText(System.IO.Path.Combine(collisionItems, "Wood.ini"),
+				"type=-1\r\ndamage=9\r\n[Items]\r\nCopper Ore=1\r\n[Tiles]\r\nWork Bench=true\r\n");
+			WriteTinyPng(System.IO.Path.Combine(collisionItems, "Wood.png"));
+			// No Clear() here: the first pack is still loaded, which is the real situation - one
+			// mod among several declaring a name that a vanilla item already has. Clearing would
+			// also drop the ammo override asserted further down.
+			Terraria.Mods.RawMod collision = Terraria.Mods.RawMod.Load(collisionPack);
+			if (collision.RefusedItems != 1)
+			{
+				return Fail("a new item named after a vanilla item was not counted as refused ("
+					+ collision.RefusedItems + ")");
+			}
+			if (collision.NewItems != 0)
+			{
+				return Fail("a new item named after a vanilla item was accepted (" + collision.NewItems + ")");
+			}
+			// The vanilla item is untouched: the pack's `damage=9` must not land on it.
+			Item wood = default(Item);
+			int woodId = Terraria.ItemLookup.Find("Wood");
+			wood.SetDefaults(woodId);
+			if (wood.Damage == 9)
+			{
+				return Fail("a refused new item wrote its stats onto the vanilla item");
 			}
 			bool sawNpc = false;
 			bool sawTiles = false;

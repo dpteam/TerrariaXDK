@@ -317,6 +317,8 @@ internal static class Texts
 		Add(dictionary, "ui.mods.kind.raw", "[Raw] ");
 		Add(dictionary, "ui.mods.raw.detail", "{0} item(s), v{1} - no compiler needed");
 		Add(dictionary, "ui.mods.raw.detail.skipped", "{0} item(s), {1} file(s) unusable, v{2}");
+		Add(dictionary, "ui.mods.raw.detail.refused", "{0} item(s), {1} refused, v{2}");
+		Add(dictionary, "ui.mods.raw.detail.refused.skipped", "{0} item(s), {1} refused, {2} file(s) unusable, v{3}");
 		Add(dictionary, "ui.mods.raw.skipped", "{0} file(s) in '{1}' - this build cannot load that kind of content");
 		Add(dictionary, "ui.mods.pack.note", "not loaded - convert it to a mod");
 		Add(dictionary, "ui.mods.pack.hint", "C / Enter - convert to a mod (no compiler)   P - convert to a C# project");

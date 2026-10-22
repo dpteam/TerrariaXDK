@@ -176,10 +176,32 @@ internal static class ModMenu
 					}
 					// The skipped count is the point: a pack with 146 NPC files that loads "fine" and
 					// spawns nothing is the report this line prevents.
+					// A refused item is the other half of the same report: the pack said the item
+					// exists and the game would not create it (no sprite, a name a vanilla item
+					// already has). "208 item(s)" over a pack that declared 209 is a number the
+					// player cannot act on.
 					int num = rawMod.IgnoredFileCount;
-					entry.Detail = (num > 0)
-						? Texts.Format("ui.mods.raw.detail.skipped", rawMod.NewItems + rawMod.Overrides, num, rawMod.Version)
-						: Texts.Format("ui.mods.raw.detail", rawMod.NewItems + rawMod.Overrides, rawMod.Version);
+					int refused = rawMod.RefusedItems;
+					if (refused > 0 && num > 0)
+					{
+						entry.Detail = Texts.Format("ui.mods.raw.detail.refused.skipped",
+							rawMod.NewItems + rawMod.Overrides, refused, num, rawMod.Version);
+					}
+					else if (refused > 0)
+					{
+						entry.Detail = Texts.Format("ui.mods.raw.detail.refused",
+							rawMod.NewItems + rawMod.Overrides, refused, rawMod.Version);
+					}
+					else if (num > 0)
+					{
+						entry.Detail = Texts.Format("ui.mods.raw.detail.skipped",
+							rawMod.NewItems + rawMod.Overrides, num, rawMod.Version);
+					}
+					else
+					{
+						entry.Detail = Texts.Format("ui.mods.raw.detail",
+							rawMod.NewItems + rawMod.Overrides, rawMod.Version);
+					}
 					break;
 				}
 			}
