@@ -66,6 +66,7 @@ internal static class SelfTest
 		RunCheck("host and two clients", CheckHostAndTwoClients);
 		RunCheck("connect timeout", CheckConnectTimeout);
 		RunCheck("network config", CheckNetworkConfig);
+		RunCheck("mod items", CheckModItems);
 		RunCheck("mod loader", CheckModLoader);
 		RunCheck("cheat gating", CheckCheatGating);
 		RunCheck("cheat badge", CheckCheatBadge);
@@ -740,6 +741,11 @@ internal static class SelfTest
 	{
 		Terraria.Mods.ModLoader.Initialize();
 		Console.WriteLine($"       mods loaded: {Terraria.Mods.ModLoader.ModCount}, signature {Terraria.Mods.ModLoader.Signature}");
+		if (Terraria.Mods.ModItems.Count > 0)
+		{
+			// The one number that says whether a mod's declared items actually registered.
+			Console.WriteLine("       new items from mods: " + Terraria.Mods.ModItems.Count);
+		}
 		for (int i = 0; i < Terraria.Mods.ModLoader.LoadErrors.Count; i++)
 		{
 			Console.WriteLine("       mod error: " + Terraria.Mods.ModLoader.LoadErrors[i]);
@@ -1870,6 +1876,231 @@ internal static class SelfTest
 			{
 			}
 		}
+	}
+
+	// --- New items from mods ------------------------------------------------
+
+	/// <summary>
+	/// Items a mod creates: ids, names, stats, and what happens when the mod is gone.
+	///
+	/// Three things here are load-bearing. Ids must not depend on mod load order, because an item
+	/// id travels on the wire and two players with the same mods would otherwise desync. The name
+	/// must never be null, because it reaches <c>MeasureString</c> on the pickup path and a null
+	/// there is the crash that made the custom-language option unusable. And an id whose mod is not
+	/// loaded must become an empty slot, not an index past the end of every sprite table.
+	/// </summary>
+	private static bool CheckModItems()
+	{
+		string root = System.IO.Path.Combine(Terraria.Storage.AppPaths.Cache, "selftest-moditems");
+		try
+		{
+			if (System.IO.Directory.Exists(root))
+			{
+				System.IO.Directory.Delete(root, recursive: true);
+			}
+			System.IO.Directory.CreateDirectory(root);
+			// A real PNG: the registry checks that the file exists, and the sprite is required.
+			string sprite = System.IO.Path.Combine(root, "sword.png");
+			WriteTinyPng(sprite);
+
+			Terraria.Mods.ModItems.Clear();
+			string error;
+			// --- refusals -----------------------------------------------------
+			if (Terraria.Mods.ModItems.Register("ModA", "", "sword.png", root, out error) != null)
+			{
+				return Fail("an item with no name was accepted");
+			}
+			if (Terraria.Mods.ModItems.Register("ModA", "NoSprite", "", root, out error) != null)
+			{
+				return Fail("an item with no sprite was accepted");
+			}
+			if (Terraria.Mods.ModItems.Register("ModA", "MissingSprite", "nope.png", root, out error) != null)
+			{
+				return Fail("an item pointing at a missing sprite was accepted");
+			}
+			if (string.IsNullOrEmpty(error))
+			{
+				return Fail("a refused item gave no reason");
+			}
+			// --- registration -------------------------------------------------
+			Terraria.Mods.ModItem sword = Terraria.Mods.ModItems.Register("ModA", "Test Sword", "sword.png", root, out error);
+			if (sword == null)
+			{
+				return Fail("a valid item was refused: " + error);
+			}
+			if (Terraria.Mods.ModItems.Register("ModA", "Test Sword", "sword.png", root, out error) != null)
+			{
+				return Fail("a duplicate item name in one mod was accepted");
+			}
+			// The same name in a different mod is fine: the key is (mod, name).
+			if (Terraria.Mods.ModItems.Register("ModB", "Test Sword", "sword.png", root, out error) == null)
+			{
+				return Fail("two mods could not use the same item name");
+			}
+			sword.Damage = 33;
+			sword.MaxStack = 5;
+			sword.Width = 24;
+			sword.Height = 26;
+			sword.Knockback = 4.5f;
+			sword.Melee = true;
+			sword.Material = true;
+			// Ids are assigned only now, in sorted order.
+			Terraria.Mods.ModItems.Finalize(null);
+			if (sword.Type < Terraria.Mods.ModItems.IdBase)
+			{
+				return Fail("an assigned id is below the mod range: " + sword.Type);
+			}
+			if (!Terraria.Mods.ModItems.IsModItem(sword.Type))
+			{
+				return Fail("an assigned id is not recognised as a mod item");
+			}
+			if (Terraria.Mods.ModItems.IsModItem(1))
+			{
+				return Fail("a vanilla id was reported as a mod item");
+			}
+			// Deterministic order: (mod name, item name). ModA/Test Sword sorts before ModB/Test Sword.
+			Terraria.Mods.ModItem other = null;
+			System.Collections.Generic.List<Terraria.Mods.ModItem> all = Terraria.Mods.ModItems.All();
+			for (int i = 0; i < all.Count; i++)
+			{
+				if (all[i].ModName == "ModB")
+				{
+					other = all[i];
+				}
+			}
+			if (other == null)
+			{
+				return Fail("the second mod's item is missing from the registry");
+			}
+			if (other.Type != sword.Type + 1)
+			{
+				return Fail("ids are not sequential in sorted order: " + sword.Type + " then " + other.Type);
+			}
+			// --- applying -----------------------------------------------------
+			Item item = default(Item);
+			item.SetDefaults(sword.Type);
+			if (item.Type != sword.Type)
+			{
+				return Fail("SetDefaults did not keep the mod id");
+			}
+			if (item.Damage != 33)
+			{
+				return Fail("the definition's damage did not apply: " + item.Damage);
+			}
+			if (item.MaxStack != 5 || item.Width != 24 || item.Height != 26)
+			{
+				return Fail("the definition's stack or size did not apply");
+			}
+			if (item.Knockback < 4.49f || item.Knockback > 4.51f)
+			{
+				return Fail("a float field did not apply: " + item.Knockback);
+			}
+			if (!item.IsMelee || !item.IsMaterial)
+			{
+				return Fail("a bool field did not apply");
+			}
+			// The name path: never null, because it reaches MeasureString on pickup.
+			string name = Lang.ItemName(sword.Type);
+			if (name != "Test Sword")
+			{
+				return Fail("the item name is '" + name + "'");
+			}
+			if (string.IsNullOrEmpty(item.AffixName()))
+			{
+				return Fail("a mod item has no affix name");
+			}
+			// --- the mod is gone ----------------------------------------------
+			// A save written with a mod, opened without it: the id is in the mod range but has no
+			// definition. It must become an empty slot, and the name must still be a string.
+			int orphanId = Terraria.Mods.ModItems.IdBase + 500;
+			Item orphan = default(Item);
+			orphan.SetDefaults(orphanId);
+			if (orphan.Type != 0)
+			{
+				return Fail("an undefined mod id became an item of type " + orphan.Type);
+			}
+			string orphanName = Lang.ItemName(orphanId);
+			if (string.IsNullOrEmpty(orphanName))
+			{
+				return Fail("an undefined mod id has a null name - that is the MeasureString crash");
+			}
+			// --- sprites ------------------------------------------------------
+			if (Terraria.Mods.ModItems.TryGetSprite(sword.Type, out _, out _))
+			{
+				return Fail("a sprite was reported without a graphics device");
+			}
+			// The sheet metrics: the cache is only valid for the sprites it was written for.
+			System.Collections.Generic.Dictionary<string, Microsoft.Xna.Framework.Rectangle> byName =
+				new System.Collections.Generic.Dictionary<string, Microsoft.Xna.Framework.Rectangle>(StringComparer.OrdinalIgnoreCase);
+			byName["Test Sword"] = new Microsoft.Xna.Framework.Rectangle(0, 0, 24, 26);
+			byName["Another Item With Spaces"] = new Microsoft.Xna.Framework.Rectangle(24, 0, 16, 16);
+			string metrics = Terraria.Mods.ModSheets.FormatMetrics("abc123", byName);
+			System.Collections.Generic.Dictionary<string, Microsoft.Xna.Framework.Rectangle> parsed =
+				Terraria.Mods.ModSheets.ParseMetrics(metrics, "abc123", out error);
+			if (parsed == null)
+			{
+				return Fail("the sheet metrics did not read back: " + error);
+			}
+			if (parsed.Count != 2 || !parsed.ContainsKey("Another Item With Spaces"))
+			{
+				return Fail("a sprite name with spaces did not survive the metrics round trip");
+			}
+			if (parsed["Test Sword"] != new Microsoft.Xna.Framework.Rectangle(0, 0, 24, 26))
+			{
+				return Fail("the sprite rectangle did not survive the round trip");
+			}
+			// A cache written for other sprites must be refused, or a stale sheet would serve
+			// pictures that no longer match their files.
+			if (Terraria.Mods.ModSheets.ParseMetrics(metrics, "different", out error) != null)
+			{
+				return Fail("a stale sheet cache was accepted");
+			}
+			if (string.IsNullOrEmpty(error))
+			{
+				return Fail("a refused cache gave no reason");
+			}
+			if (Terraria.Mods.ModSheets.ParseMetrics("not a sheet", "abc123", out error) != null)
+			{
+				return Fail("garbage was accepted as sheet metrics");
+			}
+			return true;
+		}
+		catch (Exception ex)
+		{
+			return Fail("mod items check threw: " + ex.GetType().Name + ": " + ex.Message);
+		}
+		finally
+		{
+			Terraria.Mods.ModItems.Clear();
+			try
+			{
+				if (System.IO.Directory.Exists(root))
+				{
+					System.IO.Directory.Delete(root, recursive: true);
+				}
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	/// <summary>Writes a 1x1 PNG. Hand-built so the check needs no encoder and no device.</summary>
+	private static void WriteTinyPng(string path)
+	{
+		byte[] array = new byte[67]
+		{
+			137, 80, 78, 71, 13, 10, 26, 10,
+			0, 0, 0, 13, 73, 72, 68, 82,
+			0, 0, 0, 1, 0, 0, 0, 1,
+			8, 6, 0, 0, 0, 31, 21, 196,
+			137, 0, 0, 0, 10, 73, 68, 65,
+			84, 120, 156, 99, 0, 1, 0, 0,
+			5, 0, 1, 13, 10, 45, 180, 0,
+			0, 0, 0, 73, 69, 78, 68, 174,
+			66, 96, 130
+		};
+		System.IO.File.WriteAllBytes(path, array);
 	}
 
 	// --- Mod set requirement ------------------------------------------------
@@ -6813,11 +7044,11 @@ internal static class SelfTest
 				}
 			}
 			// Non-ASCII must survive, since player names and messages are not English-only.
-			byte[] cyrillic = HostModeration.BuildChatPayload("привет", 1, 2, 3);
+			byte[] cyrillic = HostModeration.BuildChatPayload("РїСЂРёРІРµС‚", 1, 2, 3);
 			using (System.IO.MemoryStream stream2 = new System.IO.MemoryStream(cyrillic, 4, cyrillic.Length - 4))
 			{
 				using System.IO.BinaryReader reader2 = new System.IO.BinaryReader(stream2, Encoding.UTF8);
-				if (reader2.ReadString() != "привет")
+				if (reader2.ReadString() != "РїСЂРёРІРµС‚")
 				{
 					return Fail("a non-ASCII chat line did not round-trip");
 				}

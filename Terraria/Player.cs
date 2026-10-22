@@ -6889,8 +6889,26 @@ public sealed class Player
 			{
 				channel = false;
 			}
-			itemHeight = (short)SpriteSheet<_sheetSprites>.Source[451 + ptr->Type].Height;
-			itemWidth = (short)SpriteSheet<_sheetSprites>.Source[451 + ptr->Type].Width;
+			// A mod item is not in the compiled atlas, so its size comes from its own sprite -
+			// or from its declared Width/Height when the sprite is missing. The vanilla lookup
+			// below would index past the end of the atlas with an id like 20043.
+			Microsoft.Xna.Framework.Graphics.Texture2D heldTexture;
+			Rectangle heldRect;
+			if (Terraria.Mods.ModItems.TryGetSprite(ptr->Type, out heldTexture, out heldRect))
+			{
+				itemHeight = (short)heldRect.Height;
+				itemWidth = (short)heldRect.Width;
+			}
+			else if (Terraria.Mods.ModItems.IsModItem(ptr->Type))
+			{
+				itemHeight = (short)ptr->Height;
+				itemWidth = (short)ptr->Width;
+			}
+			else
+			{
+				itemHeight = (short)SpriteSheet<_sheetSprites>.Source[451 + ptr->Type].Height;
+				itemWidth = (short)SpriteSheet<_sheetSprites>.Source[451 + ptr->Type].Width;
+			}
 			if (itemAnimation > 0)
 			{
 				if (ptr->IsMelee)
@@ -10045,8 +10063,19 @@ public sealed class Player
 				int type = ptr->Type;
 				if (type > 0 && (itemAnimation > 0 || ptr->HoldStyle > 0) && !IsDead && !ptr->NoUseGraphic && (!IsWet || !ptr->CantTouchLiquid))
 				{
-					int num10 = 451 + type;
-					int num11 = SpriteSheet<_sheetSprites>.Source[num10].Width;
+					// A mod item's sprite lives in its mod's packed sheet, not in the compiled
+					// atlas. The posing below is identical either way - only the texture and the
+					// rectangle differ - so the sizes are resolved once here and every draw goes
+					// through DrawHeldSprite.
+					Microsoft.Xna.Framework.Graphics.Texture2D heldTexture;
+					Rectangle heldRect;
+					bool isModHeld = Terraria.Mods.ModItems.TryGetSprite(type, out heldTexture, out heldRect);
+					// A mod item whose sprite is missing is not drawable: indexing the atlas with
+					// an id like 20043 would throw, and there is nothing to draw anyway.
+					bool drawable = isModHeld || !Terraria.Mods.ModItems.IsModItem(type);
+					int num10 = isModHeld ? 0 : (451 + type);
+					int num11 = isModHeld ? heldRect.Width
+						: (drawable ? SpriteSheet<_sheetSprites>.Source[num10].Width : 1);
 					Color color = drawView.Lighting.GetColor((int)(Position.X + 10f) >> 4, (int)(Position.Y + 21f) >> 4);
 					Color alpha = ptr->GetAlpha(color);
 					pos.X = itemLocation.X - drawView.ScreenPosition.X;
@@ -10055,7 +10084,8 @@ public sealed class Player
 					if (ptr->UseStyle == 5)
 					{
 						int num12 = 10;
-						Vector2 centerPivot = SpriteSheet<_sheetSprites>.GetCenterPivot(num10);
+						Vector2 centerPivot = isModHeld ? new Vector2(heldRect.Width >> 1, heldRect.Height >> 1)
+							: SpriteSheet<_sheetSprites>.GetCenterPivot(num10);
 						pivot4.X = ((direction == -1) ? (num12 + num11) : (-num12));
 						pivot4.Y = centerPivot.Y;
 						switch ((EntityID.ItemID)type)
@@ -10141,20 +10171,20 @@ public sealed class Player
 						}
 						pos.X += centerPivot.X;
 						pos.Y += centerPivot.Y;
-						SpriteSheet<_sheetSprites>.Draw(num10, ref pos, alpha, itemRotation, ref pivot4, ptr->Scale, spriteEffects2);
+						DrawHeldSprite(drawable, isModHeld, heldTexture, heldRect, num10, ref pos, alpha, itemRotation, ref pivot4, ptr->Scale, spriteEffects2);
 						if (ptr->Colour.PackedValue != 0)
 						{
-							SpriteSheet<_sheetSprites>.Draw(num10, ref pos, ptr->GetColor(color), itemRotation, ref pivot4, ptr->Scale, spriteEffects2);
+							DrawHeldSprite(drawable, isModHeld, heldTexture, heldRect, num10, ref pos, ptr->GetColor(color), itemRotation, ref pivot4, ptr->Scale, spriteEffects2);
 						}
 					}
 					else if (gravDir == -1)
 					{
 						pivot4.X = (num11 >> 1) - (num11 >> 1) * direction;
 						pivot4.Y = 0f;
-						SpriteSheet<_sheetSprites>.Draw(num10, ref pos, alpha, itemRotation, ref pivot4, ptr->Scale, spriteEffects2);
+						DrawHeldSprite(drawable, isModHeld, heldTexture, heldRect, num10, ref pos, alpha, itemRotation, ref pivot4, ptr->Scale, spriteEffects2);
 						if (ptr->Colour.PackedValue != 0)
 						{
-							SpriteSheet<_sheetSprites>.Draw(num10, ref pos, ptr->GetColor(color), itemRotation, ref pivot4, ptr->Scale, spriteEffects2);
+							DrawHeldSprite(drawable, isModHeld, heldTexture, heldRect, num10, ref pos, ptr->GetColor(color), itemRotation, ref pivot4, ptr->Scale, spriteEffects2);
 						}
 					}
 					else
@@ -10170,11 +10200,12 @@ public sealed class Player
 								spriteEffects2 = ((direction != 1) ? SpriteEffects.FlipHorizontally : SpriteEffects.None);
 							}
 						}
-						pivot4 = new Vector2((num11 >> 1) - (num11 >> 1) * direction, SpriteSheet<_sheetSprites>.Source[num10].Height);
-						SpriteSheet<_sheetSprites>.Draw(num10, ref pos, alpha, itemRotation, ref pivot4, ptr->Scale, spriteEffects2);
+						pivot4 = new Vector2((num11 >> 1) - (num11 >> 1) * direction,
+							isModHeld ? heldRect.Height : SpriteSheet<_sheetSprites>.Source[num10].Height);
+						DrawHeldSprite(drawable, isModHeld, heldTexture, heldRect, num10, ref pos, alpha, itemRotation, ref pivot4, ptr->Scale, spriteEffects2);
 						if (ptr->Colour.PackedValue != 0)
 						{
-							SpriteSheet<_sheetSprites>.Draw(num10, ref pos, ptr->GetColor(color), itemRotation, ref pivot4, ptr->Scale, spriteEffects2);
+							DrawHeldSprite(drawable, isModHeld, heldTexture, heldRect, num10, ref pos, ptr->GetColor(color), itemRotation, ref pivot4, ptr->Scale, spriteEffects2);
 						}
 					}
 				}
@@ -10205,6 +10236,28 @@ public sealed class Player
 			}
 			SpriteSheet<_sheetSprites>.DrawRotated(1341, ref pos, bodyFrameY, 54, newColor12, bodyRotation, ref pivot2, spriteEffects);
 		}
+	}
+
+	/// <summary>
+	/// Draws the held item, from the compiled atlas or from a mod's packed sheet.
+	///
+	/// One helper rather than a branch at each of the six call sites: the posing code above is the
+	/// same for both, and six copies of "which texture" is six chances to get it wrong.
+	/// </summary>
+	private static void DrawHeldSprite(bool drawable, bool isMod, Microsoft.Xna.Framework.Graphics.Texture2D texture,
+		Rectangle rect, int spriteId, ref Vector2 pos, Color color, float rotation, ref Vector2 pivot,
+		float scale, SpriteEffects effects)
+	{
+		if (!drawable)
+		{
+			return;
+		}
+		if (isMod)
+		{
+			Main.SpriteBatch.Draw(texture, pos, rect, color, rotation, pivot, scale, effects, 0f);
+			return;
+		}
+		SpriteSheet<_sheetSprites>.Draw(spriteId, ref pos, color, rotation, ref pivot, scale, effects);
 	}
 
 	public void DrawGhost(WorldView drawView)

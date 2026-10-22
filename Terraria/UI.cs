@@ -5312,11 +5312,37 @@ public sealed class UI
 		SpriteSheet<_sheetSprites>.DrawScaled(itemTexId, ref pos, itemColor, num);
 	}
 
+	/// <summary>
+	/// Draws one sprite from a mod's packed sheet, positioned and scaled exactly like
+	/// <c>SpriteSheet.DrawScaled</c>: centred on the cell, rotated about the middle.
+	///
+	/// Kept as its own method rather than a branch inside the sprite sheet because the sheet class
+	/// holds one texture for the whole game, and a mod's sprites are in a texture of their own.
+	/// </summary>
+	private static void DrawModSprite(Microsoft.Xna.Framework.Graphics.Texture2D texture, Rectangle rect,
+		ref Vector2 pos, Color color, float scale)
+	{
+		Main.SpriteBatch.Draw(texture, pos, rect, color, 0f,
+			new Vector2(rect.Width >> 1, rect.Height >> 1), scale, Microsoft.Xna.Framework.Graphics.SpriteEffects.None, 0f);
+	}
+
 	private void DrawInventoryItem(ref Item item, int x, int y, Color itemColor, StackType stackType = StackType.NONE)
 	{
-		int num = item.Type + 452 - 1;
-		int width = SpriteSheet<_sheetSprites>.Source[num].Width;
-		int height = SpriteSheet<_sheetSprites>.Source[num].Height;
+		// A mod item is not in the compiled sprite atlas: its picture lives in that mod's packed
+		// sheet. Asking the registry first is what keeps the two from disagreeing.
+		Microsoft.Xna.Framework.Graphics.Texture2D modTexture;
+		Rectangle modRect;
+		bool isModItem = Terraria.Mods.ModItems.TryGetSprite(item.Type, out modTexture, out modRect);
+		if (!isModItem && Terraria.Mods.ModItems.IsModItem(item.Type))
+		{
+			// A mod item whose sprite is missing: the vanilla path would index past the end of
+			// the compiled atlas with an id like 20043. Drawing nothing is the honest answer -
+			// the slot looks empty, and the log already said why.
+			return;
+		}
+		int num = isModItem ? 0 : (item.Type + 452 - 1);
+		int width = isModItem ? modRect.Width : SpriteSheet<_sheetSprites>.Source[num].Width;
+		int height = isModItem ? modRect.Height : SpriteSheet<_sheetSprites>.Source[num].Height;
 		float num2 = ((width <= height) ? (41f / (float)height) : (41f / (float)width));
 		if (Main.ScreenHeightPtr == ScreenHeights.BASE)
 		{
@@ -5335,10 +5361,21 @@ public sealed class UI
 			X = (float)x + 26f * inventoryScale,
 			Y = (float)y + 26f * inventoryScale
 		};
-		SpriteSheet<_sheetSprites>.DrawScaled(num, ref pos, item.GetAlphaInventory(itemColor), num2);
-		if (item.Colour.PackedValue != 0)
+		if (isModItem)
 		{
-			SpriteSheet<_sheetSprites>.DrawScaled(num, ref pos, item.GetColor(itemColor), num2);
+			DrawModSprite(modTexture, modRect, ref pos, item.GetAlphaInventory(itemColor), num2);
+			if (item.Colour.PackedValue != 0)
+			{
+				DrawModSprite(modTexture, modRect, ref pos, item.GetColor(itemColor), num2);
+			}
+		}
+		else
+		{
+			SpriteSheet<_sheetSprites>.DrawScaled(num, ref pos, item.GetAlphaInventory(itemColor), num2);
+			if (item.Colour.PackedValue != 0)
+			{
+				SpriteSheet<_sheetSprites>.DrawScaled(num, ref pos, item.GetColor(itemColor), num2);
+			}
 		}
 		switch (stackType)
 		{

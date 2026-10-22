@@ -127,6 +127,28 @@ public sealed class ModContext
 		return new ItemOverride(item.Type, name);
 	}
 
+	/// <summary>
+	/// Declares a new item, with its sprite. Returns null when the declaration cannot work (no
+	/// name, no sprite, a duplicate), and logs why.
+	///
+	/// The sprite is a PNG in the mod's own folder, e.g. <c>"items/copper-bulgeon.png"</c>. All of
+	/// a mod's sprites are packed into one texture at load time, so drawing them costs no extra
+	/// batch flushes.
+	///
+	/// Ids are assigned after every mod has loaded, in sorted order, so two players with the same
+	/// mods get the same ids regardless of load order - an item id travels on the wire.
+	/// </summary>
+	public ModItem DefineItem(string name, string spritePath)
+	{
+		string error;
+		ModItem modItem = ModItems.Register(Name, name, spritePath, _directory, out error);
+		if (modItem == null)
+		{
+			Log("cannot define item '" + name + "': " + error);
+		}
+		return modItem;
+	}
+
 	private string Resolve(string relativePath)
 	{
 		if (string.IsNullOrEmpty(relativePath))

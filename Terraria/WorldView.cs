@@ -900,9 +900,28 @@ public class WorldView : IDisposable
 				{
 					int num2 = (int)ptr->Position.X;
 					int num3 = (int)ptr->Position.Y;
-					int num4 = 451 + ptr->Type;
-					rectangle.Width = SpriteSheet<_sheetSprites>.Source[num4].Width;
-					rectangle.Height = SpriteSheet<_sheetSprites>.Source[num4].Height;
+					// A mod item's sprite is in its mod's packed sheet, not in the compiled atlas.
+					Microsoft.Xna.Framework.Graphics.Texture2D modTexture;
+					Rectangle modRect;
+					bool isModItem = Terraria.Mods.ModItems.TryGetSprite(ptr->Type, out modTexture, out modRect);
+					if (!isModItem && Terraria.Mods.ModItems.IsModItem(ptr->Type))
+					{
+						// The sprite is missing; the vanilla path would index past the compiled
+						// atlas. Skip the item rather than crash the frame.
+						ptr++;
+						continue;
+					}
+					int num4 = isModItem ? 0 : (451 + ptr->Type);
+					if (isModItem)
+					{
+						rectangle.Width = modRect.Width;
+						rectangle.Height = modRect.Height;
+					}
+					else
+					{
+						rectangle.Width = SpriteSheet<_sheetSprites>.Source[num4].Width;
+						rectangle.Height = SpriteSheet<_sheetSprites>.Source[num4].Height;
+					}
 					rectangle.X = num2 + (ptr->Width >> 1);
 					rectangle.Y = num3 + (rectangle.Height >> 1) + ptr->Height - rectangle.Height + 2;
 					if (rectangle.Intersects(ViewArea))
@@ -940,10 +959,21 @@ public class WorldView : IDisposable
 						}
 						pos.X = rectangle.X - ScreenPosition.X;
 						pos.Y = rectangle.Y - ScreenPosition.Y;
-						SpriteSheet<_sheetSprites>.Draw(num4, ref pos, alpha, rot, num5);
-						if (ptr->Colour.PackedValue != 0)
+						if (isModItem)
 						{
-							SpriteSheet<_sheetSprites>.Draw(num4, ref pos, ptr->GetColor(colorUnsafe), rot, num5);
+							Main.SpriteBatch.Draw(modTexture, pos, modRect, alpha, rot, default, num5, SpriteEffects.None, 0f);
+							if (ptr->Colour.PackedValue != 0)
+							{
+								Main.SpriteBatch.Draw(modTexture, pos, modRect, ptr->GetColor(colorUnsafe), rot, default, num5, SpriteEffects.None, 0f);
+							}
+						}
+						else
+						{
+							SpriteSheet<_sheetSprites>.Draw(num4, ref pos, alpha, rot, num5);
+							if (ptr->Colour.PackedValue != 0)
+							{
+								SpriteSheet<_sheetSprites>.Draw(num4, ref pos, ptr->GetColor(colorUnsafe), rot, num5);
+							}
 						}
 					}
 				}

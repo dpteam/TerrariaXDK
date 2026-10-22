@@ -38,11 +38,19 @@ internal static class TConfigConverter
 		public int FailedFiles;
 
 		/// <summary>
-		/// Items the pack defines from scratch (<c>type=-1</c>) rather than tweaking. Counted
-		/// separately because it is the one thing that cannot be converted at all in this build,
-		/// and "unknown item" is the wrong thing to tell the player about it.
+		/// Items the pack defines from scratch (<c>type=-1</c>). These are converted through
+		/// <c>Context.DefineItem</c>, not <c>Context.Item</c>: there is no existing item to tweak.
 		/// </summary>
 		public int NewItems;
+
+		/// <summary>
+		/// New items that could not be converted, almost always because the pack has no sprite for
+		/// them. Reported separately from <see cref="NewItems"/> so "converted" means converted.
+		/// </summary>
+		public int NewItemsSkipped;
+
+		/// <summary>Sprite files copied into the project, one per new item.</summary>
+		public int SpritesCopied;
 
 		/// <summary>
 		/// Things the player should look at: dropped fields, unknown names, and files that threw.
@@ -154,7 +162,7 @@ internal static class TConfigConverter
 		{
 			try
 			{
-				AppendItem(stringBuilder, item, used, result);
+				AppendItem(stringBuilder, item, packDirectory, outputDirectory, used, result);
 			}
 			catch (Exception ex3)
 			{
@@ -166,12 +174,10 @@ internal static class TConfigConverter
 		}
 		if (result.Items == 0)
 		{
-			if (result.NewItems > 0)
+			if (result.NewItemsSkipped > 0)
 			{
-				// The most common case for packs from the PC scene, and the one that needs a
-				// sentence of its own: nothing here is a mistake, the feature is simply missing.
-				error = "this pack defines " + result.NewItems.ToString(CultureInfo.InvariantCulture)
-					+ " new item(s), and this build cannot add item ids yet - only changes to existing items can be converted";
+				error = "this pack defines " + result.NewItemsSkipped.ToString(CultureInfo.InvariantCulture)
+					+ " new item(s) but ships no sprite for them, and an item that cannot be drawn is not converted";
 			}
 			else
 			{
@@ -287,7 +293,7 @@ internal static class TConfigConverter
 		}
 	}
 
-	private static void AppendItem(StringBuilder body, string iniPath, HashSet<string> used, Result result)
+	private static void AppendItem(StringBuilder body, string iniPath, string packDirectory, string outputDirectory, HashSet<string> used, Result result)
 	{
 		string text = Path.GetFileNameWithoutExtension(iniPath);
 		Item item = default(Item);
@@ -306,15 +312,11 @@ internal static class TConfigConverter
 		}
 		if (item.Type <= 0)
 		{
-			// "Unknown item" and "this pack adds a new item" are different facts, and only one of
-			// them is actionable. tConfig marks a new item with a negative type, so the INI itself
-			// says which case this is - and the answer for the player is very different:
-			// "you typed the name wrong" versus "this needs a feature the port does not have".
+			// "Unknown item" and "this pack adds a new item" are different facts, and now they
+			// lead to different code: one is a mistake in the pack, the other is a feature.
 			if (DefinesNewItem(iniPath))
 			{
-				result.NewItems++;
-				result.Warnings.Add("'" + text + "': a new item defined by the pack (type=-1) - "
-					+ "this build cannot add item ids yet, so it cannot be converted");
+				AppendNewItem(body, iniPath, packDirectory, outputDirectory, used, result);
 				return;
 			}
 			result.UnknownItems++;
@@ -384,6 +386,91 @@ internal static class TConfigConverter
 		}
 		body.Append("\t\t}\n\n");
 		result.Items++;
+	}
+
+	/// <summary>
+	/// Emits a <c>Context.DefineItem</c> block for a new item and copies its sprite into the
+	/// project.
+	///
+	/// The sprite is required: the item cannot be drawn without one, and an invisible item in the
+	/// inventory is indistinguishable from a bug. A pack that defines an item but ships no PNG is
+	/// reported rather than converted into something broken.
+	/// </summary>
+	private static void AppendNewItem(StringBuilder body, string iniPath, string packDirectory,
+		string outputDirectory, HashSet<string> used, Result result)
+	{
+		string text = Path.GetFileNameWithoutExtension(iniPath);
+		string spriteSource = Path.ChangeExtension(iniPath, ".png");
+		if (!File.Exists(spriteSource))
+		{
+			result.NewItemsSkipped++;
+			result.Warnings.Add("'" + text + "': new item with no sprite (" + Path.GetFileName(spriteSource)
+				+ ") - an item that cannot be drawn would look like a bug, so it is not converted");
+			return;
+		}
+		string error;
+		List<KeyValuePair<string, string>> list = TConfigImporter.ReadIni(iniPath, out error);
+		if (list == null)
+		{
+			result.FailedFiles++;
+			result.Errors.Add("'" + text + "': " + Path.GetFileName(iniPath) + ": " + error);
+			return;
+		}
+		// Copy the sprite next to the generated source, so the project is self-contained and does
+		// not depend on the tConfig folder staying where it is.
+		string text2 = Path.Combine("items", text + ".png");
+		string text3 = Path.Combine(outputDirectory, text2);
+		try
+		{
+			string directoryName = Path.GetDirectoryName(text3);
+			if (!string.IsNullOrEmpty(directoryName))
+			{
+				Directory.CreateDirectory(directoryName);
+			}
+			File.Copy(spriteSource, text3, overwrite: true);
+			result.SpritesCopied++;
+		}
+		catch (Exception ex)
+		{
+			result.FailedFiles++;
+			result.Errors.Add("'" + text + "': cannot copy the sprite (" + ex.GetType().Name + ": " + ex.Message + ")");
+			return;
+		}
+		string text4 = UniqueIdentifier(Identifier(text, upperFirst: false), used);
+		body.Append("\t\t// ").Append(text).Append(" (new item)\n");
+		body.Append("\t\tModItem ").Append(text4).Append(" = Context.DefineItem(")
+			.Append(Quote(text)).Append(", ").Append(Quote(text2.Replace('\\', '/'))).Append(");\n");
+		body.Append("\t\tif (").Append(text4).Append(" != null)\n");
+		body.Append("\t\t{\n");
+		int num = 0;
+		for (int i = 0; i < list.Count; i++)
+		{
+			KeyValuePair<string, string> keyValuePair = list[i];
+			// "type" is the tConfig marker for "this is a new item"; it is not a field of the item.
+			if (string.Equals(keyValuePair.Key, "type", StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+			string text5 = PropertyName(keyValuePair.Key);
+			if (text5 == null || !IsUsableValue(keyValuePair.Key, keyValuePair.Value))
+			{
+				result.UnsupportedFields++;
+				result.Warnings.Add("'" + text + "': field '" + keyValuePair.Key + "' with value '"
+					+ keyValuePair.Value + "' has no equivalent - dropped");
+				continue;
+			}
+			body.Append("\t\t\t").Append(text4).Append('.').Append(text5)
+				.Append(" = ").Append(Literal(keyValuePair.Key, keyValuePair.Value)).Append(";\n");
+			num++;
+			result.Fields++;
+		}
+		body.Append("\t\t}\n\n");
+		result.NewItems++;
+		result.Items++;
+		if (num == 0)
+		{
+			result.Warnings.Add("'" + text + "': no fields converted, the item will exist with default stats");
+		}
 	}
 
 	/// <summary>
@@ -503,6 +590,22 @@ internal static class TConfigConverter
 			return "NoMelee";
 		case "crit":
 			return "Crit";
+		case "width":
+			return "Width";
+		case "height":
+			return "Height";
+		case "usestyle":
+			return "UseStyle";
+		case "holdstyle":
+			return "HoldStyle";
+		case "scale":
+			return "Scale";
+		case "ismaterial":
+			return "Material";
+		case "ammo":
+			return "Ammo";
+		case "useammo":
+			return "UseAmmo";
 		default:
 			return null;
 		}
@@ -529,16 +632,27 @@ internal static class TConfigConverter
 		double result2;
 		if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out result2))
 		{
-			return text;
+			// A float field needs the suffix: `4.5` on its own is a double literal and does not
+			// convert implicitly. The first version of this emitted the raw text, and every pack
+			// with a fractional knockback or scale produced a project that would not compile -
+			// 114 items, all of them, which is how it was found.
+			return IsFloat(field) ? (text + "f") : text;
 		}
 		return Quote(text);
+	}
+
+	/// <summary>Fields whose property is a <c>float</c> rather than an <c>int</c>.</summary>
+	private static bool IsFloat(string field)
+	{
+		string text = PropertyName(field);
+		return text == "ShootSpeed" || text == "Knockback" || text == "Scale";
 	}
 
 	private static bool IsBoolean(string field)
 	{
 		string text = PropertyName(field);
 		return text == "AutoReuse" || text == "Melee" || text == "Magic" || text == "Ranged"
-			|| text == "Potion" || text == "Accessory" || text == "NoMelee";
+			|| text == "Potion" || text == "Accessory" || text == "NoMelee" || text == "Material";
 	}
 
 	internal static string Identifier(string name, bool upperFirst)
@@ -698,11 +812,20 @@ internal static class TConfigConverter
 		stringBuilder.Append("| Unknown items (skipped) | ").Append(result.UnknownItems.ToString(CultureInfo.InvariantCulture)).Append(" |\n");
 		stringBuilder.Append("| Fields with no equivalent (dropped) | ").Append(result.UnsupportedFields.ToString(CultureInfo.InvariantCulture)).Append(" |\n");
 		stringBuilder.Append("| Files that failed (skipped) | ").Append(result.FailedFiles.ToString(CultureInfo.InvariantCulture)).Append(" |\n");
-		stringBuilder.Append("| New items defined by the pack (not supported) | ").Append(result.NewItems.ToString(CultureInfo.InvariantCulture)).Append(" |\n\n");		stringBuilder.Append("## Build and install\n\n");
+		stringBuilder.Append("| New items converted | ").Append(result.NewItems.ToString(CultureInfo.InvariantCulture)).Append(" |\n");
+		stringBuilder.Append("| New items skipped (no sprite) | ").Append(result.NewItemsSkipped.ToString(CultureInfo.InvariantCulture)).Append(" |\n\n");
+		stringBuilder.Append("## Build and install\n\n");
 		stringBuilder.Append("```\ndotnet build ").Append(modName).Append(".csproj\n");
 		stringBuilder.Append("```\n\n");
 		stringBuilder.Append("Copy `bin/Debug/net40/").Append(modName)
-			.Append(".dll` into `Storage/Mods/").Append(modName).Append("/`. The mod list in the game\n");
+			.Append(".dll` into `Storage/Mods/").Append(modName).Append("/`");
+		if (result.SpritesCopied > 0)
+		{
+			// The sprites are separate files, not embedded: a mod that is only a DLL would look
+			// for its pictures and find nothing, and its items would be invisible.
+			stringBuilder.Append(", **and the `items` folder next to it** - the sprites are files, not embedded");
+		}
+		stringBuilder.Append(". The mod list in the game\n");
 		stringBuilder.Append("then shows it by name, and multiplayer uses it in the mod signature - which is the\n");
 		stringBuilder.Append("reason to convert a pack at all: a loose `Storage/tConfig/` folder changes the numbers\n");
 		stringBuilder.Append("on one machine and takes no part in the signature, so a host cannot require it.\n\n");
@@ -717,16 +840,15 @@ internal static class TConfigConverter
 			}
 			stringBuilder.Append('\n');
 		}
-		if (result.NewItems > 0)
+		if (result.NewItemsSkipped > 0)
 		{
-			stringBuilder.Append("## New items the pack wanted to add\n\n");
-			stringBuilder.Append("This build cannot create item ids: they would break saves and the network\n");
-			stringBuilder.Append("protocol, where an item id is a number both sides already agree on. The\n");
-			stringBuilder.Append("items below were therefore not converted. Changing an existing item works;\n");
-			stringBuilder.Append("adding one needs a feature this port does not have yet.\n\n");
+			stringBuilder.Append("## New items that were skipped\n\n");
+			stringBuilder.Append("A new item needs a sprite: an item that cannot be drawn is indistinguishable\n");
+			stringBuilder.Append("from a bug in the inventory, so it is not converted. The items below had no\n");
+			stringBuilder.Append("PNG next to their `.ini` in the pack.\n\n");
 			for (int num = 0; num < result.Warnings.Count; num++)
 			{
-				if (result.Warnings[num].IndexOf("new item defined by the pack", StringComparison.Ordinal) >= 0)
+				if (result.Warnings[num].IndexOf("new item with no sprite", StringComparison.Ordinal) >= 0)
 				{
 					stringBuilder.Append("- ").Append(result.Warnings[num]).Append('\n');
 				}

@@ -139,6 +139,9 @@ internal static class ModLoader
 				LoadAssembly(path, text2);
 			}
 		}
+		// Ids and sprite sheets after every mod has loaded: ids are assigned in sorted order, so
+		// the order the mods happened to load in cannot change them.
+		Terraria.Mods.ModItems.Finalize(GraphicsDevice);
 		RecomputeSignature();
 		Log($"Loaded {LoadedMods.Count} mod(s), signature {Signature}");
 	}

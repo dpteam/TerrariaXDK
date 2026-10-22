@@ -7654,6 +7654,16 @@ internal sealed class Lang
 
 	public static string ItemName(int l)
 	{
+		// A mod item's name lives in the registry, not in this file. Asking first also keeps the
+		// `(EntityID.ItemID)l` cast below from being handed an id no case can match.
+		if (Terraria.Mods.ModItems.IsModItem(l))
+		{
+			string text = Terraria.Mods.ModItems.NameOf(l);
+			// A null here would reach SpriteFont.MeasureString on the pickup path and throw - the
+			// crash that made the custom-language option unusable. An id that is in the mod range
+			// but has no definition is a save from a mod that is no longer loaded.
+			return (text != null) ? text : "Unknown item";
+		}
 		if (LangOption <= 1)
 		{
 			switch ((EntityID.ItemID)l)

@@ -1370,6 +1370,14 @@ public struct Item
 		OwnIgnore = 8;
 		OwnTime = 0;
 		KeepTime = 0;
+		// A new item from a mod: the compiled switch below only knows vanilla ids, so the registry
+		// answers first. Placed after the reset block so a definition starts from the same clean
+		// state every vanilla item does.
+		if (Terraria.Mods.ModItems.IsModItem(ItemType))
+		{
+			Terraria.Mods.ModItems.Apply(ref this, ItemType);
+			return;
+		}
 		switch ((EntityID.ItemID)ItemType)
 		{
 		case EntityID.ItemID.IRON_PICKAXE:

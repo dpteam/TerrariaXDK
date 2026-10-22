@@ -34,11 +34,17 @@ internal static class ItemOverrides
 	/// True when the named field can be applied. Kept explicit on purpose: silently ignoring
 	/// unknown fields is how broken conversions go unnoticed.
 	/// </summary>
-	private static readonly string[] SupportedFields = new string[28]
+	/// <summary>
+	/// Fields that can be applied to an item. One table for both overrides and new items: a
+	/// tConfig pack's <c>width</c> means the same thing whether it is changing a sword or defining
+	/// one, and two tables would drift apart.
+	/// </summary>
+	private static readonly string[] SupportedFields = new string[36]
 	{
 		"damage", "defense", "pick", "axe", "hammer", "useAnimation", "useTime", "useSound", "shoot", "shootSpeed",
 		"knockBack", "mana", "healLife", "healMana", "buffType", "buffTime", "rare", "value", "maxStack", "autoReuse",
-		"melee", "magic", "ranged", "consumable", "potion", "accessory", "noMelee", "crit"
+		"melee", "magic", "ranged", "consumable", "potion", "accessory", "noMelee", "crit",
+		"width", "height", "useStyle", "holdStyle", "scale", "isMaterial", "ammo", "useAmmo"
 	};
 
 	public static bool IsSupportedField(string field)
@@ -94,7 +100,7 @@ internal static class ItemOverrides
 		return item;
 	}
 
-	private static void ApplyField(ref Item item, string field, string value)
+	internal static void ApplyField(ref Item item, string field, string value)
 	{
 		int result;
 		float result2;
@@ -267,6 +273,54 @@ internal static class ItemOverrides
 			// "consumable" has no single backing field in this build; it is implied by the
 			// stack/heal values. Recorded as unsupported rather than guessed at.
 			Errors.Add("item " + item.Type + ": 'consumable' is not directly supported");
+			break;
+		case "width":
+			if (int.TryParse(value, out result))
+			{
+				item.Width = (ushort)result;
+			}
+			break;
+		case "height":
+			if (int.TryParse(value, out result))
+			{
+				item.Height = (ushort)result;
+			}
+			break;
+		case "usestyle":
+			if (int.TryParse(value, out result))
+			{
+				item.UseStyle = (byte)result;
+			}
+			break;
+		case "holdstyle":
+			if (int.TryParse(value, out result))
+			{
+				item.HoldStyle = (byte)result;
+			}
+			break;
+		case "scale":
+			if (float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out result2))
+			{
+				item.Scale = result2;
+			}
+			break;
+		case "ismaterial":
+			if (bool.TryParse(value, out flag))
+			{
+				item.IsMaterial = flag;
+			}
+			break;
+		case "ammo":
+			if (int.TryParse(value, out result))
+			{
+				item.Ammo = (byte)result;
+			}
+			break;
+		case "useammo":
+			if (int.TryParse(value, out result))
+			{
+				item.UseAmmo = (byte)result;
+			}
 			break;
 		}
 	}
